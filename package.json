@@ -1,0 +1,47 @@
+{
+  "name": "@kodus/cli",
+  "version": "0.1.0",
+  "description": "Kodus CLI - AI-powered code review from your terminal",
+  "type": "module",
+  "bin": {
+    "kodus": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "kodus",
+    "code-review",
+    "ai",
+    "cli",
+    "git"
+  ],
+  "author": "Kodus",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "inquirer": "^9.2.23",
+    "node-machine-id": "^1.1.12",
+    "ora": "^8.0.1",
+    "simple-git": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.14.9",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist"
+  ]
+}
+

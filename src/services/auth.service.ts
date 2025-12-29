@@ -1,0 +1,97 @@
+import { api } from './api/index.js';
+import {
+  loadCredentials,
+  saveCredentials,
+  clearCredentials,
+} from '../utils/credentials.js';
+import type { StoredCredentials, AuthResponse } from '../types/index.js';
+import { AuthError } from '../types/index.js';
+
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+class AuthService {
+  private cachedCredentials: StoredCredentials | null = null;
+
+  async login(email: string, password: string): Promise<void> {
+    const response = await api.auth.login(email, password);
+    await this.storeAuthResponse(response);
+  }
+
+  async signup(email: string, password: string): Promise<void> {
+    const response = await api.auth.signup(email, password);
+    await this.storeAuthResponse(response);
+  }
+
+  async logout(): Promise<void> {
+    const credentials = await this.getCredentials();
+    
+    if (credentials) {
+      try {
+        await api.auth.logout(credentials.accessToken);
+      } catch {
+        // Ignore logout errors
+      }
+    }
+
+    await clearCredentials();
+    this.cachedCredentials = null;
+  }
+
+  async isAuthenticated(): Promise<boolean> {
+    const credentials = await this.getCredentials();
+    return credentials !== null;
+  }
+
+  async getCredentials(): Promise<StoredCredentials | null> {
+    if (this.cachedCredentials) {
+      return this.cachedCredentials;
+    }
+
+    this.cachedCredentials = await loadCredentials();
+    return this.cachedCredentials;
+  }
+
+  async getValidToken(): Promise<string> {
+    const credentials = await this.getCredentials();
+
+    if (!credentials) {
+      throw new AuthError('Not authenticated. Run: kodus auth login');
+    }
+
+    const isExpired = Date.now() > credentials.expiresAt - TOKEN_REFRESH_BUFFER_MS;
+
+    if (isExpired) {
+      try {
+        const response = await api.auth.refresh(credentials.refreshToken);
+        await this.storeAuthResponse(response);
+        return response.accessToken;
+      } catch (error) {
+        await clearCredentials();
+        this.cachedCredentials = null;
+        throw new AuthError('Session expired. Run: kodus auth login');
+      }
+    }
+
+    return credentials.accessToken;
+  }
+
+  async generateCIToken(): Promise<string> {
+    const token = await this.getValidToken();
+    return api.auth.generateCIToken(token);
+  }
+
+  private async storeAuthResponse(response: AuthResponse): Promise<void> {
+    const credentials: StoredCredentials = {
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+      expiresAt: Date.now() + response.expiresIn * 1000,
+      user: response.user,
+    };
+
+    await saveCredentials(credentials);
+    this.cachedCredentials = credentials;
+  }
+}
+
+export const authService = new AuthService();
+
