@@ -19,6 +19,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
+    "start:local": "KODUS_API_URL=http://localhost:3001 node dist/index.js",
+    "start:qa": "KODUS_API_URL=https://qa.api.kodus.io node dist/index.js",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"

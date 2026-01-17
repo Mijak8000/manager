@@ -1,6 +1,5 @@
 import type {
   AuthResponse,
-  RemoteConfig,
   ReviewConfig,
   ReviewResult,
   PullRequestSuggestionsResponse,
@@ -8,7 +7,7 @@ import type {
   TrialStatus,
 } from '../../types/index.js';
 import { ApiError } from '../../types/index.js';
-import type { IKodusApi, IAuthApi, IReviewApi, IConfigApi, ITrialApi, GitMetrics } from './api.interface.js';
+import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, GitMetrics } from './api.interface.js';
 
 /**
  * Validates and returns the API base URL
@@ -57,6 +56,10 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
 
+  if (process.env.KODUS_VERBOSE) {
+    console.log(`[API] ${options.method || 'GET'} ${url}`);
+  }
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -65,15 +68,29 @@ async function request<T>(
     },
   });
 
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: 'Request failed' })) as { message?: string };
+    const errorData = isJson
+      ? await response.json().catch(() => ({ message: 'Request failed' })) as { message?: string }
+      : { message: `Request failed with status ${response.status}` };
     const errorMessage = errorData.message || `Request failed with status ${response.status}`;
 
     if (process.env.KODUS_VERBOSE) {
-      console.error('API Error:', { status: response.status, url, errorData });
+      console.error('[API] Error:', { status: response.status, url, contentType, errorData });
     }
 
     throw new ApiError(response.status, errorMessage);
+  }
+
+  if (!isJson) {
+    const text = await response.text();
+    const preview = text.substring(0, 100);
+    console.error(`[API] Expected JSON but received ${contentType || 'unknown content-type'}`);
+    console.error(`[API] URL: ${url}`);
+    console.error(`[API] Response preview: ${preview}...`);
+    throw new ApiError(500, `API returned invalid response (expected JSON, got ${contentType || 'HTML'})`);
   }
 
   const json = await response.json() as any;
@@ -289,22 +306,6 @@ class RealReviewApi implements IReviewApi {
   }
 }
 
-class RealConfigApi implements IConfigApi {
-  async get(accessToken: string, org?: string, repo?: string): Promise<RemoteConfig> {
-    const params = new URLSearchParams();
-    if (org) params.set('org', org);
-    if (repo) params.set('repo', repo);
-    
-    const query = params.toString() ? `?${params.toString()}` : '';
-    
-    return request<RemoteConfig>(`/cli/config${query}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-  }
-}
-
 class RealTrialApi implements ITrialApi {
   async getStatus(fingerprint: string): Promise<TrialStatus> {
     return request<TrialStatus>(`/cli/trial/status?fingerprint=${fingerprint}`);
@@ -314,7 +315,5 @@ class RealTrialApi implements ITrialApi {
 export class RealApi implements IKodusApi {
   auth: IAuthApi = new RealAuthApi();
   review: IReviewApi = new RealReviewApi();
-  config: IConfigApi = new RealConfigApi();
   trial: ITrialApi = new RealTrialApi();
 }
-

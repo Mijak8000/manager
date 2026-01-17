@@ -1,6 +1,5 @@
 import type {
   AuthResponse,
-  RemoteConfig,
   ReviewConfig,
   ReviewResult,
   PullRequestSuggestionsResponse,
@@ -37,10 +36,6 @@ export interface IReviewApi {
   trialAnalyze(diff: string, fingerprint: string): Promise<TrialReviewResult>;
 }
 
-export interface IConfigApi {
-  get(accessToken: string, org?: string, repo?: string): Promise<RemoteConfig>;
-}
-
 export interface ITrialApi {
   getStatus(fingerprint: string): Promise<TrialStatus>;
 }
@@ -48,7 +43,5 @@ export interface ITrialApi {
 export interface IKodusApi {
   auth: IAuthApi;
   review: IReviewApi;
-  config: IConfigApi;
   trial: ITrialApi;
 }
-

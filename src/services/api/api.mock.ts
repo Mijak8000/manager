@@ -1,6 +1,5 @@
 import type {
   AuthResponse,
-  RemoteConfig,
   ReviewConfig,
   ReviewResult,
   PullRequestSuggestionsResponse,
@@ -8,7 +7,7 @@ import type {
   TrialStatus,
 } from '../../types/index.js';
 import { ApiError } from '../../types/index.js';
-import type { IKodusApi, IAuthApi, IReviewApi, IConfigApi, ITrialApi, GitMetrics } from './api.interface.js';
+import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, GitMetrics } from './api.interface.js';
 
 const MOCK_DELAY = 800;
 
@@ -261,25 +260,6 @@ class MockReviewApi implements IReviewApi {
   }
 }
 
-class MockConfigApi implements IConfigApi {
-  async get(_accessToken: string, org?: string, _repo?: string): Promise<RemoteConfig> {
-    await delay(MOCK_DELAY / 2);
-
-    return {
-      language: 'en',
-      severity: 'warning',
-      rules: {
-        security: true,
-        performance: true,
-        style: true,
-        bestPractices: true,
-      },
-      ignore: ['node_modules/**', 'dist/**', '*.test.ts', '*.spec.ts'],
-      llmProvider: org === 'enterprise' ? 'byok' : 'kodus',
-    };
-  }
-}
-
 class MockTrialApi implements ITrialApi {
   async getStatus(fingerprint: string): Promise<TrialStatus> {
     await delay(MOCK_DELAY / 2);
@@ -306,7 +286,5 @@ class MockTrialApi implements ITrialApi {
 export class MockApi implements IKodusApi {
   auth: IAuthApi = new MockAuthApi();
   review: IReviewApi = new MockReviewApi();
-  config: IConfigApi = new MockConfigApi();
   trial: ITrialApi = new MockTrialApi();
 }
-

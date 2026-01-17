@@ -5,7 +5,6 @@ import { gitService } from '../services/git.service.js';
 import { reviewService } from '../services/review.service.js';
 import { authService } from '../services/auth.service.js';
 import { contextService } from '../services/context.service.js';
-import { telemetryService } from '../services/telemetry.service.js';
 import { terminalFormatter } from '../formatters/terminal.js';
 import { jsonFormatter } from '../formatters/json.js';
 import { markdownFormatter } from '../formatters/markdown.js';
@@ -34,23 +33,6 @@ export const reviewCommand = new Command('review')
 
     try {
       const isAuthenticated = await authService.isAuthenticated();
-      const startTime = Date.now();
-
-      // Track review started
-      telemetryService.track('review_started', {
-        is_authenticated: isAuthenticated,
-        staged: options.staged || false,
-        has_commit: !!options.commit,
-        has_files: files && files.length > 0,
-        rules_only: options.rulesOnly || false,
-        fast: options.fast || false,
-        interactive: options.interactive || false,
-        fix: options.fix || false,
-        prompt_only: options.promptOnly || false,
-        has_context: !!options.context,
-        format: globalOpts.format,
-      });
-
       // Override format if --prompt-only is set
       if (options.promptOnly) {
         globalOpts.format = 'prompt';
@@ -63,29 +45,6 @@ export const reviewCommand = new Command('review')
       let result: ReviewResult | TrialReviewResult;
 
       if (isAuthenticated) {
-        let config;
-
-        try {
-          if (!globalOpts.quiet) {
-            spinner.text = chalk.cyan('Fetching configuration from platform...');
-          }
-          config = await reviewService.getConfig(globalOpts.org, globalOpts.repo);
-        } catch (error) {
-          // Config endpoint não existe ou falhou - usar config padrão
-          config = {
-            language: 'en',
-            severity: 'warning' as const,
-            rules: {
-              security: true,
-              performance: true,
-              style: true,
-              bestPractices: true,
-            },
-            ignore: [],
-            llmProvider: 'kodus' as const,
-          };
-        }
-
         if (!globalOpts.quiet) {
           spinner.text = chalk.cyan('Getting file changes...');
         }
@@ -108,7 +67,7 @@ export const reviewCommand = new Command('review')
           spinner.text = chalk.cyan('Analyzing code...');
         }
 
-        result = await reviewService.analyze(diff, config, options.rulesOnly, options.fast, {
+        result = await reviewService.analyze(diff, options.rulesOnly, options.fast, {
           files: files && files.length > 0 ? files : undefined,
           staged: options.staged,
           commit: options.commit,
@@ -155,25 +114,9 @@ export const reviewCommand = new Command('review')
         spinner.succeed(chalk.green(`Review complete! (Trial: ${(result as TrialReviewResult).trialInfo.reviewsUsed}/${(result as TrialReviewResult).trialInfo.reviewsLimit} reviews today)`));
       }
 
-      // Track review completed
-      const duration = Date.now() - startTime;
-      telemetryService.track('review_completed', {
-        is_authenticated: isAuthenticated,
-        files_analyzed: result.filesAnalyzed,
-        issues_found: result.issues.length,
-        critical_issues: result.issues.filter(i => i.severity === 'critical').length,
-        error_issues: result.issues.filter(i => i.severity === 'error').length,
-        warning_issues: result.issues.filter(i => i.severity === 'warning').length,
-        fixable_issues: result.issues.filter(i => i.fixable).length,
-        duration_ms: duration,
-        mode: options.interactive ? 'interactive' : options.fix ? 'fix' : 'normal',
-        format: globalOpts.format,
-      });
-
       // Handle fix mode
       if (options.fix) {
         await interactiveUI.runQuickFix(result);
-        telemetryService.track('fix_mode_used');
         return;
       }
 
@@ -182,7 +125,6 @@ export const reviewCommand = new Command('review')
 
       if (shouldUseInteractive) {
         await interactiveUI.run(result);
-        telemetryService.track('interactive_mode_used');
         return;
       }
 
@@ -200,11 +142,6 @@ export const reviewCommand = new Command('review')
 
     } catch (error) {
       spinner.fail(chalk.red('Review failed'));
-
-      // Track review failed
-      telemetryService.track('review_failed', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
 
       if (error instanceof Error) {
         console.error(chalk.red(error.message));
@@ -254,4 +191,3 @@ function formatOutput(result: ReviewResult, format: OutputFormat): string {
       return terminalFormatter.format(result);
   }
 }
-

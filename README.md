@@ -170,18 +170,6 @@ kodus review --context path/to/custom-guidelines.md
 
 This ensures reviews follow your team's standards, coding patterns, and architectural preferences.
 
-## Configuration
-
-When logged in, the CLI fetches your configuration from the Kodus platform:
-
-```bash
-# View active configuration
-kodus config
-
-# Review with only your configured rules
-kodus review --rules-only
-```
-
 ### Flags
 
 | Flag | Description | Use Case |
@@ -384,4 +372,3 @@ Verbose mode is intended **only for local development and debugging**.
 ## License
 
 MIT
-

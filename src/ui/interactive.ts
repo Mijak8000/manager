@@ -178,13 +178,19 @@ class InteractiveUI {
     console.log(chalk.bold.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
     console.log('');
 
+    const summary = result.summary?.trim();
+    if (summary) {
+      console.log(chalk.dim('Summary: ') + chalk.white(summary));
+    }
     console.log(chalk.dim('Files analyzed: ') + chalk.white(result.filesAnalyzed.toString()));
     console.log(chalk.dim('Issues found: ') + chalk.white(result.issues.length.toString()));
     console.log(chalk.dim('Duration: ') + chalk.white(`${result.duration}ms`));
     console.log('');
 
     if (result.issues.length === 0) {
-      console.log(chalk.green.bold('✓ No issues found! Your code looks great.'));
+      if (!summary) {
+        console.log(chalk.green.bold('✓ No issues found! Your code looks great.'));
+      }
       console.log('');
       return;
     }

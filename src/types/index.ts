@@ -92,19 +92,6 @@ export interface TrialReviewResult extends ReviewResult {
   };
 }
 
-export interface RemoteConfig {
-  language: string;
-  severity: Severity;
-  rules: {
-    security: boolean;
-    performance: boolean;
-    style: boolean;
-    bestPractices: boolean;
-  };
-  ignore: string[];
-  llmProvider: 'kodus' | 'byok';
-}
-
 export interface TrialStatus {
   fingerprint: string;
   reviewsUsed: number;
@@ -142,8 +129,6 @@ export interface GlobalOptions {
   output?: string;
   verbose: boolean;
   quiet: boolean;
-  org?: string;
-  repo?: string;
   interactive?: boolean;
   promptOnly?: boolean;
   fix?: boolean;
@@ -175,4 +160,3 @@ export interface GitInfo {
 }
 
 export type PlatformType = 'GITHUB' | 'GITLAB' | 'BITBUCKET' | 'AZURE_REPOS' | undefined;
-

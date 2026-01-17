@@ -2,5 +2,11 @@
 
 import { program } from './cli.js';
 
+// Set KODUS_VERBOSE env var if --verbose flag is passed
+// This needs to happen before API module is loaded
+if (process.argv.includes('-v') || process.argv.includes('--verbose')) {
+  process.env.KODUS_VERBOSE = 'true';
+}
+
 program.parse(process.argv);
 

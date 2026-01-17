@@ -4,45 +4,23 @@ import { gitService } from './git.service.js';
 import { getTrialIdentifier } from '../utils/rate-limit.js';
 import { loadConfig } from '../utils/config.js';
 import { CLI_VERSION } from '../constants.js';
-import type { RemoteConfig, ReviewConfig, ReviewResult, TrialReviewResult, PullRequestSuggestionsResponse } from '../types/index.js';
+import type { ReviewConfig, ReviewResult, TrialReviewResult, PullRequestSuggestionsResponse } from '../types/index.js';
 
 class ReviewService {
-  async getConfig(org?: string, repo?: string): Promise<RemoteConfig> {
-    const token = await authService.getValidToken();
-    
-    let effectiveOrg = org;
-    let effectiveRepo = repo;
-
-    if (!effectiveOrg || !effectiveRepo) {
-      const detected = await gitService.extractOrgRepo();
-      if (detected) {
-        effectiveOrg = effectiveOrg || detected.org;
-        effectiveRepo = effectiveRepo || detected.repo;
-      }
-    }
-
-    return api.config.get(token, effectiveOrg, effectiveRepo);
-  }
-
   async analyze(
     diff: string,
-    config?: RemoteConfig,
     rulesOnly?: boolean,
     fast?: boolean,
     options?: { files?: string[]; staged?: boolean; commit?: string; branch?: string }
   ): Promise<ReviewResult> {
     const token = await authService.getValidToken();
 
-    const reviewConfig: ReviewConfig | undefined = config
-      ? {
-          severity: config.severity,
-          rules: config.rules,
-          rulesOnly,
-          fast,
-        }
-      : undefined;
+    const reviewConfig: ReviewConfig = {
+      rulesOnly,
+      fast,
+    };
 
-    if (reviewConfig && !fast) {
+    if (!fast) {
       reviewConfig.files = await gitService.getFullFileContents(
         options?.files,
         {
@@ -110,4 +88,3 @@ class ReviewService {
 }
 
 export const reviewService = new ReviewService();
-
