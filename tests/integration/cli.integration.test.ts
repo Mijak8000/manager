@@ -226,3 +226,66 @@ describe('auth status integration', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hook commands — install, status, uninstall
+// ---------------------------------------------------------------------------
+describe('hook integration', () => {
+  it('kodus hook install creates pre-commit hook', async () => {
+    const { stdout, stderr, exitCode } = await runCli(['hook', 'install', '--force']);
+    expect(exitCode).toBe(0);
+    const output = stdout + stderr;
+    expect(output).toContain('installed');
+
+    const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'pre-commit');
+    const content = await fs.readFile(hookPath, 'utf-8');
+    expect(content).toContain('# kodus-hook');
+    expect(content).toContain('--fail-on critical');
+  });
+
+  it('kodus hook status shows installed', async () => {
+    // Install first
+    await runCli(['hook', 'install', '--force']);
+
+    const { stdout, stderr, exitCode } = await runCli(['hook', 'status']);
+    expect(exitCode).toBe(0);
+    const output = stdout + stderr;
+    expect(output).toContain('installed');
+    expect(output).toContain('critical');
+  });
+
+  it('kodus hook uninstall removes the hook', async () => {
+    // Install first
+    await runCli(['hook', 'install', '--force']);
+
+    const { stdout, stderr, exitCode } = await runCli(['hook', 'uninstall']);
+    expect(exitCode).toBe(0);
+    const output = stdout + stderr;
+    expect(output).toContain('removed');
+
+    const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'pre-commit');
+    await expect(fs.access(hookPath)).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review --fail-on flag
+// ---------------------------------------------------------------------------
+describe('review --fail-on integration', () => {
+  it('exits with code 1 when issues meet threshold', async () => {
+    // Mock server returns issues with severity 'warning' and 'error'
+    const { exitCode } = await runCli([
+      'review', '--fast', '--format', 'json', '--fail-on', 'warning',
+    ]);
+    expect(exitCode).toBe(1);
+  });
+
+  it('exits with code 0 when no issues meet threshold', async () => {
+    // Mock server returns 'warning' and 'error' severity issues
+    // Using --fail-on critical means neither meets threshold
+    const { exitCode } = await runCli([
+      'review', '--fast', '--format', 'json', '--fail-on', 'critical',
+    ]);
+    expect(exitCode).toBe(0);
+  });
+});

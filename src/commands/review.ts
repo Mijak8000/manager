@@ -12,7 +12,7 @@ import { promptFormatter } from '../formatters/prompt.js';
 import { interactiveUI } from '../ui/interactive.js';
 import { fixService } from '../services/fix.service.js';
 import { showTrialLimitPrompt, checkTrialStatus } from '../utils/rate-limit.js';
-import type { GlobalOptions, OutputFormat, ReviewResult, TrialReviewResult } from '../types/index.js';
+import type { GlobalOptions, OutputFormat, ReviewResult, Severity, TrialReviewResult } from '../types/index.js';
 import fs from 'fs/promises';
 
 export const reviewCommand = new Command('review')
@@ -26,8 +26,9 @@ export const reviewCommand = new Command('review')
   .option('-i, --interactive', 'Interactive mode: navigate and apply fixes')
   .option('--fix', 'Automatically apply all fixable issues')
   .option('--prompt-only', 'Output optimized for AI agents (minimal, structured)')
+  .option('--fail-on <severity>', 'Exit with code 1 if issues meet or exceed severity (info, warning, error, critical)')
   .option('--context <file>', 'Custom context file to include in review')
-  .action(async (files: string[], options: { staged?: boolean; commit?: string; branch?: string; rulesOnly?: boolean; fast?: boolean; interactive?: boolean; fix?: boolean; promptOnly?: boolean; context?: string }, cmd: Command) => {
+  .action(async (files: string[], options: { staged?: boolean; commit?: string; branch?: string; rulesOnly?: boolean; fast?: boolean; interactive?: boolean; fix?: boolean; promptOnly?: boolean; context?: string; failOn?: string }, cmd: Command) => {
     const globalOpts = cmd.optsWithGlobals() as GlobalOptions & { staged?: boolean; commit?: string };
     const spinner = ora();
 
@@ -170,6 +171,18 @@ export const reviewCommand = new Command('review')
         console.log(output);
       } else {
         console.log(output);
+      }
+
+      // Check --fail-on after output
+      if (options.failOn) {
+        const severityOrder: Record<string, number> = { info: 0, warning: 1, error: 2, critical: 3 };
+        const threshold = severityOrder[options.failOn] ?? 0;
+        const hasBlockingIssues = result.issues.some(
+          (i) => (severityOrder[i.severity] ?? 0) >= threshold,
+        );
+        if (hasBlockingIssues) {
+          process.exit(1);
+        }
       }
 
     } catch (error) {

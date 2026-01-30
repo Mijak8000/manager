@@ -1,0 +1,32 @@
+import chalk from 'chalk';
+import fs from 'fs/promises';
+import path from 'path';
+import { gitService } from '../../services/git.service.js';
+import { KODUS_MARKER } from './install.js';
+
+export async function uninstallAction(): Promise<void> {
+  const isRepo = await gitService.isGitRepository();
+  if (!isRepo) {
+    console.error(chalk.red('Error: Not a git repository.'));
+    process.exit(1);
+  }
+
+  const gitRoot = await gitService.getGitRoot();
+  const hookPath = path.join(gitRoot.trim(), '.git', 'hooks', 'pre-commit');
+
+  let content: string;
+  try {
+    content = await fs.readFile(hookPath, 'utf-8');
+  } catch {
+    console.log(chalk.yellow('No pre-commit hook found.'));
+    return;
+  }
+
+  if (!content.includes(KODUS_MARKER)) {
+    console.log(chalk.yellow('The pre-commit hook was not installed by kodus. Skipping.'));
+    return;
+  }
+
+  await fs.unlink(hookPath);
+  console.log(chalk.green('✓ Pre-commit hook removed successfully.'));
+}
