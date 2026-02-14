@@ -269,6 +269,103 @@ describe('hook integration', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Memory commands — enable and capture
+// ---------------------------------------------------------------------------
+describe('memory integration', () => {
+  it('kodus memory enable configures .claude/settings.json, ~/.codex/config.toml, post-merge hook and modules.yml', async () => {
+    const { stdout, stderr, exitCode } = await runCli([
+      'memory',
+      'enable',
+      '--agents',
+      'claude,codex',
+    ]);
+    expect(exitCode).toBe(0);
+    const output = stdout + stderr;
+    expect(output).toContain('Memory enabled');
+
+    const claudeSettingsPath = path.join(gitRepoDir, '.claude', 'settings.json');
+    const claudeSettings = JSON.parse(await fs.readFile(claudeSettingsPath, 'utf-8'));
+
+    expect(claudeSettings).toHaveProperty('hooks');
+    expect(claudeSettings.hooks).toHaveProperty('UserPromptSubmit');
+    expect(claudeSettings.hooks).toHaveProperty('Stop');
+
+    const userPromptSubmitJson = JSON.stringify(claudeSettings.hooks.UserPromptSubmit);
+    const stopJson = JSON.stringify(claudeSettings.hooks.Stop);
+    expect(userPromptSubmitJson).toContain('kodus memory capture --agent claude-compatible --event user-prompt-submit');
+    expect(stopJson).toContain('kodus memory capture --agent claude-compatible --event stop');
+
+    const codexConfigPath = path.join(tmpHome, '.codex', 'config.toml');
+    const codexConfig = await fs.readFile(codexConfigPath, 'utf-8');
+    expect(codexConfig).toContain('notify = ["kodus", "memory", "capture", "--agent", "codex", "--event", "agent-turn-complete"]');
+
+    const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'post-merge');
+    const hookContent = await fs.readFile(hookPath, 'utf-8');
+    expect(hookContent).toContain('kodus memory promote');
+  });
+
+  it('kodus memory capture writes markdown memory file under .kody/pr/by-sha', async () => {
+    const headSha = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRepoDir })).stdout.trim();
+
+    const payload = JSON.stringify({
+      session_id: 'session-1',
+      turn_id: 'turn-1',
+      input_messages: ['Use idempotent cache key'],
+      last_assistant_message: 'Done with fallback behavior',
+    });
+
+    const { exitCode } = await runCli([
+      'memory',
+      'capture',
+      payload,
+      '--agent',
+      'codex',
+      '--event',
+      'agent-turn-complete',
+      '--summary',
+      'architectural decision',
+    ]);
+    expect(exitCode).toBe(0);
+
+    const memoryFilePath = path.join(gitRepoDir, '.kody', 'pr', 'by-sha', `${headSha}.md`);
+    const content = await fs.readFile(memoryFilePath, 'utf-8');
+    expect(content).toContain('# Kody Decision Memory');
+    expect(content).toContain('codex');
+    expect(content).toContain('agent-turn-complete');
+    expect(content).toContain('architectural decision');
+    expect(content).toContain('Use idempotent cache key');
+  });
+
+  it('kodus memory capture resolves claude-compatible to cursor when Cursor env vars are present', async () => {
+    const headSha = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRepoDir })).stdout.trim();
+
+    const payload = JSON.stringify({
+      session_id: 'session-2',
+      prompt: 'add retry with backoff',
+    });
+
+    const { exitCode } = await runCli([
+      'memory',
+      'capture',
+      payload,
+      '--agent',
+      'claude-compatible',
+      '--event',
+      'user-prompt-submit',
+    ], {
+      env: {
+        CURSOR_VERSION: '1.0.0',
+      },
+    });
+    expect(exitCode).toBe(0);
+
+    const memoryFilePath = path.join(gitRepoDir, '.kody', 'pr', 'by-sha', `${headSha}.md`);
+    const content = await fs.readFile(memoryFilePath, 'utf-8');
+    expect(content).toContain('| cursor | user-prompt-submit');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Review --fail-on flag
 // ---------------------------------------------------------------------------
 describe('review --fail-on integration', () => {

@@ -7,7 +7,8 @@ import type {
   TrialStatus,
 } from '../../types/index.js';
 import { ApiError } from '../../types/index.js';
-import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, GitMetrics } from './api.interface.js';
+import type { MemoryCaptureApiRequest, MemoryCaptureApiResponse } from '../../types/index.js';
+import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, IMemoryApi, GitMetrics } from './api.interface.js';
 
 /**
  * Validates and returns the API base URL
@@ -393,8 +394,24 @@ class RealTrialApi implements ITrialApi {
   }
 }
 
+class RealMemoryApi implements IMemoryApi {
+  async submitCapture(payload: MemoryCaptureApiRequest, accessToken: string): Promise<MemoryCaptureApiResponse> {
+    const isTeamKey = accessToken.startsWith('kodus_');
+    const headers: Record<string, string> = isTeamKey
+      ? { 'X-Team-Key': accessToken }
+      : { Authorization: `Bearer ${accessToken}` };
+
+    return request<MemoryCaptureApiResponse>('/cli/memory/captures', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  }
+}
+
 export class RealApi implements IKodusApi {
   auth: IAuthApi = new RealAuthApi();
   review: IReviewApi = new RealReviewApi();
   trial: ITrialApi = new RealTrialApi();
+  memory: IMemoryApi = new RealMemoryApi();
 }
