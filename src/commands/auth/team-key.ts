@@ -1,5 +1,6 @@
 import chalk from 'chalk';
-import { loadConfig, saveConfig } from '../../utils/config.js';
+import { clearConfig, loadConfig, saveConfig } from '../../utils/config.js';
+import { clearCredentials } from '../../utils/credentials.js';
 import { API_URL } from '../../constants.js';
 
 export async function teamKeyAction(options: { key?: string }): Promise<void> {
@@ -39,6 +40,13 @@ export async function teamKeyAction(options: { key?: string }): Promise<void> {
       teamName,
       organizationName,
     });
+    // Team-key auth should not compete with a previously stored user session.
+    try {
+      await clearCredentials();
+    } catch {
+      await clearConfig().catch(() => {});
+      throw new Error('Failed to switch to team-key auth because personal credentials could not be cleared.');
+    }
 
     console.log(chalk.green('✓ Authenticated successfully!'));
     console.log(chalk.cyan(`  Organization: ${organizationName}`));
