@@ -188,8 +188,9 @@ async function request<T>(
       ? await response.json().catch(() => ({ message: 'Request failed' }))
       : { message: `Request failed with status ${response.status}` };
     // Unwrap API envelope: errors may arrive as { data: { code, message, ... } }
+    // Only unwrap if the top-level object has no message/code of its own.
     const errorData: ApiErrorPayload =
-      rawError && typeof rawError === 'object' && 'data' in rawError && rawError.data && typeof rawError.data === 'object'
+      rawError && typeof rawError === 'object' && 'data' in rawError && rawError.data && typeof rawError.data === 'object' && !('message' in rawError) && !('code' in rawError)
         ? rawError.data as ApiErrorPayload
         : rawError as ApiErrorPayload;
     const errorMessage = normalizeApiErrorMessage(response.status, endpoint, errorData);
