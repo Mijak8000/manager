@@ -15,6 +15,7 @@ const DEVICE_FILE = path.join(KODUS_DIR, 'device.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let cachedDevice: DeviceData | null = null;
+let initializationPromise: Promise<{ deviceId: string; deviceToken?: string }> | null = null;
 
 function isValidDeviceId(value: unknown): value is string {
   return typeof value === 'string' && UUID_REGEX.test(value);
@@ -74,28 +75,36 @@ export async function getDeviceIdentity(): Promise<{ deviceId: string; deviceTok
     };
   }
 
-  const existing = await readStoredDeviceData();
-  if (existing) {
-    cachedDevice = existing;
-    return {
-      deviceId: existing.deviceId,
-      ...(existing.deviceToken ? { deviceToken: existing.deviceToken } : {}),
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise = (async () => {
+    const existing = await readStoredDeviceData();
+    if (existing) {
+      cachedDevice = existing;
+      return {
+        deviceId: existing.deviceId,
+        ...(existing.deviceToken ? { deviceToken: existing.deviceToken } : {}),
+      };
+    }
+
+    const created: DeviceData = {
+      deviceId: randomUUID(),
+      createdAt: new Date().toISOString(),
     };
-  }
+    cachedDevice = created;
 
-  const created: DeviceData = {
-    deviceId: randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  cachedDevice = created;
+    try {
+      await writeDeviceData(created);
+    } catch {
+      // If persistence fails, still return a process-stable identity.
+    }
 
-  try {
-    await writeDeviceData(created);
-  } catch {
-    // If persistence fails, still return a process-stable identity.
-  }
+    return { deviceId: created.deviceId };
+  })();
 
-  return { deviceId: created.deviceId };
+  return initializationPromise;
 }
 
 export async function getOrCreateDeviceId(): Promise<string> {

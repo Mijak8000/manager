@@ -184,9 +184,14 @@ async function request<T>(
   const isJson = contentType.includes('application/json');
 
   if (!response.ok) {
-    const errorData = isJson
-      ? await response.json().catch(() => ({ message: 'Request failed' })) as ApiErrorPayload
+    const rawError = isJson
+      ? await response.json().catch(() => ({ message: 'Request failed' }))
       : { message: `Request failed with status ${response.status}` };
+    // Unwrap API envelope: errors may arrive as { data: { code, message, ... } }
+    const errorData: ApiErrorPayload =
+      rawError && typeof rawError === 'object' && 'data' in rawError && rawError.data && typeof rawError.data === 'object'
+        ? rawError.data as ApiErrorPayload
+        : rawError as ApiErrorPayload;
     const errorMessage = normalizeApiErrorMessage(response.status, endpoint, errorData);
 
     if (process.env.KODUS_VERBOSE) {
