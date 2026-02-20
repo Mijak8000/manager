@@ -128,16 +128,12 @@ class ReviewService {
     }
 
     const token = await authService.getValidToken();
-    let response: PullRequestSuggestionsResponse;
 
+    let response: PullRequestSuggestionsResponse;
     try {
       response = await api.review.getPullRequestSuggestions(token, params);
     } catch (error) {
-      const canFallbackToTeamKey =
-        error instanceof ApiError &&
-        error.statusCode === 401 &&
-        !token.startsWith('kodus_');
-
+      const canFallbackToTeamKey = error instanceof ApiError && error.statusCode === 401 && !token.startsWith('kodus_');
       if (!canFallbackToTeamKey) {
         throw error;
       }
@@ -150,7 +146,7 @@ class ReviewService {
       try {
         response = await api.review.getPullRequestSuggestions(config.teamKey, params);
       } catch {
-        // If fallback auth also fails, keep the original auth error.
+        // Preserve the primary auth failure from the original token attempt.
         throw error;
       }
     }

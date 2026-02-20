@@ -27,7 +27,7 @@ vi.mock('../../utils/config.js', () => ({
 
 import { api } from '../api/index.js';
 import { loadCredentials, saveCredentials, clearCredentials } from '../../utils/credentials.js';
-import { clearConfig, loadConfig } from '../../utils/config.js';
+import { loadConfig, clearConfig } from '../../utils/config.js';
 import { AuthService } from '../auth.service.js';
 
 const mockApi = vi.mocked(api);
@@ -79,6 +79,7 @@ describe('AuthService', () => {
           refreshToken: 'new-refresh-token',
         })
       );
+      expect(mockClearConfig).toHaveBeenCalled();
     });
   });
 
@@ -139,20 +140,21 @@ describe('AuthService', () => {
     it('returns teamKey when no personal credentials exist', async () => {
       mockLoadCredentials.mockResolvedValue(null);
       mockLoadConfig.mockResolvedValue({ teamKey: 'kodus_team_key' } as any);
+      mockLoadCredentials.mockResolvedValue(null);
 
       const token = await authService.getValidToken();
 
       expect(token).toBe('kodus_team_key');
     });
 
-    it('prefers personal access token when both credentials and teamKey exist', async () => {
+    it('prefers accessToken when credentials and teamKey both exist', async () => {
       mockLoadConfig.mockResolvedValue({ teamKey: 'kodus_team_key' } as any);
-      const creds = makeCredentials({ accessToken: 'personal-token', expiresAt: Date.now() + 60 * 60 * 1000 });
+      const creds = makeCredentials({ expiresAt: Date.now() + 60 * 60 * 1000 });
       mockLoadCredentials.mockResolvedValue(creds);
 
       const token = await authService.getValidToken();
 
-      expect(token).toBe('personal-token');
+      expect(token).toBe('access-token');
     });
 
     it('returns accessToken when not expired', async () => {
@@ -201,8 +203,22 @@ describe('AuthService', () => {
 
       const token = await authService.getValidToken();
 
-      expect(mockClearCredentials).toHaveBeenCalled();
       expect(token).toBe('kodus_team_key');
+      expect(mockClearCredentials).toHaveBeenCalled();
+    });
+
+    it('deduplicates concurrent refresh requests', async () => {
+      mockLoadConfig.mockResolvedValue(null);
+      const expiredCreds = makeCredentials({ expiresAt: Date.now() - 1000 });
+      mockLoadCredentials.mockResolvedValue(expiredCreds);
+      const refreshed = makeAuthResponse({ accessToken: 'single-refresh-token' });
+      mockApi.auth.refresh = vi.fn().mockResolvedValue(refreshed);
+
+      const [a, b] = await Promise.all([authService.getValidToken(), authService.getValidToken()]);
+
+      expect(a).toBe('single-refresh-token');
+      expect(b).toBe('single-refresh-token');
+      expect(mockApi.auth.refresh).toHaveBeenCalledTimes(1);
     });
 
     it('throws AuthError when no credentials exist', async () => {

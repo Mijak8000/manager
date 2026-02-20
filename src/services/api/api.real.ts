@@ -61,7 +61,44 @@ interface ApiErrorPayload {
   };
 }
 
-function getApiErrorMessage(statusCode: number, errorData: ApiErrorPayload): string {
+function getDefaultApiErrorMessage(statusCode: number, endpoint: string): string {
+  const endpointPath = endpoint.split('?')[0] || endpoint;
+
+  if (statusCode === 400) {
+    return `Invalid request sent to Kodus API (${endpointPath}).`;
+  }
+
+  if (statusCode === 401) {
+    if (endpointPath === '/pull-requests/suggestions') {
+      return 'Authentication failed while fetching pull request suggestions. Run: kodus auth login or configure a valid team key.';
+    }
+    return 'Authentication failed. Run: kodus auth login or configure a valid team key.';
+  }
+
+  if (statusCode === 403) {
+    return `Access denied for Kodus API endpoint (${endpointPath}).`;
+  }
+
+  if (statusCode === 404) {
+    return `Kodus API endpoint not found (${endpointPath}).`;
+  }
+
+  if (statusCode === 422) {
+    return `Kodus API could not process the request (${endpointPath}).`;
+  }
+
+  if (statusCode === 429) {
+    return 'Rate limit exceeded. Please try again later.';
+  }
+
+  if (statusCode >= 500) {
+    return 'Kodus API is currently unavailable. Please try again.';
+  }
+
+  return `Request failed with status ${statusCode}`;
+}
+
+function normalizeApiErrorMessage(statusCode: number, endpoint: string, errorData: ApiErrorPayload): string {
   if (errorData.code === 'DEVICE_LIMIT_REACHED') {
     const limit = errorData.details?.limit;
     const activeDevices = errorData.details?.activeDevices;
@@ -71,7 +108,27 @@ function getApiErrorMessage(statusCode: number, errorData: ApiErrorPayload): str
     return 'Device limit reached for this organization. Remove an old device or contact your admin.';
   }
 
-  return errorData.message || `Request failed with status ${statusCode}`;
+  const fallbackMessage = getDefaultApiErrorMessage(statusCode, endpoint);
+  if (!errorData.message || typeof errorData.message !== 'string') {
+    return fallbackMessage;
+  }
+
+  // Keep auth/permission/server errors deterministic and always in CLI English.
+  if (statusCode === 401 || statusCode === 403 || statusCode === 404 || statusCode === 429 || statusCode >= 500) {
+    return fallbackMessage;
+  }
+
+  const trimmed = errorData.message.trim();
+  if (!trimmed) {
+    return fallbackMessage;
+  }
+
+  const hasNonAscii = /[^\x00-\x7F]/.test(trimmed);
+  if (hasNonAscii) {
+    return fallbackMessage;
+  }
+
+  return trimmed;
 }
 
 async function request<T>(
@@ -130,10 +187,16 @@ async function request<T>(
     const errorData = isJson
       ? await response.json().catch(() => ({ message: 'Request failed' })) as ApiErrorPayload
       : { message: `Request failed with status ${response.status}` };
-    const errorMessage = getApiErrorMessage(response.status, errorData);
+    const errorMessage = normalizeApiErrorMessage(response.status, endpoint, errorData);
 
     if (process.env.KODUS_VERBOSE) {
-      console.error('[API] Error:', { status: response.status, url, contentType, errorData });
+      console.error('[API] Error:', {
+        status: response.status,
+        url,
+        contentType,
+        errorData,
+        normalizedMessage: errorMessage,
+      });
     }
 
     throw new ApiError(response.status, errorMessage);
@@ -171,8 +234,8 @@ async function request<T>(
     }
   }
 
-  // API retorna { data: {...}, statusCode, type }
-  // Extrair apenas o .data se existir
+  // API usually returns { data: {...}, statusCode, type }
+  // Return only .data when present.
   if (json && typeof json === 'object' && 'data' in json) {
     return json.data as T;
   }
@@ -223,13 +286,13 @@ class RealAuthApi implements IAuthApi {
       body: JSON.stringify({ email, password }),
     });
 
-    // Mapear resposta da API para formato esperado pelo CLI
+    // Map API response into the CLI auth shape.
     return {
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
-      expiresIn: 3600, // Default: 1 hora
+      expiresIn: 3600, // Default: 1 hour
       user: {
-        id: 'unknown', // API não retorna user info no login
+        id: 'unknown', // Login response does not include user profile fields.
         email,
         orgs: [],
       },

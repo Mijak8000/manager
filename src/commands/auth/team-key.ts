@@ -1,8 +1,8 @@
 import chalk from 'chalk';
-import { loadConfig, saveConfig } from '../../utils/config.js';
+import { clearConfig, loadConfig, saveConfig } from '../../utils/config.js';
+import { clearCredentials } from '../../utils/credentials.js';
 import { API_URL } from '../../constants.js';
 import { getDeviceIdentity, updateDeviceToken } from '../../utils/device.js';
-import { clearCredentials } from '../../utils/credentials.js';
 
 interface TeamKeyErrorPayload {
   message?: string;
@@ -72,14 +72,18 @@ export async function teamKeyAction(options: { key?: string }): Promise<void> {
       throw new Error('Invalid response from server. Missing organization or team info.');
     }
 
-    // Team-key auth should not compete with a previously stored user session.
-    await clearCredentials();
-
     await saveConfig({
       teamKey: options.key,
       teamName,
       organizationName,
     });
+    // Team-key auth should not compete with a previously stored user session.
+    try {
+      await clearCredentials();
+    } catch {
+      await clearConfig().catch(() => {});
+      throw new Error('Failed to switch to team-key auth because personal credentials could not be cleared.');
+    }
 
     console.log(chalk.green('✓ Authenticated successfully!'));
     console.log(chalk.cyan(`  Organization: ${organizationName}`));
