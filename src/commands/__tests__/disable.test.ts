@@ -91,6 +91,15 @@ describe('disableAction', () => {
     expect(content).not.toContain(MERGE_HOOK_MARKER);
   });
 
+  it('removes legacy two-if kodus block without leaving orphaned shell lines', async () => {
+    const hookPath = path.join(tmpDir, '.git', 'hooks', 'post-merge');
+    await fs.writeFile(hookPath, `#!/bin/sh\n${MERGE_HOOK_MARKER}\nMERGED_BRANCH=$(git log -1 --merges --format=%s HEAD 2>/dev/null | sed -n "s/.*Merge branch '\\([^']*\\)'.*/\\1/p")\nif [ -z "$MERGED_BRANCH" ]; then\n  MERGED_BRANCH=$(git log -1 --merges --format=%s HEAD 2>/dev/null | sed -n "s/.*Merge pull request .* from [^/]*\\/\\(.*\\)/\\1/p")\nfi\nif [ -n "$MERGED_BRANCH" ]; then\n  kodus decisions promote --branch "$MERGED_BRANCH" &\nfi\n`, { mode: 0o755 });
+
+    await disableAction();
+
+    await expect(fs.access(hookPath)).rejects.toThrow();
+  });
+
   it('preserves .kody/ data', async () => {
     const kodyFile = path.join(tmpDir, '.kody', 'pr', 'test.md');
     await fs.mkdir(path.dirname(kodyFile), { recursive: true });

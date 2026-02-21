@@ -52,6 +52,24 @@ describe('matchFiles', () => {
     expect(result).toEqual([]);
   });
 
+  it('matches mid-path globstar with zero directories', () => {
+    const customModules: ModuleConfig[] = [
+      { id: 'scripts', name: 'Scripts', paths: ['src/**/index.ts'], memoryFile: '.kody/memory/scripts.md' },
+    ];
+
+    const result = matchFiles(['src/index.ts'], customModules);
+    expect(result).toEqual(['scripts']);
+  });
+
+  it('matches mid-path globstar with nested directories', () => {
+    const customModules: ModuleConfig[] = [
+      { id: 'scripts', name: 'Scripts', paths: ['src/**/index.ts'], memoryFile: '.kody/memory/scripts.md' },
+    ];
+
+    const result = matchFiles(['src/a/b/index.ts'], customModules);
+    expect(result).toEqual(['scripts']);
+  });
+
   it('returns multiple matched modules', () => {
     const result = matchFiles([
       'src/services/auth/jwt.ts',

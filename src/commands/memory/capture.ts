@@ -105,35 +105,32 @@ async function readStdinIfAvailable(): Promise<string | undefined> {
   return new Promise<string>((resolve, reject) => {
     let data = '';
     let settled = false;
-    let idleTimer: NodeJS.Timeout | undefined;
-
-    const armTimer = (): void => {
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-      idleTimer = setTimeout(() => {
-        finish(data.length > 0 ? data : undefined);
-      }, 750);
-    };
+    const noDataTimer = setTimeout(() => {
+      // Some hook runners keep stdin open forever without sending payload.
+      // In that case, fail open and continue without stdin payload.
+      finish(undefined);
+    }, 750);
+    const brokenStreamTimer = setTimeout(() => {
+      // Safety net for broken streams that emit data but never close.
+      finish(data.length > 0 ? data : undefined);
+    }, 5000);
 
     const finish = (value: string | undefined): void => {
       if (settled) return;
       settled = true;
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
+      clearTimeout(noDataTimer);
+      clearTimeout(brokenStreamTimer);
       process.stdin.removeAllListeners('data');
       process.stdin.removeAllListeners('end');
       process.stdin.removeAllListeners('error');
       resolve(value ?? '');
     };
-    armTimer();
 
     process.stdin.setEncoding('utf-8');
 
     process.stdin.on('data', (chunk: string) => {
       data += chunk;
-      armTimer();
+      clearTimeout(noDataTimer);
     });
 
     process.stdin.on('end', () => {
@@ -141,9 +138,8 @@ async function readStdinIfAvailable(): Promise<string | undefined> {
     });
 
     process.stdin.on('error', (error) => {
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
+      clearTimeout(noDataTimer);
+      clearTimeout(brokenStreamTimer);
       reject(error);
     });
 

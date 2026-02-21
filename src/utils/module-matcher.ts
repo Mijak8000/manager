@@ -98,6 +98,9 @@ function patternToRegex(pattern: string): RegExp {
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*\*/g, '§GLOBSTAR§')
     .replace(/\*/g, '[^/]*')
+    // Preserve globstar "zero or more directories" semantics when used mid-path.
+    // Example: a/**/b must match both a/b and a/x/y/b.
+    .replace(/\/§GLOBSTAR§\//g, '(?:/[^/]+)*/')
     .replace(/§GLOBSTAR§/g, '.*');
   return new RegExp(`^${escaped}$`);
 }

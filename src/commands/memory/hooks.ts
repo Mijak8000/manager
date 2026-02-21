@@ -21,6 +21,7 @@ export const CODEX_NOTIFY_LINE =
   'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "agent-turn-complete"]';
 
 export const MERGE_HOOK_MARKER = '# kodus-memory-post-merge';
+const MERGE_HOOK_END_MARKER = '# /kodus-memory-post-merge';
 const MERGE_PROMOTE_COMMAND = 'kodus decisions promote';
 
 const MERGE_HOOK_SCRIPT = `
@@ -33,6 +34,7 @@ fi
 if [ -n "$MERGED_BRANCH" ]; then
   ${MERGE_PROMOTE_COMMAND} --branch "$MERGED_BRANCH" &
 fi
+${MERGE_HOOK_END_MARKER}
 `.trimStart();
 
 // ---------------------------------------------------------------------------
@@ -394,27 +396,20 @@ export async function removeMergeHook(gitRoot: string): Promise<{ hookPath: stri
     return { hookPath, removed: false };
   }
 
-  // Remove kodus block: from marker line through the closing `fi`
+  // Remove kodus block:
+  // - Preferred: marker -> end marker (current format)
+  // - Legacy fallback: marker -> end-of-file (older format without end marker)
   const lines = content.split('\n');
-  const filtered: string[] = [];
-  let inKodusBlock = false;
-
-  for (const line of lines) {
-    if (line.trim() === MERGE_HOOK_MARKER) {
-      inKodusBlock = true;
-      continue;
-    }
-
-    if (inKodusBlock) {
-      if (line.trim() === 'fi') {
-        inKodusBlock = false;
-        continue;
-      }
-      continue;
-    }
-
-    filtered.push(line);
+  const startIdx = lines.findIndex((line) => line.trim() === MERGE_HOOK_MARKER);
+  if (startIdx === -1) {
+    return { hookPath, removed: false };
   }
+
+  const endIdx = lines.findIndex((line, idx) => idx > startIdx && line.trim() === MERGE_HOOK_END_MARKER);
+
+  const filtered = endIdx === -1
+    ? lines.slice(0, startIdx)
+    : [...lines.slice(0, startIdx), ...lines.slice(endIdx + 1)];
 
   const remaining = filtered.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n*$/, '\n');
 
