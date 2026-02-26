@@ -366,6 +366,10 @@ class CodeReviewConfigWithoutLLMProviderDto {
     kodyRulesGeneratorEnabled?: boolean;
 
     @IsOptional()
+    @IsBoolean()
+    llmGeneratedMemoriesRequireApproval?: boolean;
+
+    @IsOptional()
     @ValidateNested()
     @Type(() => ReviewCadenceDto)
     reviewCadence?: ReviewCadenceDto;

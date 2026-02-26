@@ -18,6 +18,14 @@ import { IKodyRulesRepository } from './kodyRules.repository.contract';
 
 export const KODY_RULES_SERVICE_TOKEN = 'KODY_RULES_SERVICE_TOKEN';
 
+export type MemoryCreationAction = 'created' | 'updated' | 'skipped';
+
+export interface CreateOrUpdateMemoryResult {
+    rule: Partial<IKodyRule> | IKodyRule;
+    action: MemoryCreationAction;
+    requiresApproval: boolean;
+}
+
 export interface IKodyRulesService extends IKodyRulesRepository {
     createOrUpdate(
         organizationAndTeamData: OrganizationAndTeamData,
@@ -89,7 +97,7 @@ export interface IKodyRulesService extends IKodyRulesRepository {
         organizationAndTeamData: OrganizationAndTeamData,
         memory: IKodyRuleMemory,
         userInfo?: UserInfo,
-    ): Promise<Partial<IKodyRule> | IKodyRule | null>;
+    ): Promise<CreateOrUpdateMemoryResult | null>;
 
     findMemories(
         organizationAndTeamData: OrganizationAndTeamData,

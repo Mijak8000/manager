@@ -9,6 +9,7 @@ import {
 } from '@libs/ee/kodyRules/dtos/create-kody-rule.dto';
 
 import {
+    CreateOrUpdateMemoryResult,
     IKodyRulesService,
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
@@ -75,6 +76,18 @@ interface KodyRulesResponse extends BaseResponse {
 
 interface CreateKodyRuleResponse extends BaseResponse {
     data: Partial<IKodyRule>;
+}
+
+interface CreateMemoryRuleResponse extends BaseResponse {
+    data: {
+        uuid?: string;
+        title?: string;
+        rule?: string;
+        status?: KodyRulesStatus;
+        action: 'created' | 'updated' | 'skipped';
+        requiresApproval: boolean;
+        message: string;
+    };
 }
 
 interface FindMemoriesResponse extends BaseResponse {
@@ -360,10 +373,14 @@ export class KodyRulesTools {
             outputSchema: z.object({
                 success: z.boolean(),
                 count: z.number(),
-                data: z.looseObject({
-                    uuid: z.string(),
-                    title: z.string(),
-                    rule: z.string(),
+                data: z.object({
+                    uuid: z.string().optional(),
+                    title: z.string().optional(),
+                    rule: z.string().optional(),
+                    status: z.enum(KodyRulesStatus).optional(),
+                    action: z.enum(['created', 'updated', 'skipped']),
+                    requiresApproval: z.boolean(),
+                    message: z.string(),
                 }),
             }),
             execute: wrapToolHandler(
@@ -656,6 +673,12 @@ export class KodyRulesTools {
                 .describe(
                     'Organization UUID - unique identifier for the organization in the system where the memory rule will be created',
                 ),
+            teamId: z
+                .string()
+                .optional()
+                .describe(
+                    'Team UUID used to resolve repository code-review settings that control generated-memory activation behavior',
+                ),
             kodyRule: z
                 .object({
                     title: z
@@ -672,7 +695,7 @@ export class KodyRulesTools {
                         .string()
                         .optional()
                         .describe(
-                            'Repository unique identifier - can be used to limit memory rule to specific repository',
+                            'Repository unique identifier - can be used to limit memory rule to specific repository, otherwise it applies globally to all repositories in the organization',
                         ),
                     directoryId: z
                         .string()
@@ -709,13 +732,14 @@ export class KodyRulesTools {
                 }),
             }),
             execute: wrapToolHandler(
-                async (args: InputType): Promise<CreateKodyRuleResponse> => {
+                async (args: InputType): Promise<CreateMemoryRuleResponse> => {
                     const params: {
                         organizationAndTeamData: OrganizationAndTeamData;
                         kodyRule: KodyRuleMemoryInput;
                     } = {
                         organizationAndTeamData: {
                             organizationId: args.organizationId,
+                            teamId: args.teamId,
                         },
                         kodyRule: {
                             title: args.kodyRule.title,
@@ -730,7 +754,7 @@ export class KodyRulesTools {
                         },
                     };
 
-                    const result: Partial<IKodyRule> =
+                    const result: CreateOrUpdateMemoryResult | null =
                         await this.kodyRulesService.createOrUpdateMemory(
                             params.organizationAndTeamData,
                             params.kodyRule,
@@ -740,10 +764,27 @@ export class KodyRulesTools {
                             },
                         );
 
+                    const resultStatus = result?.rule?.status;
+                    const awaitingApproval =
+                        resultStatus === KodyRulesStatus.PENDING;
+
+                    const message = awaitingApproval
+                        ? `Memory ${result?.action ?? 'created'} and awaiting approval.`
+                        : `Memory ${result?.action ?? 'created'} and active.`;
+
                     return {
                         success: true,
                         count: 1,
-                        data: result,
+                        data: {
+                            uuid: result?.rule?.uuid,
+                            title: result?.rule?.title,
+                            rule: result?.rule?.rule,
+                            status: resultStatus,
+                            action: result?.action ?? 'created',
+                            requiresApproval:
+                                result?.requiresApproval ?? awaitingApproval,
+                            message,
+                        },
                     };
                 },
             ),

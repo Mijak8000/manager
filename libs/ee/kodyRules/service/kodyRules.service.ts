@@ -1,5 +1,6 @@
 import {
     BadRequestException,
+    forwardRef,
     Inject,
     Injectable,
     NotFoundException,
@@ -15,6 +16,10 @@ import {
     PromptRole,
     PromptRunnerService,
 } from '@kodus/kodus-common/llm';
+import {
+    CODE_BASE_CONFIG_SERVICE_TOKEN,
+    ICodeBaseConfigService,
+} from '@libs/code-review/domain/contracts/CodeBaseConfigService.contract';
 import {
     kodyMemoryResolutionSchema,
     prompt_kodyMemoryResolution_system,
@@ -47,7 +52,10 @@ import {
     IKodyRulesRepository,
     KODY_RULES_REPOSITORY_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.repository.contract';
-import { IKodyRulesService } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
+import {
+    CreateOrUpdateMemoryResult,
+    IKodyRulesService,
+} from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
 import {
     IRuleLikeService,
     RULE_LIKE_SERVICE_TOKEN,
@@ -97,6 +105,9 @@ export class KodyRulesService implements IKodyRulesService {
         private readonly observabilityService: ObservabilityService,
 
         private readonly permissionValidationService: PermissionValidationService,
+
+        @Inject(forwardRef(() => CODE_BASE_CONFIG_SERVICE_TOKEN))
+        private readonly codeBaseConfigService: ICodeBaseConfigService,
     ) {}
 
     getNativeCollection() {
@@ -1209,7 +1220,7 @@ Analyze the suggestions and recommend the most relevant rules.`;
         organizationAndTeamData: OrganizationAndTeamData,
         memory: IKodyRuleMemory,
         userInfo?: UserInfo,
-    ): Promise<Partial<IKodyRule> | IKodyRule | null> {
+    ): Promise<CreateOrUpdateMemoryResult | null> {
         try {
             const resolution = await this.resolveGeneratedMemoryAction(
                 organizationAndTeamData,
@@ -1217,13 +1228,27 @@ Analyze the suggestions and recommend the most relevant rules.`;
             );
 
             if (resolution?.action === 'skip' && resolution.existingMemory) {
-                return resolution.existingMemory;
+                return {
+                    rule: resolution.existingMemory,
+                    action: 'skipped',
+                    requiresApproval: false,
+                };
             }
 
             const memoryToPersist =
                 resolution && resolution.action !== 'skip'
                     ? resolution.memoryToPersist
                     : memory;
+
+            const shouldRequireApprovalForGeneratedMemory =
+                await this.shouldRequireApprovalForGeneratedMemory(
+                    organizationAndTeamData,
+                    memoryToPersist,
+                );
+
+            const resolvedStatus = shouldRequireApprovalForGeneratedMemory
+                ? KodyRulesStatus.PENDING
+                : memoryToPersist.status || KodyRulesStatus.ACTIVE;
 
             const rule = await this.createOrUpdate(
                 organizationAndTeamData,
@@ -1233,6 +1258,7 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     origin: memoryToPersist.origin || KodyRulesOrigin.USER,
 
                     severity: KodyRuleSeverity.MEDIUM,
+                    status: resolvedStatus,
                     examples: [],
                     inheritance: {
                         inheritable: true,
@@ -1243,7 +1269,15 @@ Analyze the suggestions and recommend the most relevant rules.`;
                 userInfo,
             );
 
-            return rule;
+            if (!rule) {
+                return null;
+            }
+
+            return {
+                rule,
+                action: resolution?.action === 'update' ? 'updated' : 'created',
+                requiresApproval: shouldRequireApprovalForGeneratedMemory,
+            };
         } catch (error) {
             this.logger.error({
                 message: 'Error in createOrUpdateMemory',
@@ -1256,6 +1290,49 @@ Analyze the suggestions and recommend the most relevant rules.`;
                 },
             });
             throw error;
+        }
+    }
+
+    private async shouldRequireApprovalForGeneratedMemory(
+        organizationAndTeamData: OrganizationAndTeamData,
+        memory: IKodyRuleMemory,
+    ): Promise<boolean> {
+        if (memory.origin !== KodyRulesOrigin.GENERATED) {
+            return false;
+        }
+
+        if (
+            !organizationAndTeamData?.organizationId ||
+            !organizationAndTeamData?.teamId
+        ) {
+            return false;
+        }
+
+        try {
+            const mergedConfig = await this.codeBaseConfigService.getConfig(
+                organizationAndTeamData,
+                {
+                    id: memory.repositoryId,
+                    name: '',
+                },
+                [],
+            );
+
+            return mergedConfig.llmGeneratedMemoriesRequireApproval === true;
+        } catch (error) {
+            this.logger.error({
+                message:
+                    'Error resolving llmGeneratedMemoriesRequireApproval, defaulting to active memories',
+                error,
+                context: KodyRulesService.name,
+                metadata: {
+                    organizationAndTeamData,
+                    repositoryId: memory.repositoryId,
+                    directoryId: memory.directoryId,
+                },
+            });
+
+            return false;
         }
     }
 
@@ -1414,6 +1491,13 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     ) || fallbackExactMatch;
 
                 if (!matchedMemory?.uuid) {
+                    return {
+                        action: 'create',
+                        memoryToPersist: memory,
+                    };
+                }
+
+                if (matchedMemory.origin === KodyRulesOrigin.USER) {
                     return {
                         action: 'create',
                         memoryToPersist: memory,
