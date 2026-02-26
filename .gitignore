@@ -115,6 +115,8 @@ specs
 .cursor
 .claude
 .codex
+.agents
+skills-lock.json
 
 # ESLint Cache
 .eslintcache
