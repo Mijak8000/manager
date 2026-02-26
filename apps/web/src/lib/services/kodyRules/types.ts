@@ -9,6 +9,7 @@ export enum KodyRuleInheritanceOrigin {
 export type KodyRule = {
     uuid?: string;
     status: KodyRulesStatus;
+    type?: KodyRulesType;
     title: string;
     rule: string;
     path: string;
@@ -129,6 +130,11 @@ export enum KodyRulesStatus {
     REJECTED = "rejected",
     PENDING = "pending",
     DELETED = "deleted",
+}
+
+export enum KodyRulesType {
+    STANDARD = "standard",
+    MEMORY = "memory",
 }
 
 export type KodyRuleSuggestion = {
