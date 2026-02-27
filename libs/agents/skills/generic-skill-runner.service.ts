@@ -134,6 +134,7 @@ export class GenericSkillRunnerService {
                 skillName,
                 requiredTools,
                 fetcherPolicy,
+                meta.requiredMcps,
                 mcpManagerServers,
             );
             this.metricsCollector?.recordGauge(
@@ -457,7 +458,7 @@ export class GenericSkillRunnerService {
         skillName: string,
         requiredMcps: SkillRequiredMcp[] | undefined,
         mcpManagerServers: any[] | undefined,
-    ) {
+    ): void {
         if (!requiredMcps?.length) {
             return;
         }
@@ -486,12 +487,40 @@ export class GenericSkillRunnerService {
                 availableProviders,
             );
         }
+
+        const requiredProviderHints =
+            this.resolveRequiredProviderHints(requiredMcps);
+        if (!requiredProviderHints.length) {
+            return;
+        }
+
+        const matchingExternalConnections = externalConnections.filter((server) =>
+            this.providerMatchesRequiredHints(server?.provider, requiredProviderHints),
+        );
+
+        if (!matchingExternalConnections.length) {
+            this.logger.warn(
+                `[GenericSkillRunner] No connected external MCP provider matches required hints for skill '${skillName}'. Required hints: ${requiredProviderHints.join(
+                    ', ',
+                )}. Available providers: ${
+                    availableProviders.length
+                        ? availableProviders.join(', ')
+                        : 'none'
+                }`,
+            );
+            throw new RequiredMcpPreflightError(
+                skillName,
+                requiredMcps,
+                availableProviders,
+            );
+        }
     }
 
     private createMCPAdapter(
         skillName: string,
         requiredTools: string[] | undefined,
         fetcherPolicy: Required<SkillFetcherPolicy>,
+        requiredMcps: SkillRequiredMcp[] | undefined,
         mcpManagerServers: any[] | undefined,
     ): MCPAdapter | null {
         if (!mcpManagerServers?.length) {
@@ -504,6 +533,8 @@ export class GenericSkillRunnerService {
         const resolvedRequiredTools = requiredTools?.length
             ? requiredTools
             : [];
+        const requiredProviderHints =
+            this.resolveRequiredProviderHints(requiredMcps);
         const hasRequiredTools = this.hasRequiredKodusTools(
             mcpManagerServers,
             resolvedRequiredTools,
@@ -513,7 +544,13 @@ export class GenericSkillRunnerService {
         const filteredServers = mcpManagerServers
             .filter((server) => {
                 if (server.provider !== 'kodusmcp') {
-                    return true;
+                    if (!requiredProviderHints.length) {
+                        return true;
+                    }
+                    return this.providerMatchesRequiredHints(
+                        server.provider,
+                        requiredProviderHints,
+                    );
                 }
                 if (!resolvedRequiredTools.length) {
                     return true;
@@ -563,6 +600,60 @@ export class GenericSkillRunnerService {
                     `[GenericSkillRunner] MCP error for skill '${skillName}': ${err.message}`,
                 ),
         });
+    }
+
+    private resolveRequiredProviderHints(
+        requiredMcps: SkillRequiredMcp[] | undefined,
+    ): string[] {
+        if (!requiredMcps?.length) {
+            return [];
+        }
+
+        const hints = new Set<string>();
+        for (const requiredMcp of requiredMcps) {
+            const examples = requiredMcp.examples;
+            if (!examples) {
+                continue;
+            }
+            for (const token of examples.split(',')) {
+                const normalized = this.normalizeProviderToken(token);
+                if (normalized) {
+                    hints.add(normalized);
+                }
+            }
+        }
+
+        return [...hints];
+    }
+
+    private providerMatchesRequiredHints(
+        provider: unknown,
+        requiredHints: string[],
+    ): boolean {
+        if (!requiredHints.length) {
+            return true;
+        }
+        const normalizedProvider = this.normalizeProviderToken(provider);
+        if (!normalizedProvider) {
+            return false;
+        }
+
+        return requiredHints.some(
+            (hint) =>
+                normalizedProvider === hint ||
+                normalizedProvider.includes(hint) ||
+                hint.includes(normalizedProvider),
+        );
+    }
+
+    private normalizeProviderToken(value: unknown): string {
+        if (typeof value !== 'string') {
+            return '';
+        }
+        return value
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '');
     }
 
     private getAvailableProviders(

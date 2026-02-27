@@ -179,6 +179,92 @@ describe('GenericSkillRunnerService', () => {
         ).rejects.toBeInstanceOf(RequiredMcpPreflightError);
     });
 
+    it('fails fast when required MCP provider hints do not match connected external providers', async () => {
+        skillLoaderService.loadSkillMetaFromFilesystem.mockReturnValue(
+            withSkillMeta({
+                requiredMcps: [
+                    {
+                        category: 'task-management',
+                        label: 'Task Management',
+                        examples: 'Linear',
+                    },
+                ],
+            }),
+        );
+        mcpManagerService.getConnections.mockResolvedValue([
+            {
+                provider: 'kodusmcp',
+                allowedTools: ['KODUS_GET_PULL_REQUEST'],
+            },
+            {
+                provider: 'jira',
+                allowedTools: ['getJiraIssue'],
+            },
+        ] as any);
+
+        await expect(
+            service.createFetcherOrchestration(
+                'business-rules-validation',
+                {} as any,
+                organizationAndTeamData,
+            ),
+        ).rejects.toBeInstanceOf(RequiredMcpPreflightError);
+    });
+
+    it('filters external MCP providers by required MCP hints while keeping kodusmcp', async () => {
+        skillLoaderService.loadSkillMetaFromFilesystem.mockReturnValue(
+            withSkillMeta({
+                requiredMcps: [
+                    {
+                        category: 'task-management',
+                        label: 'Task Management',
+                        examples: 'Jira, Linear',
+                    },
+                ],
+            }),
+        );
+        mcpManagerService.getConnections.mockResolvedValue([
+            {
+                provider: 'kodusmcp',
+                allowedTools: ['KODUS_GET_PULL_REQUEST'],
+            },
+            {
+                provider: 'jira',
+                allowedTools: ['getJiraIssue'],
+            },
+            {
+                provider: 'linear',
+                allowedTools: ['getIssue'],
+            },
+            {
+                provider: 'notion',
+                allowedTools: ['queryDatabase'],
+            },
+        ] as any);
+
+        await service.createFetcherOrchestration(
+            'business-rules-validation',
+            {} as any,
+            organizationAndTeamData,
+        );
+
+        expect(createMCPAdapterMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                servers: expect.arrayContaining([
+                    expect.objectContaining({ provider: 'kodusmcp' }),
+                    expect.objectContaining({ provider: 'jira' }),
+                    expect.objectContaining({ provider: 'linear' }),
+                ]),
+            }),
+        );
+
+        const createdAdapterArg = createMCPAdapterMock.mock.calls[0][0];
+        const providerList = createdAdapterArg.servers.map(
+            (server: { provider?: string }) => server.provider,
+        );
+        expect(providerList).not.toContain('notion');
+    });
+
     it('throws typed MCP connection error when required MCP exists but all connections fail', async () => {
         const orchestrator = makeOrchestrator();
         orchestrator.connectMCP.mockRejectedValue(
