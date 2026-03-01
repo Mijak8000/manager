@@ -990,6 +990,12 @@ IMPORTANT, on this field you must only focus on describing the issue and providi
 The existing code, improved code, relevant line start and end, file path, etc. will all be provided elsewhere.
 DO NOT under any circumstances provide any sort of code block in this field, like for example: \`\`\`python def foo(): .... \`\`\`
 
+### Pre-output verification gate
+
+Before including ANY suggestion in the output, you MUST be able to fill the \`proofEvidence\` field (see schema below). This field requires you to cite **the exact line(s) of visible code** (from the diff, FileContentContext, or Codebase Context) that prove the bug exists.
+
+**If you cannot point to a specific, real line of code that demonstrates the problem — do not include the suggestion.** A suggestion without concrete proof from visible code is speculation, not a bug finding.
+
 ### Response format
 
 Return only valid JSON, nothing more. Under no circumstances should there be any text of any kind before the \`\`\`json or after the final \`\`\`, use the following JSON format:
@@ -1004,6 +1010,7 @@ Return only valid JSON, nothing more. Under no circumstances should there be any
             "existingCode": "Problematic code from PR",
             "improvedCode": "Fixed code proposal",
             "oneSentenceSummary": "Concise issue description",
+            "proofEvidence": "Quote the exact line(s) of visible code (from diff, FileContentContext, or Codebase Context) that prove this issue exists. Must be a real line you can see, not a description of what you think happens elsewhere.",
             "relevantLinesStart": 1,
             "relevantLinesEnd": 10,
             "label": "bug|performance|security",
@@ -1108,6 +1115,8 @@ ${maxSuggestionsNote}
 </codeForAnalysis>
 
 <suggestionFormat>
+**Pre-output verification**: Before including ANY suggestion, you MUST be able to fill the \`proofEvidence\` field with the exact line(s) of visible code that prove the bug exists. If you cannot point to a specific, real line — do not include the suggestion.
+
 **Suggestion Format**:
 
 Your final output should be **only** a JSON object with the following structure:
@@ -1122,6 +1131,7 @@ Your final output should be **only** a JSON object with the following structure:
             "existingCode": "Relevant new code from the PR",
             "improvedCode": "Improved proposal",
             "oneSentenceSummary": "Concise summary of the suggestion",
+            "proofEvidence": "Quote the exact line(s) of visible code (from diff or FileContentContext) that prove this issue exists. Must be a real line you can see — not a description of what you think happens elsewhere.",
             "relevantLinesStart": 1,
             "relevantLinesEnd": 10,
             "label": "selected_label",
@@ -1255,7 +1265,6 @@ DO NOT speculate about:
 - What might happen if external services fail
 - Hypothetical edge cases not evident in the code
 - "What if" scenarios about parts of the system not visible — **however**, code provided in the "Codebase Context" section IS visible and IS part of this system. If a snippet shows code that will break because of the diff, report it as a concrete bug, not speculation.
-
 - Understand the purpose of the PR.
 - Focus on lines marked with '+' for suggestions. **Exception for cross-file bugs:** if a Codebase Context snippet shows a consumer that will break because of the diff changes, report the bug anchored to the diff lines that introduced the breaking change — even though the consumer code is in another file.
 - Before finalizing a suggestion, ensure it is technically correct, logically sound, beneficial, **and based on clear evidence in the provided code diff or Codebase Context snippets.**
@@ -1321,6 +1330,9 @@ When reviewing changes that span multiple files:
 - Do not reference or suggest changes to lines starting with '-' or ' ' since those are not part of the newly added code.
 - NEVER generate a suggestion for a line that does not appear in the codeDiff. If a line number is not part of the changes shown in the codeDiff with a '+' prefix, do not create any suggestions for it.
 
+## Pre-output verification gate
+Before including ANY suggestion, you MUST be able to fill the \`proofEvidence\` field with the exact line(s) of visible code (from diff, FileContentContext, or Codebase Context) that prove the bug exists. If you cannot point to a specific, real line of code that demonstrates the problem — do not include the suggestion.
+
 ## Output Format
 Your final output should be **ONLY** a JSON object with the following structure:
 
@@ -1334,6 +1346,7 @@ Your final output should be **ONLY** a JSON object with the following structure:
             "existingCode": "Relevant new code from the PR",
             "improvedCode": "Improved proposal",
             "oneSentenceSummary": "Concise summary of the suggestion",
+            "proofEvidence": "Quote the exact line(s) of visible code (from diff, FileContentContext, or Codebase Context) that prove this issue exists. Must be a real line you can see — not a description of what you think happens elsewhere.",
             "relevantLinesStart": 1,
             "relevantLinesEnd": 10,
             "label": "selected_label",
