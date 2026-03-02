@@ -244,6 +244,33 @@ export const changeStatusKodyRules = async (
     return response.data as KodyRule[];
 };
 
+export const applyPendingKodyRules = async (ruleIds: string[]) => {
+    const response = await axiosAuthorized.post<any>(
+        KODY_RULES_PATHS.APPLY_PENDING_KODY_RULES,
+        { ruleIds },
+    );
+
+    return response.data as KodyRule[];
+};
+
+export const discardPendingKodyRules = async (ruleIds: string[]) => {
+    const response = await axiosAuthorized.post<any>(
+        KODY_RULES_PATHS.DISCARD_PENDING_KODY_RULES,
+        { ruleIds },
+    );
+
+    return response.data as KodyRule[];
+};
+
+export const convertPendingUpdatesToMemories = async (ruleIds: string[]) => {
+    const response = await axiosAuthorized.post<any>(
+        KODY_RULES_PATHS.CONVERT_PENDING_UPDATES_TO_MEMORIES,
+        { ruleIds },
+    );
+
+    return response.data as KodyRule[];
+};
+
 export const generateKodyRules = (
     teamId: string,
     months: number = 3,

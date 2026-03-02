@@ -20,8 +20,11 @@ import {
 import { Label } from "@components/ui/label";
 import { magicModal } from "@components/ui/magic-modal";
 import { Markdown } from "@components/ui/markdown";
-import { changeStatusKodyRules } from "@services/kodyRules/fetch";
-import { KodyRule, KodyRulesStatus } from "@services/kodyRules/types";
+import {
+    applyPendingKodyRules,
+    discardPendingKodyRules,
+} from "@services/kodyRules/fetch";
+import { KodyRule } from "@services/kodyRules/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import { pluralize } from "src/core/utils/string";
@@ -44,10 +47,38 @@ export const PendingKodyRulesModal = ({
         ResourceType.CodeReviewSettings,
     );
 
-    const changeStatusRules = async (status: KodyRulesStatus) => {
+    const applySelectedRules = async () => {
         magicModal.lock();
 
-        await changeStatusKodyRules(selectedRuleIds, status);
+        await applyPendingKodyRules(selectedRuleIds);
+
+        magicModal.hide(true);
+    };
+
+    const discardSelectedRules = async () => {
+        magicModal.lock();
+
+        await discardPendingKodyRules(selectedRuleIds);
+
+        magicModal.hide(true);
+    };
+
+    const applySingleRule = async (ruleId?: string) => {
+        if (!ruleId) return;
+
+        magicModal.lock();
+
+        await applyPendingKodyRules([ruleId]);
+
+        magicModal.hide(true);
+    };
+
+    const discardSingleRule = async (ruleId?: string) => {
+        if (!ruleId) return;
+
+        magicModal.lock();
+
+        await discardPendingKodyRules([ruleId]);
 
         magicModal.hide(true);
     };
@@ -111,6 +142,28 @@ export const PendingKodyRulesModal = ({
                                 <CollapsibleContent asChild className="pb-0">
                                     <CardContent className="bg-card-lv1 flex flex-col gap-5 pt-4">
                                         <Markdown>{r.rule}</Markdown>
+
+                                        <div className="flex flex-wrap justify-end gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="cancel"
+                                                disabled={!canEdit}
+                                                onClick={() =>
+                                                    discardSingleRule(r.uuid)
+                                                }>
+                                                Discard
+                                            </Button>
+
+                                            <Button
+                                                size="sm"
+                                                variant="primary"
+                                                disabled={!canEdit}
+                                                onClick={() =>
+                                                    applySingleRule(r.uuid)
+                                                }>
+                                                Import
+                                            </Button>
+                                        </div>
                                     </CardContent>
                                 </CollapsibleContent>
                             </Collapsible>
@@ -170,12 +223,18 @@ export const PendingKodyRulesModal = ({
 
                     <Button
                         size="md"
+                        variant="cancel"
+                        disabled={!canEdit || selectedRuleIds.length === 0}
+                        onClick={discardSelectedRules}>
+                        Discard selected
+                    </Button>
+
+                    <Button
+                        size="md"
                         variant="primary"
                         disabled={!canEdit || selectedRuleIds.length === 0}
-                        onClick={() =>
-                            changeStatusRules(KodyRulesStatus.ACTIVE)
-                        }>
-                        Import {entityLabel}
+                        onClick={applySelectedRules}>
+                        Import selected
                     </Button>
                 </DialogFooter>
             </DialogContent>

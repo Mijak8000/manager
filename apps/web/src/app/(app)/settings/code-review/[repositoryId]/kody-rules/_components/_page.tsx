@@ -18,6 +18,7 @@ import {
     useSuspenseKodyRulesByRepositoryId,
 } from "@services/kodyRules/hooks";
 import {
+    KodyRuleRequestType,
     KodyRulesStatus,
     KodyRulesType,
     KodyRuleWithInheritanceDetails,
@@ -36,6 +37,7 @@ import { CodeReviewPagesBreadcrumb } from "../../../_components/breadcrumb";
 import { GenerateRulesOptions } from "../../../_components/generate-rules-options";
 import GeneratingConfig from "../../../_components/generating-config";
 import { KodyRuleAddOrUpdateItemModal } from "../../../_components/modal";
+import { PendingMemoriesModal } from "../../../_components/pending-memories-modal";
 import { PendingKodyRulesModal } from "../../../_components/pending-rules-modal";
 import {
     useFullCodeReviewConfig,
@@ -251,10 +253,20 @@ const KodyRulesPageContent = () => {
         [pendingRules],
     );
 
-    const pendingMemories = useMemo(
+    const pendingMemoryUpdates = useMemo(
         () =>
             pendingRules.filter(
-                (rule) => getRuleType(rule) === KodyRulesType.MEMORY,
+                (rule) =>
+                    rule.requestType === KodyRuleRequestType.MEMORY_UPDATE,
+            ),
+        [pendingRules],
+    );
+
+    const pendingMemoryCreations = useMemo(
+        () =>
+            pendingRules.filter(
+                (rule) =>
+                    rule.requestType !== KodyRuleRequestType.MEMORY_UPDATE,
             ),
         [pendingRules],
     );
@@ -331,6 +343,22 @@ const KodyRulesPageContent = () => {
         if (response) refreshRulesList();
     };
 
+    const showPendingMemories = async () => {
+        const activeMemories = kodyRules.filter(
+            (rule) => getRuleType(rule) === KodyRulesType.MEMORY,
+        );
+
+        const response = await magicModal.show(() => (
+            <PendingMemoriesModal
+                pendingNewMemories={pendingMemoryCreations}
+                pendingUpdates={pendingMemoryUpdates}
+                activeMemories={activeMemories}
+            />
+        ));
+
+        if (response) refreshRulesList();
+    };
+
     const activeRuleType =
         activeTab === "memories"
             ? KodyRulesType.MEMORY
@@ -348,8 +376,8 @@ const KodyRulesPageContent = () => {
 
     const canShowDiscovery = activeTab === "review-rules";
 
-    const pendingItemsForActiveTab =
-        activeTab === "memories" ? pendingMemories : pendingReviewRules;
+    const pendingMemoriesCount =
+        pendingMemoryCreations.length + pendingMemoryUpdates.length;
 
     const pendingEntityLabel: "rules" | "memories" =
         activeTab === "memories" ? "memories" : "rules";
@@ -373,7 +401,7 @@ const KodyRulesPageContent = () => {
                 </Page.TitleContainer>
                 {showHeaderActions && (
                     <div className="flex flex-col gap-2">
-                        <Page.HeaderActions>
+                        <Page.HeaderActions className="justify-end">
                             {canShowDiscovery && (
                                 <Link href="/library/kody-rules/featured">
                                     <Button
@@ -414,23 +442,35 @@ const KodyRulesPageContent = () => {
                                 </KodyRulesLimitPopover>
                             )}
                         </Page.HeaderActions>
-                        {pendingItemsForActiveTab.length > 0 && (
-                            <div className="flex justify-end">
-                                <Button
-                                    size="md"
-                                    variant="helper"
-                                    className="border-e-primary-light rounded-e-none border-e-4"
-                                    leftIcon={<BellRing />}
-                                    onClick={() =>
-                                        showPendingRules(
-                                            pendingItemsForActiveTab,
-                                            pendingEntityLabel,
-                                        )
-                                    }>
-                                    Check out new {pendingEntityLabel}!
-                                </Button>
-                            </div>
-                        )}
+
+                        <div className="flex justify-end gap-2">
+                            {activeTab === "memories"
+                                ? pendingMemoriesCount > 0 && (
+                                      <Button
+                                          size="md"
+                                          variant="helper"
+                                          className="border-e-primary-light rounded-e-none border-e-4"
+                                          leftIcon={<BellRing />}
+                                          onClick={showPendingMemories}>
+                                          Review pending memories
+                                      </Button>
+                                  )
+                                : pendingReviewRules.length > 0 && (
+                                      <Button
+                                          size="md"
+                                          variant="helper"
+                                          className="border-e-primary-light rounded-e-none border-e-4"
+                                          leftIcon={<BellRing />}
+                                          onClick={() =>
+                                              showPendingRules(
+                                                  pendingReviewRules,
+                                                  pendingEntityLabel,
+                                              )
+                                          }>
+                                          Check out new {pendingEntityLabel}!
+                                      </Button>
+                                  )}
+                        </div>
                     </div>
                 )}
             </Page.Header>

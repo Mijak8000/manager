@@ -53,6 +53,7 @@ summary:
 # kody rules
 ideRulesSyncEnabled: false
 kodyRulesGeneratorEnabled: true
+llmGeneratedMemoriesRequireApproval: false
 
 # custom messages
 customMessages:

@@ -68,6 +68,10 @@ export interface IKodyRule {
     directoryId?: string;
     inheritance?: IKodyRulesInheritance;
     contextReferenceId?: string;
+    requestType?: KodyRuleRequestType;
+    targetRuleUuid?: string;
+    resolvedAt?: Date;
+    resolvedBy?: string;
 }
 
 export interface IKodyRuleMemory extends Omit<
@@ -129,6 +133,7 @@ export enum KodyRulesStatus {
     ACTIVE = 'active',
     REJECTED = 'rejected',
     PENDING = 'pending',
+    APPLIED = 'applied',
     DELETED = 'deleted',
 }
 
@@ -140,6 +145,11 @@ export enum KodyRulesScope {
 export enum KodyRulesType {
     STANDARD = 'standard',
     MEMORY = 'memory',
+}
+
+export enum KodyRuleRequestType {
+    MEMORY_CREATE = 'memory_create',
+    MEMORY_UPDATE = 'memory_update',
 }
 
 export const kodyRulesTypeSchema = z.enum([...Object.values(KodyRulesType)] as [
@@ -214,6 +224,10 @@ const kodyRulesScopeSchema = z.enum([...Object.values(KodyRulesScope)] as [
     ...KodyRulesScope[],
 ]);
 
+const kodyRuleRequestTypeSchema = z.enum([
+    ...Object.values(KodyRuleRequestType),
+] as [KodyRuleRequestType, ...KodyRuleRequestType[]]);
+
 export const kodyRuleSchema = z.object({
     uuid: z.string().optional(),
     title: z.string(),
@@ -236,4 +250,8 @@ export const kodyRuleSchema = z.object({
     inheritance: kodyRulesInheritanceSchema.optional(),
     directoryId: z.string().optional(),
     contextReferenceId: z.string().optional(),
+    requestType: kodyRuleRequestTypeSchema.optional(),
+    targetRuleUuid: z.string().optional(),
+    resolvedAt: z.date().optional(),
+    resolvedBy: z.string().optional(),
 });

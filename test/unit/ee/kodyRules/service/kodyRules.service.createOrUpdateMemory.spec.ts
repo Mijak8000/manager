@@ -5,6 +5,7 @@ import {
     IKodyRule,
     IKodyRuleMemory,
     IKodyRules,
+    KodyRuleRequestType,
     KodyRulesOrigin,
     KodyRulesStatus,
     KodyRulesType,
@@ -20,6 +21,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
         uuid: 'existing-memory-1',
         type: KodyRulesType.MEMORY,
         status: KodyRulesStatus.ACTIVE,
+        origin: KodyRulesOrigin.GENERATED,
         title: 'Use strict typing',
         rule: 'Always use explicit types in public APIs',
         repositoryId: 'repo-1',
@@ -41,11 +43,19 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
         ...overrides,
     });
 
-    const setup = (llmResult: any) => {
+    const setup = ({
+        llmResult,
+        currentMemory = existingMemory,
+        requireApproval = false,
+    }: {
+        llmResult: any;
+        currentMemory?: Partial<IKodyRule>;
+        requireApproval?: boolean;
+    }) => {
         const repositoryMock = {
             findByOrganizationId: jest
                 .fn()
-                .mockResolvedValue({ rules: [existingMemory] } as IKodyRules),
+                .mockResolvedValue({ rules: [currentMemory] } as IKodyRules),
         };
 
         const observabilityServiceMock = {
@@ -54,6 +64,12 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
 
         const permissionValidationServiceMock = {
             getBYOKConfig: jest.fn().mockResolvedValue(undefined),
+        };
+
+        const codeBaseConfigServiceMock = {
+            getConfig: jest.fn().mockResolvedValue({
+                llmGeneratedMemoriesRequireApproval: requireApproval,
+            }),
         };
 
         const validationService = new KodyRulesValidationService({} as any);
@@ -68,6 +84,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             {} as any,
             observabilityServiceMock as any,
             permissionValidationServiceMock as any,
+            codeBaseConfigServiceMock as any,
         );
 
         return {
@@ -79,8 +96,10 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
 
     it('skips creation when LLM indicates duplicate generated memory', async () => {
         const { service, observabilityServiceMock } = setup({
-            action: 'skip',
-            targetMemoryUuid: 'existing-memory-1',
+            llmResult: {
+                action: 'skip',
+                targetMemoryUuid: 'existing-memory-1',
+            },
         });
 
         const createOrUpdateSpy = jest
@@ -93,18 +112,24 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             { userId: 'kody', userEmail: 'kody@kodus.io' },
         );
 
-        expect(result).toEqual(existingMemory);
+        expect(result).toEqual({
+            rule: existingMemory,
+            action: 'skipped',
+            requiresApproval: false,
+        });
         expect(createOrUpdateSpy).not.toHaveBeenCalled();
         expect(observabilityServiceMock.runLLMInSpan).toHaveBeenCalledTimes(1);
     });
 
     it('updates existing memory when LLM indicates refinement', async () => {
         const { service } = setup({
-            action: 'update',
-            targetMemoryUuid: 'existing-memory-1',
-            updatedTitle: 'Prefer strict typing',
-            updatedRule:
-                'Use explicit types on exported functions and public APIs',
+            llmResult: {
+                action: 'update',
+                targetMemoryUuid: 'existing-memory-1',
+                updatedTitle: 'Prefer strict typing',
+                updatedRule:
+                    'Use explicit types on exported functions and public APIs',
+            },
         });
 
         const updatedResult = {
@@ -134,13 +159,158 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             }),
             { userId: 'kody', userEmail: 'kody@kodus.io' },
         );
-        expect(result).toEqual(updatedResult);
+        expect(result).toEqual({
+            rule: updatedResult,
+            action: 'updated',
+            requiresApproval: false,
+        });
+    });
+
+    it('creates pending update request when target memory was user-created', async () => {
+        const { service } = setup({
+            llmResult: {
+                action: 'update',
+                targetMemoryUuid: 'existing-memory-1',
+                updatedTitle: 'Prefer strict typing',
+                updatedRule:
+                    'Use explicit types on exported functions and public APIs',
+            },
+            currentMemory: {
+                ...existingMemory,
+                origin: KodyRulesOrigin.USER,
+            },
+            requireApproval: false,
+        });
+
+        const pendingRequest = {
+            uuid: 'pending-update-1',
+            status: KodyRulesStatus.PENDING,
+            requestType: KodyRuleRequestType.MEMORY_UPDATE,
+            targetRuleUuid: 'existing-memory-1',
+        } as Partial<IKodyRule>;
+
+        const createOrUpdateSpy = jest
+            .spyOn(service, 'createOrUpdate')
+            .mockResolvedValue(pendingRequest as any);
+
+        const result = await service.createOrUpdateMemory(
+            organizationAndTeamData,
+            createGeneratedMemory(),
+            { userId: 'kody', userEmail: 'kody@kodus.io' },
+        );
+
+        expect(createOrUpdateSpy).toHaveBeenCalledWith(
+            organizationAndTeamData,
+            expect.objectContaining({
+                uuid: undefined,
+                status: KodyRulesStatus.PENDING,
+                requestType: KodyRuleRequestType.MEMORY_UPDATE,
+                targetRuleUuid: 'existing-memory-1',
+            }),
+            { userId: 'kody', userEmail: 'kody@kodus.io' },
+        );
+        expect(result).toEqual({
+            rule: pendingRequest,
+            action: 'created',
+            requiresApproval: true,
+        });
+    });
+
+    it('creates pending update request when generated target requires approval', async () => {
+        const { service } = setup({
+            llmResult: {
+                action: 'update',
+                targetMemoryUuid: 'existing-memory-1',
+            },
+            currentMemory: {
+                ...existingMemory,
+                origin: KodyRulesOrigin.GENERATED,
+            },
+            requireApproval: true,
+        });
+
+        const pendingRequest = {
+            uuid: 'pending-update-2',
+            status: KodyRulesStatus.PENDING,
+            requestType: KodyRuleRequestType.MEMORY_UPDATE,
+            targetRuleUuid: 'existing-memory-1',
+        } as Partial<IKodyRule>;
+
+        const createOrUpdateSpy = jest
+            .spyOn(service, 'createOrUpdate')
+            .mockResolvedValue(pendingRequest as any);
+
+        const result = await service.createOrUpdateMemory(
+            organizationAndTeamData,
+            createGeneratedMemory(),
+            { userId: 'kody', userEmail: 'kody@kodus.io' },
+        );
+
+        expect(createOrUpdateSpy).toHaveBeenCalledWith(
+            organizationAndTeamData,
+            expect.objectContaining({
+                uuid: undefined,
+                status: KodyRulesStatus.PENDING,
+                requestType: KodyRuleRequestType.MEMORY_UPDATE,
+                targetRuleUuid: 'existing-memory-1',
+            }),
+            { userId: 'kody', userEmail: 'kody@kodus.io' },
+        );
+        expect(result).toEqual({
+            rule: pendingRequest,
+            action: 'created',
+            requiresApproval: true,
+        });
+    });
+
+    it('creates pending creation request with requestType when generated memory needs approval', async () => {
+        const { service } = setup({
+            llmResult: {
+                action: 'create',
+            },
+            requireApproval: true,
+        });
+
+        const pendingRequest = {
+            uuid: 'pending-create-1',
+            status: KodyRulesStatus.PENDING,
+            requestType: KodyRuleRequestType.MEMORY_CREATE,
+        } as Partial<IKodyRule>;
+
+        const createOrUpdateSpy = jest
+            .spyOn(service, 'createOrUpdate')
+            .mockResolvedValue(pendingRequest as any);
+
+        const result = await service.createOrUpdateMemory(
+            organizationAndTeamData,
+            createGeneratedMemory(),
+            { userId: 'kody', userEmail: 'kody@kodus.io' },
+        );
+
+        expect(createOrUpdateSpy).toHaveBeenCalledWith(
+            organizationAndTeamData,
+            expect.objectContaining({
+                uuid: undefined,
+                status: KodyRulesStatus.PENDING,
+                requestType: KodyRuleRequestType.MEMORY_CREATE,
+                targetRuleUuid: undefined,
+            }),
+            { userId: 'kody', userEmail: 'kody@kodus.io' },
+        );
+
+        expect(result).toEqual({
+            rule: pendingRequest,
+            action: 'created',
+            requiresApproval: true,
+        });
     });
 
     it('bypasses LLM resolution for non-generated memories', async () => {
         const { service, observabilityServiceMock } = setup({
-            action: 'skip',
-            targetMemoryUuid: 'existing-memory-1',
+            llmResult: {
+                action: 'skip',
+                targetMemoryUuid: 'existing-memory-1',
+            },
         });
 
         const persistedResult = {
@@ -165,6 +335,112 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
 
         expect(observabilityServiceMock.runLLMInSpan).not.toHaveBeenCalled();
         expect(createOrUpdateSpy).toHaveBeenCalledTimes(1);
-        expect(result).toEqual(persistedResult);
+        expect(result).toEqual({
+            rule: persistedResult,
+            action: 'created',
+            requiresApproval: false,
+        });
+    });
+
+    it('applies pending memory update request into target memory on approval', async () => {
+        const pendingRequestRule: Partial<IKodyRule> = {
+            uuid: 'pending-request-1',
+            type: KodyRulesType.MEMORY,
+            status: KodyRulesStatus.PENDING,
+            requestType: KodyRuleRequestType.MEMORY_UPDATE,
+            targetRuleUuid: 'existing-memory-1',
+            title: 'Prefer strict typing',
+            rule: 'Use explicit types on exported functions and public APIs',
+            repositoryId: 'repo-1',
+            origin: KodyRulesOrigin.GENERATED,
+        };
+
+        const targetMemoryRule: Partial<IKodyRule> = {
+            ...existingMemory,
+            uuid: 'existing-memory-1',
+            status: KodyRulesStatus.ACTIVE,
+            origin: KodyRulesOrigin.USER,
+        };
+
+        const repositoryMock = {
+            findByOrganizationId: jest.fn().mockResolvedValue({
+                uuid: 'doc-1',
+                rules: [targetMemoryRule, pendingRequestRule],
+            } as IKodyRules),
+            updateRule: jest
+                .fn()
+                .mockResolvedValueOnce({
+                    rules: [
+                        {
+                            ...targetMemoryRule,
+                            title: pendingRequestRule.title,
+                            rule: pendingRequestRule.rule,
+                        },
+                        pendingRequestRule,
+                    ],
+                })
+                .mockResolvedValueOnce({
+                    rules: [
+                        {
+                            ...targetMemoryRule,
+                            title: pendingRequestRule.title,
+                            rule: pendingRequestRule.rule,
+                        },
+                        {
+                            ...pendingRequestRule,
+                            status: KodyRulesStatus.DELETED,
+                        },
+                    ],
+                }),
+        };
+
+        const service = new KodyRulesService(
+            repositoryMock as any,
+            { registerKodyRulesLog: jest.fn() } as any,
+            {} as any,
+            {} as any,
+            new KodyRulesValidationService({} as any),
+            {} as any,
+            {} as any,
+            {} as any,
+            {} as any,
+            {} as any,
+        );
+
+        const result = await service.createOrUpdate(
+            organizationAndTeamData,
+            {
+                ...(pendingRequestRule as any),
+                status: KodyRulesStatus.ACTIVE,
+                severity: 'medium',
+            },
+            { userId: 'approver-1', userEmail: 'approver@kodus.io' },
+        );
+
+        expect(repositoryMock.updateRule).toHaveBeenCalledTimes(2);
+        expect(repositoryMock.updateRule).toHaveBeenNthCalledWith(
+            1,
+            'doc-1',
+            'existing-memory-1',
+            expect.objectContaining({
+                title: 'Prefer strict typing',
+                rule: 'Use explicit types on exported functions and public APIs',
+            }),
+        );
+        expect(repositoryMock.updateRule).toHaveBeenNthCalledWith(
+            2,
+            'doc-1',
+            'pending-request-1',
+            expect.objectContaining({
+                status: KodyRulesStatus.APPLIED,
+                resolvedBy: 'approver-1',
+            }),
+        );
+        expect(result).toEqual(
+            expect.objectContaining({
+                uuid: 'existing-memory-1',
+                title: 'Prefer strict typing',
+            }),
+        );
     });
 });

@@ -67,6 +67,7 @@ import {
     IKodyRule,
     IKodyRuleMemory,
     IKodyRules,
+    KodyRuleRequestType,
     KodyRulesOrigin,
     KodyRulesScope,
     KodyRulesStatus,
@@ -272,6 +273,10 @@ export class KodyRulesService implements IKodyRulesService {
                     exclude: kodyRule?.inheritance?.exclude ?? [],
                     include: kodyRule?.inheritance?.include ?? [],
                 },
+                requestType: kodyRule?.requestType,
+                targetRuleUuid: kodyRule?.targetRuleUuid,
+                resolvedAt: kodyRule?.resolvedAt,
+                resolvedBy: kodyRule?.resolvedBy,
                 createdAt: new Date(),
                 updatedAt: new Date(),
             };
@@ -339,6 +344,10 @@ export class KodyRulesService implements IKodyRulesService {
                     exclude: kodyRule?.inheritance?.exclude ?? [],
                     include: kodyRule?.inheritance?.include ?? [],
                 },
+                requestType: kodyRule?.requestType,
+                targetRuleUuid: kodyRule?.targetRuleUuid,
+                resolvedAt: kodyRule?.resolvedAt,
+                resolvedBy: kodyRule?.resolvedBy,
                 createdAt: new Date(),
                 updatedAt: new Date(),
             };
@@ -1240,43 +1249,61 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     ? resolution.memoryToPersist
                     : memory;
 
-            const shouldRequireApprovalForGeneratedMemory =
+            const requiresApproval =
                 await this.shouldRequireApprovalForGeneratedMemory(
                     organizationAndTeamData,
                     memoryToPersist,
                 );
 
-            const resolvedStatus = shouldRequireApprovalForGeneratedMemory
-                ? KodyRulesStatus.PENDING
-                : memoryToPersist.status || KodyRulesStatus.ACTIVE;
+            const targetMemory =
+                resolution?.action === 'update'
+                    ? resolution.targetMemory
+                    : null;
+            const isTargetUserOrigin =
+                targetMemory?.origin === KodyRulesOrigin.USER;
+            const isTargetGeneratedNeedsApproval =
+                targetMemory?.origin === KodyRulesOrigin.GENERATED &&
+                requiresApproval;
+
+            if (
+                targetMemory?.uuid &&
+                (isTargetUserOrigin || isTargetGeneratedNeedsApproval)
+            ) {
+                return await this.createPendingRequest(
+                    organizationAndTeamData,
+                    memoryToPersist,
+                    userInfo,
+                    KodyRuleRequestType.MEMORY_UPDATE,
+                    targetMemory.uuid,
+                );
+            }
+
+            if (requiresApproval && !memoryToPersist.uuid) {
+                return await this.createPendingRequest(
+                    organizationAndTeamData,
+                    memoryToPersist,
+                    userInfo,
+                    KodyRuleRequestType.MEMORY_CREATE,
+                );
+            }
 
             const rule = await this.createOrUpdate(
                 organizationAndTeamData,
                 {
-                    ...memoryToPersist,
-                    path: memoryToPersist.path || null,
-                    origin: memoryToPersist.origin || KodyRulesOrigin.USER,
-
-                    severity: KodyRuleSeverity.MEDIUM,
-                    status: resolvedStatus,
-                    examples: [],
-                    inheritance: {
-                        inheritable: true,
-                        exclude: [],
-                        include: [],
-                    },
+                    ...this.getBaseMemoryPayload(memoryToPersist),
+                    status: requiresApproval
+                        ? KodyRulesStatus.PENDING
+                        : memoryToPersist.status || KodyRulesStatus.ACTIVE,
                 },
                 userInfo,
             );
 
-            if (!rule) {
-                return null;
-            }
+            if (!rule) return null;
 
             return {
                 rule,
                 action: resolution?.action === 'update' ? 'updated' : 'created',
-                requiresApproval: shouldRequireApprovalForGeneratedMemory,
+                requiresApproval,
             };
         } catch (error) {
             this.logger.error({
@@ -1297,11 +1324,8 @@ Analyze the suggestions and recommend the most relevant rules.`;
         organizationAndTeamData: OrganizationAndTeamData,
         memory: IKodyRuleMemory,
     ): Promise<boolean> {
-        if (memory.origin !== KodyRulesOrigin.GENERATED) {
-            return false;
-        }
-
         if (
+            memory.origin !== KodyRulesOrigin.GENERATED ||
             !organizationAndTeamData?.organizationId ||
             !organizationAndTeamData?.teamId
         ) {
@@ -1311,10 +1335,7 @@ Analyze the suggestions and recommend the most relevant rules.`;
         try {
             const mergedConfig = await this.codeBaseConfigService.getConfig(
                 organizationAndTeamData,
-                {
-                    id: memory.repositoryId,
-                    name: '',
-                },
+                { id: memory.repositoryId, name: '' },
                 [],
             );
 
@@ -1331,7 +1352,6 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     directoryId: memory.directoryId,
                 },
             });
-
             return false;
         }
     }
@@ -1351,13 +1371,11 @@ Analyze the suggestions and recommend the most relevant rules.`;
         | {
               action: 'update';
               memoryToPersist: IKodyRuleMemory;
+              targetMemory: Partial<IKodyRule>;
           }
         | null
     > {
-        const isGeneratedCreate =
-            memory.origin === KodyRulesOrigin.GENERATED && !memory.uuid;
-
-        if (!isGeneratedCreate) {
+        if (memory.origin !== KodyRulesOrigin.GENERATED || memory.uuid) {
             return null;
         }
 
@@ -1379,131 +1397,29 @@ Analyze the suggestions and recommend the most relevant rules.`;
                 };
             }
 
-            const byokConfigValue =
-                await this.permissionValidationService.getBYOKConfig(
-                    organizationAndTeamData,
+            const result = await this.evaluateMemoryActionViaLLM(
+                organizationAndTeamData,
+                memory,
+                existingMemories,
+            );
+
+            if (!result?.action || result.action === 'create') {
+                return { action: 'create', memoryToPersist: memory };
+            }
+
+            const matchedMemory =
+                existingMemories.find(
+                    (m) => m.uuid === result.targetMemoryUuid,
+                ) ||
+                existingMemories.find((m) =>
+                    this.isExactMemoryMatch(m, memory),
                 );
 
-            const runName = 'kodyMemoryResolution';
-            const promptRunner = new BYOKPromptRunnerService(
-                this.promptRunnerService,
-                LLMModelProvider.GROQ_MOONSHOTAI_KIMI_K2_,
-                LLMModelProvider.GROQ_GPT_OSS_120B,
-                byokConfigValue,
-            );
-
-            const incomingMemory = {
-                title: memory.title,
-                rule: memory.rule,
-                repositoryId: memory.repositoryId,
-                directoryId: memory.directoryId,
-                path: memory.path || undefined,
-            };
-
-            const existingForPrompt = existingMemories.map(
-                (existingMemory) => ({
-                    uuid: existingMemory.uuid,
-                    title: existingMemory.title,
-                    rule: existingMemory.rule,
-                    repositoryId: existingMemory.repositoryId,
-                    directoryId: existingMemory.directoryId,
-                    path: existingMemory.path,
-                }),
-            );
-
-            const { result } = await this.observabilityService.runLLMInSpan({
-                spanName: `${KodyRulesService.name}::${runName}`,
-                runName,
-                attrs: {
-                    organizationId: organizationAndTeamData.organizationId,
-                    existingMemoriesCount: existingMemories.length,
-                    type: promptRunner.executeMode,
-                },
-                exec: async (callbacks) => {
-                    return await promptRunner
-                        .builder()
-                        .setParser(ParserType.ZOD, kodyMemoryResolutionSchema, {
-                            provider: LLMModelProvider.GEMINI_2_5_FLASH,
-                            fallbackProvider: LLMModelProvider.OPENAI_GPT_4O,
-                        })
-                        .setLLMJsonMode(true)
-                        .setPayload({
-                            organizationId:
-                                organizationAndTeamData.organizationId,
-                            incomingMemory,
-                            existingMemories: existingForPrompt,
-                        })
-                        .addPrompt({
-                            role: PromptRole.SYSTEM,
-                            prompt: prompt_kodyMemoryResolution_system,
-                        })
-                        .addPrompt({
-                            role: PromptRole.USER,
-                            prompt: prompt_kodyMemoryResolution_user,
-                        })
-                        .addCallbacks(callbacks)
-                        .addMetadata({ runName })
-                        .setRunName(runName)
-                        .execute();
-                },
-            });
-
-            if (!result?.action) {
-                return {
-                    action: 'create',
-                    memoryToPersist: memory,
-                };
+            if (result.action === 'skip' && matchedMemory) {
+                return { action: 'skip', existingMemory: matchedMemory };
             }
 
-            const fallbackExactMatch = existingMemories.find(
-                (existingMemory) =>
-                    this.normalizeMemoryText(existingMemory.title) ===
-                        this.normalizeMemoryText(memory.title) &&
-                    this.normalizeMemoryText(existingMemory.rule) ===
-                        this.normalizeMemoryText(memory.rule),
-            );
-
-            if (result.action === 'skip') {
-                const matchedMemory =
-                    existingMemories.find(
-                        (existingMemory) =>
-                            existingMemory.uuid === result.targetMemoryUuid,
-                    ) || fallbackExactMatch;
-
-                if (matchedMemory) {
-                    return {
-                        action: 'skip',
-                        existingMemory: matchedMemory,
-                    };
-                }
-
-                return {
-                    action: 'create',
-                    memoryToPersist: memory,
-                };
-            }
-
-            if (result.action === 'update') {
-                const matchedMemory =
-                    existingMemories.find(
-                        (existingMemory) =>
-                            existingMemory.uuid === result.targetMemoryUuid,
-                    ) || fallbackExactMatch;
-
-                if (!matchedMemory?.uuid) {
-                    return {
-                        action: 'create',
-                        memoryToPersist: memory,
-                    };
-                }
-
-                if (matchedMemory.origin === KodyRulesOrigin.USER) {
-                    return {
-                        action: 'create',
-                        memoryToPersist: memory,
-                    };
-                }
-
+            if (result.action === 'update' && matchedMemory?.uuid) {
                 return {
                     action: 'update',
                     memoryToPersist: {
@@ -1512,13 +1428,11 @@ Analyze the suggestions and recommend the most relevant rules.`;
                         title: result.updatedTitle?.trim() || memory.title,
                         rule: result.updatedRule?.trim() || memory.rule,
                     },
+                    targetMemory: matchedMemory,
                 };
             }
 
-            return {
-                action: 'create',
-                memoryToPersist: memory,
-            };
+            return { action: 'create', memoryToPersist: memory };
         } catch (error) {
             this.logger.error({
                 message:
@@ -1538,8 +1452,133 @@ Analyze the suggestions and recommend the most relevant rules.`;
         }
     }
 
+    private async createPendingRequest(
+        orgData: OrganizationAndTeamData,
+        memory: IKodyRuleMemory,
+        userInfo: UserInfo | undefined,
+        requestType: KodyRuleRequestType,
+        targetRuleUuid?: string,
+    ): Promise<CreateOrUpdateMemoryResult | null> {
+        const rule = await this.createOrUpdate(
+            orgData,
+            {
+                ...this.getBaseMemoryPayload(memory),
+                uuid: undefined,
+                status: KodyRulesStatus.PENDING,
+                requestType,
+                targetRuleUuid,
+            },
+            userInfo,
+        );
+
+        return rule
+            ? { rule, action: 'created', requiresApproval: true }
+            : null;
+    }
+
+    private getBaseMemoryPayload(memory: IKodyRuleMemory) {
+        return {
+            ...memory,
+            path: memory.path || null,
+            origin: memory.origin || KodyRulesOrigin.USER,
+            severity: KodyRuleSeverity.MEDIUM,
+            examples: [],
+            inheritance: {
+                inheritable: true,
+                exclude: [],
+                include: [],
+            },
+        };
+    }
+
+    private isExactMemoryMatch(
+        existingMemory: Partial<IKodyRule>,
+        incomingMemory: IKodyRuleMemory,
+    ): boolean {
+        return (
+            this.normalizeMemoryText(existingMemory.title) ===
+                this.normalizeMemoryText(incomingMemory.title) &&
+            this.normalizeMemoryText(existingMemory.rule) ===
+                this.normalizeMemoryText(incomingMemory.rule)
+        );
+    }
+
     private normalizeMemoryText(value?: string): string {
         return (value || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    }
+
+    private async evaluateMemoryActionViaLLM(
+        organizationAndTeamData: OrganizationAndTeamData,
+        memory: IKodyRuleMemory,
+        existingMemories: Partial<IKodyRule>[],
+    ) {
+        const byokConfigValue =
+            await this.permissionValidationService.getBYOKConfig(
+                organizationAndTeamData,
+            );
+        const runName = 'kodyMemoryResolution';
+
+        const promptRunner = new BYOKPromptRunnerService(
+            this.promptRunnerService,
+            LLMModelProvider.GROQ_MOONSHOTAI_KIMI_K2_,
+            LLMModelProvider.GROQ_GPT_OSS_120B,
+            byokConfigValue,
+        );
+
+        const incomingMemory = {
+            title: memory.title,
+            rule: memory.rule,
+            repositoryId: memory.repositoryId,
+            directoryId: memory.directoryId,
+            path: memory.path || undefined,
+        };
+
+        const existingForPrompt = existingMemories.map((existingMemory) => ({
+            uuid: existingMemory.uuid,
+            title: existingMemory.title,
+            rule: existingMemory.rule,
+            repositoryId: existingMemory.repositoryId,
+            directoryId: existingMemory.directoryId,
+            path: existingMemory.path,
+        }));
+
+        const { result } = await this.observabilityService.runLLMInSpan({
+            spanName: `${KodyRulesService.name}::${runName}`,
+            runName,
+            attrs: {
+                organizationId: organizationAndTeamData.organizationId,
+                existingMemoriesCount: existingMemories.length,
+                type: promptRunner.executeMode,
+            },
+            exec: async (callbacks) => {
+                return await promptRunner
+                    .builder()
+                    .setParser(ParserType.ZOD, kodyMemoryResolutionSchema, {
+                        provider: LLMModelProvider.GEMINI_2_5_FLASH,
+                        fallbackProvider: LLMModelProvider.OPENAI_GPT_4O,
+                    })
+                    .setLLMJsonMode(true)
+                    .setPayload({
+                        organizationId: organizationAndTeamData.organizationId,
+                        incomingMemory,
+                        existingMemories: existingForPrompt,
+                    })
+                    .addPrompt({
+                        role: PromptRole.SYSTEM,
+                        prompt: prompt_kodyMemoryResolution_system,
+                    })
+                    .addPrompt({
+                        role: PromptRole.USER,
+                        prompt: prompt_kodyMemoryResolution_user,
+                    })
+                    .addCallbacks(callbacks)
+                    .addMetadata({ runName })
+                    .setRunName(runName)
+                    .execute();
+            },
+        });
+
+        return result;
     }
 
     async findMemories(

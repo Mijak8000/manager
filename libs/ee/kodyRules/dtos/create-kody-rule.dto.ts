@@ -3,6 +3,7 @@ import {
     IKodyRuleReferenceSyncError,
     IKodyRulesExample,
     KodyRuleProcessingStatus,
+    KodyRuleRequestType,
     KodyRulesOrigin,
     KodyRulesScope,
     KodyRulesStatus,
@@ -198,4 +199,36 @@ export class CreateKodyRuleDto {
     @IsOptional()
     @IsString()
     ruleHash?: string;
+
+    @IsOptional()
+    @IsEnum(KodyRuleRequestType)
+    @ApiPropertyOptional({
+        enum: KodyRuleRequestType,
+        enumName: 'KodyRuleRequestType',
+    })
+    requestType?: KodyRuleRequestType;
+
+    @IsOptional()
+    @IsString()
+    @ApiPropertyOptional({
+        format: 'uuid',
+        description:
+            'When this rule is a pending request, target rule to update',
+    })
+    targetRuleUuid?: string;
+
+    @IsOptional()
+    @ApiPropertyOptional({
+        type: String,
+        format: 'date-time',
+    })
+    resolvedAt?: Date;
+
+    @IsOptional()
+    @IsString()
+    @ApiPropertyOptional({
+        description:
+            'User id/email/system identifier that resolved the request',
+    })
+    resolvedBy?: string;
 }
