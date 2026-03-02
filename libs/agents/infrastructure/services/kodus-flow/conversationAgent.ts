@@ -161,6 +161,19 @@ export class ConversationAgentProvider extends BaseAgentProvider {
         const { organizationAndTeamData, prepareContext, thread } =
             context || ({} as any);
         try {
+            if (
+                !organizationAndTeamData ||
+                !organizationAndTeamData.organizationId
+            ) {
+                throw new Error(
+                    'Organization and team data with organizationId is required.',
+                );
+            }
+
+            if (!thread) {
+                throw new Error('thread and team data is required.');
+            }
+
             const userLanguage = await this.getLanguage(
                 organizationAndTeamData,
             );
@@ -171,14 +184,6 @@ export class ConversationAgentProvider extends BaseAgentProvider {
                 serviceName: ConversationAgentProvider.name,
                 metadata: { organizationAndTeamData, thread, userLanguage },
             });
-
-            if (!organizationAndTeamData) {
-                throw new Error('Organization and team data is required ok.');
-            }
-
-            if (!thread) {
-                throw new Error('thread and team data is required.');
-            }
 
             await this.fetchBYOKConfig(organizationAndTeamData);
 

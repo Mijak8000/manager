@@ -55,6 +55,7 @@ function formatReferenceSection(references: unknown[] | undefined): string {
     }
 
     return (references as Array<Record<string, unknown>>)
+        .filter(Boolean)
         .map((ref) => {
             const lineRangeInfo = ref.lineRange
                 ? ` (lines ${(ref.lineRange as Record<string, unknown>).start}-${(ref.lineRange as Record<string, unknown>).end})`

@@ -54,7 +54,7 @@ export const useSuspenseKodyRulesByRepositoryId = (
 export const useSuspenseAllOrganizationKodyRules = (type?: KodyRulesType) => {
     return useSuspenseFetch<Array<KodyRule>>(
         KODY_RULES_PATHS.FIND_BY_ORGANIZATION_ID_AND_FILTER,
-        { params: { type } },
+        type !== undefined ? { params: { type } } : undefined,
     );
 };
 

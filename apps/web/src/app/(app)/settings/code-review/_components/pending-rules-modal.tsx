@@ -47,40 +47,26 @@ export const PendingKodyRulesModal = ({
         ResourceType.CodeReviewSettings,
     );
 
-    const applySelectedRules = async () => {
+    const applyPendingItems = async (ids: string[], hide: boolean = true) => {
         magicModal.lock();
-
-        await applyPendingKodyRules(selectedRuleIds);
-
-        magicModal.hide(true);
+        try {
+            await applyPendingKodyRules(ids);
+        } catch (error) {
+            console.error("Error applying pending items:", error);
+        } finally {
+            magicModal.hide(hide);
+        }
     };
 
-    const discardSelectedRules = async () => {
+    const discardPendingItems = async (ids: string[], hide: boolean = true) => {
         magicModal.lock();
-
-        await discardPendingKodyRules(selectedRuleIds);
-
-        magicModal.hide(true);
-    };
-
-    const applySingleRule = async (ruleId?: string) => {
-        if (!ruleId) return;
-
-        magicModal.lock();
-
-        await applyPendingKodyRules([ruleId]);
-
-        magicModal.hide(true);
-    };
-
-    const discardSingleRule = async (ruleId?: string) => {
-        if (!ruleId) return;
-
-        magicModal.lock();
-
-        await discardPendingKodyRules([ruleId]);
-
-        magicModal.hide(true);
+        try {
+            await discardPendingKodyRules(ids);
+        } catch (error) {
+            console.error("Error discarding pending items:", error);
+        } finally {
+            magicModal.hide(hide);
+        }
     };
 
     return (
@@ -149,7 +135,11 @@ export const PendingKodyRulesModal = ({
                                                 variant="cancel"
                                                 disabled={!canEdit}
                                                 onClick={() =>
-                                                    discardSingleRule(r.uuid)
+                                                    r.uuid &&
+                                                    discardPendingItems(
+                                                        [r.uuid],
+                                                        false,
+                                                    )
                                                 }>
                                                 Discard
                                             </Button>
@@ -159,7 +149,11 @@ export const PendingKodyRulesModal = ({
                                                 variant="primary"
                                                 disabled={!canEdit}
                                                 onClick={() =>
-                                                    applySingleRule(r.uuid)
+                                                    r.uuid &&
+                                                    applyPendingItems(
+                                                        [r.uuid],
+                                                        false,
+                                                    )
                                                 }>
                                                 Import
                                             </Button>
@@ -225,7 +219,7 @@ export const PendingKodyRulesModal = ({
                         size="md"
                         variant="cancel"
                         disabled={!canEdit || selectedRuleIds.length === 0}
-                        onClick={discardSelectedRules}>
+                        onClick={() => discardPendingItems(selectedRuleIds)}>
                         Discard selected
                     </Button>
 
@@ -233,7 +227,7 @@ export const PendingKodyRulesModal = ({
                         size="md"
                         variant="primary"
                         disabled={!canEdit || selectedRuleIds.length === 0}
-                        onClick={applySelectedRules}>
+                        onClick={() => applyPendingItems(selectedRuleIds)}>
                         Import selected
                     </Button>
                 </DialogFooter>

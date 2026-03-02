@@ -420,22 +420,40 @@ export const PendingMemoriesModal = ({
         );
     };
 
-    const applyPendingItems = async (ids: string[]) => {
+    const applyPendingItems = async (ids: string[], hide: boolean = true) => {
         magicModal.lock();
-        await applyPendingKodyRules(ids);
-        magicModal.hide(true);
+        try {
+            await applyPendingKodyRules(ids);
+        } catch (error) {
+            console.error("Error applying pending items:", error);
+        } finally {
+            magicModal.hide(hide);
+        }
     };
 
-    const discardPendingItems = async (ids: string[]) => {
+    const discardPendingItems = async (ids: string[], hide: boolean = true) => {
         magicModal.lock();
-        await discardPendingKodyRules(ids);
-        magicModal.hide(true);
+        try {
+            await discardPendingKodyRules(ids);
+        } catch (error) {
+            console.error("Error discarding pending items:", error);
+        } finally {
+            magicModal.hide(hide);
+        }
     };
 
-    const convertPendingItemsToMemories = async (ids: string[]) => {
+    const convertPendingItemsToMemories = async (
+        ids: string[],
+        hide: boolean = true,
+    ) => {
         magicModal.lock();
-        await convertPendingUpdatesToMemoriesRequest(ids);
-        magicModal.hide(true);
+        try {
+            await convertPendingUpdatesToMemoriesRequest(ids);
+        } catch (error) {
+            console.error("Error converting pending items to memories:", error);
+        } finally {
+            magicModal.hide(hide);
+        }
     };
 
     const selectAllInActiveTab = () => {
@@ -503,8 +521,12 @@ export const PendingMemoriesModal = ({
                                                 id,
                                             )
                                         }
-                                        onDiscard={discardPendingItems}
-                                        onApply={applyPendingItems}
+                                        onDiscard={(ids) =>
+                                            discardPendingItems(ids, false)
+                                        }
+                                        onApply={(ids) =>
+                                            applyPendingItems(ids, false)
+                                        }
                                     />
                                 ))
                             )}
@@ -539,11 +561,18 @@ export const PendingMemoriesModal = ({
                                                     id,
                                                 )
                                             }
-                                            onConvert={
-                                                convertPendingItemsToMemories
+                                            onConvert={(ids) =>
+                                                convertPendingItemsToMemories(
+                                                    ids,
+                                                    false,
+                                                )
                                             }
-                                            onDiscard={discardPendingItems}
-                                            onApply={applyPendingItems}
+                                            onDiscard={(ids) =>
+                                                discardPendingItems(ids, false)
+                                            }
+                                            onApply={(ids) =>
+                                                applyPendingItems(ids, false)
+                                            }
                                         />
                                     );
                                 })

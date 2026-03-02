@@ -1648,7 +1648,7 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     repositoryId: memory.repositoryId,
                     directoryId: memory.directoryId || undefined,
                     path: memory.path || undefined,
-                    createdAt: memory.createdAt.toISOString(),
+                    createdAt: memory.createdAt?.toISOString(),
                 }));
 
             return filteredMemories;

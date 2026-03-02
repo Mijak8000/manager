@@ -48,14 +48,16 @@ export class ChangeStatusKodyRulesUseCase {
                     {},
                 );
 
-            const targetRules = ruleIds.map((ruleId) => {
-                const foundRule = rules.find((r) => r.uuid === ruleId);
+            const rulesMap = new Map(rules.map((rule) => [rule.uuid, rule]));
 
-                if (!foundRule) {
+            const targetRules = ruleIds.map((ruleId) => {
+                const rule = rulesMap.get(ruleId);
+
+                if (!rule) {
                     throw new Error(`Rule not found: ${ruleId}`);
                 }
 
-                return foundRule;
+                return rule;
             });
 
             const repoIds = Array.from(
@@ -79,9 +81,7 @@ export class ChangeStatusKodyRulesUseCase {
                 userEmail: this.request.user?.email || 'kody@kodus.io',
             };
 
-            for (const ruleId of ruleIds) {
-                const rule = targetRules.find((r) => r.uuid === ruleId);
-
+            for (const rule of targetRules) {
                 const result = await this.kodyRulesService.createOrUpdate(
                     organizationAndTeamData,
                     {

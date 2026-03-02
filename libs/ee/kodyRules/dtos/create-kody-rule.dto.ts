@@ -14,6 +14,7 @@ import { Type } from 'class-transformer';
 import {
     IsArray,
     IsBoolean,
+    IsDate,
     IsEnum,
     IsNotEmpty,
     IsOptional,
@@ -222,6 +223,8 @@ export class CreateKodyRuleDto {
         type: String,
         format: 'date-time',
     })
+    @Type(() => Date)
+    @IsDate()
     resolvedAt?: Date;
 
     @IsOptional()

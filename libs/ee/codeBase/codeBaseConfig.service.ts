@@ -136,7 +136,7 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
                     kodyRulesEntity?.toObject()?.rules,
                     repository.id,
                     mergedConfigs.directoryId,
-                );
+                ) || { standardRules: [], memoryRules: [] };
 
             const globalIgnorePaths = await this.getGlobalIgnorePaths(
                 organizationAndTeamData,

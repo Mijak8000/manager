@@ -149,7 +149,7 @@ describe('ConvertPendingUpdatesToMemoriesUseCase', () => {
         );
 
         expect(changeStatusUseCaseMock.execute).toHaveBeenCalledWith({
-            ruleIds: ['pending-1', 'pending-2'],
+            ruleIds: ['pending-1'],
             status: KodyRulesStatus.REJECTED,
         });
 

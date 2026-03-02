@@ -52,6 +52,7 @@ describe('KodyRulesService.findMemories', () => {
             {} as any,
             {} as any,
             {} as any,
+            {} as any,
         );
 
         return { service, repositoryMock };

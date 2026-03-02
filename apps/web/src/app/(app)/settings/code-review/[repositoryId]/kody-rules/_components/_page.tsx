@@ -271,9 +271,6 @@ const KodyRulesPageContent = () => {
         [pendingRules],
     );
 
-    const currentRulesState =
-        activeTab === "memories" ? memoriesState : reviewRulesState;
-
     const handleTabChange = (tab: string) => {
         if (
             tab !== "review-rules" &&
@@ -365,9 +362,6 @@ const KodyRulesPageContent = () => {
             : KodyRulesType.STANDARD;
 
     const currentEntityLabel = activeTab === "memories" ? "memory" : "rule";
-
-    const isToolbarDisabled = !currentRulesState.hasAnyRulesInSystem;
-    const hasRulesToDisplay = currentRulesState.rulesToDisplay.length > 0;
 
     const headerDescription =
         "Review Rules run in the dedicated code review stage. Memories are injected across prompts and conversations to provide persistent context.";
@@ -499,11 +493,13 @@ const KodyRulesPageContent = () => {
                                 entityLabel="rules"
                                 visibleScopes={visibleScopes}
                                 onVisibleScopesChange={setVisibleScopes}
-                                isDisabled={isToolbarDisabled}
+                                isDisabled={
+                                    !reviewRulesState.hasAnyRulesInSystem
+                                }
                                 isRepoView={isRepoView}
                                 isGlobalView={isGlobalView}
                             />
-                            {!hasRulesToDisplay ? (
+                            {!reviewRulesState.rulesToDisplay.length ? (
                                 <KodyRulesEmptyState
                                     canEdit={canEdit}
                                     entityLabel="rule"
@@ -513,7 +509,7 @@ const KodyRulesPageContent = () => {
                                 />
                             ) : (
                                 <KodyRulesList
-                                    rules={currentRulesState.rulesToDisplay}
+                                    rules={reviewRulesState.rulesToDisplay}
                                     tab="review-rules"
                                     onAnyChange={refreshRulesList}
                                 />
@@ -534,11 +530,11 @@ const KodyRulesPageContent = () => {
                                 entityLabel="memories"
                                 visibleScopes={visibleScopes}
                                 onVisibleScopesChange={setVisibleScopes}
-                                isDisabled={isToolbarDisabled}
+                                isDisabled={!memoriesState.hasAnyRulesInSystem}
                                 isRepoView={isRepoView}
                                 isGlobalView={isGlobalView}
                             />
-                            {!hasRulesToDisplay ? (
+                            {!memoriesState.rulesToDisplay.length ? (
                                 <KodyRulesEmptyState
                                     canEdit={canEdit}
                                     entityLabel="memory"
@@ -549,7 +545,7 @@ const KodyRulesPageContent = () => {
                                 />
                             ) : (
                                 <KodyRulesList
-                                    rules={currentRulesState.rulesToDisplay}
+                                    rules={memoriesState.rulesToDisplay}
                                     tab="memories"
                                     onAnyChange={refreshRulesList}
                                 />

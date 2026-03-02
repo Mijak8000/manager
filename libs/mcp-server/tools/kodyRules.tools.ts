@@ -44,6 +44,10 @@ type KodyRuleInput = Required<
         | 'referenceProcessingStatus'
         | 'lastReferenceProcessedAt'
         | 'ruleHash'
+        | 'requestType'
+        | 'targetRuleUuid'
+        | 'resolvedAt'
+        | 'resolvedBy'
     >
 > & {
     severity: KodyRuleSeverity;
@@ -67,6 +71,10 @@ type KodyRuleMemoryInput = Required<
         | 'referenceProcessingStatus'
         | 'lastReferenceProcessedAt'
         | 'ruleHash'
+        | 'requestType'
+        | 'targetRuleUuid'
+        | 'resolvedAt'
+        | 'resolvedBy'
     >
 >;
 
@@ -378,9 +386,6 @@ export class KodyRulesTools {
                     title: z.string().optional(),
                     rule: z.string().optional(),
                     status: z.enum(KodyRulesStatus).optional(),
-                    action: z.enum(['created', 'updated', 'skipped']),
-                    requiresApproval: z.boolean(),
-                    message: z.string(),
                 }),
             }),
             execute: wrapToolHandler(
@@ -729,6 +734,10 @@ export class KodyRulesTools {
                     uuid: z.string(),
                     title: z.string(),
                     rule: z.string(),
+                    status: z.enum(KodyRulesStatus),
+                    action: z.enum(['created', 'updated', 'skipped']),
+                    requiresApproval: z.boolean(),
+                    message: z.string().optional(),
                 }),
             }),
             execute: wrapToolHandler(

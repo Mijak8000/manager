@@ -49,6 +49,6 @@ export const prompt_kodyMemoryResolution_user = (payload: {
 ${JSON.stringify(payload.incomingMemory)}
 
 Existing memories:
-${JSON.stringify(payload.existingMemories)}
+${JSON.stringify(payload.existingMemories.slice(0, 50))}
 
 Decide one action: create, skip, or update.`;

@@ -81,13 +81,13 @@ export class ConvertPendingUpdatesToMemoriesUseCase {
 
             if (created) {
                 createdRules.push(created);
+
+                await this.changeStatusKodyRulesUseCase.execute({
+                    ruleIds: [rule.uuid],
+                    status: KodyRulesStatus.REJECTED,
+                });
             }
         }
-
-        await this.changeStatusKodyRulesUseCase.execute({
-            ruleIds: body.ruleIds,
-            status: KodyRulesStatus.REJECTED,
-        });
 
         return createdRules;
     }

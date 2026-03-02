@@ -112,8 +112,14 @@ export class ApplyPendingKodyRulesUseCase {
                             organizationAndTeamData,
                             this.toCreateOrUpdateDto({
                                 ...targetRule,
-                                title: pendingRule.title || targetRule.title,
-                                rule: pendingRule.rule || targetRule.rule,
+                                title:
+                                    pendingRule.title !== undefined
+                                        ? pendingRule.title
+                                        : targetRule.title,
+                                rule:
+                                    pendingRule.rule !== undefined
+                                        ? pendingRule.rule
+                                        : targetRule.rule,
                                 path:
                                     pendingRule.path !== undefined
                                         ? pendingRule.path
