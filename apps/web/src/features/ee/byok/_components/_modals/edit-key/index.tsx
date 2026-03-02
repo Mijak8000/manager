@@ -11,6 +11,7 @@ import {
 import { FormControl } from "@components/ui/form-control";
 import { magicModal } from "@components/ui/magic-modal";
 import { Skeleton } from "@components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@components/ui/tabs";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAsyncAction } from "@hooks/use-async-action";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
@@ -21,6 +22,7 @@ import { FormProvider, useForm } from "react-hook-form";
 import type { BYOKConfig } from "../../../_types";
 import { ByokAdvancedSettings } from "./_components/advanced-settings";
 import { ByokBaseURLInput } from "./_components/baseurl-input";
+import { GuidedModelSelection } from "./_components/guided-model-selection";
 import { ByokKeyInput } from "./_components/key-input";
 import { ByokModelSelect, ByokManualModelInput } from "./_components/models";
 import { ByokProviderSelect } from "./_components/provider";
@@ -43,6 +45,9 @@ export const BYOKEditKeyModal = ({
 }) => {
     const isEditing = !!config;
     const [showKeyInput, setShowKeyInput] = useState(!isEditing);
+    const [setupMode, setSetupMode] = useState<"curated" | "custom">(
+        "curated",
+    );
 
     const form = useForm<EditKeyForm>({
         mode: "onChange",
@@ -87,7 +92,12 @@ export const BYOKEditKeyModal = ({
             <QueryErrorResetBoundary>
                 {({ reset }) => (
                     <Dialog open onOpenChange={() => magicModal.hide()}>
-                        <DialogContent className="max-w-lg">
+                        <DialogContent
+                            className={
+                                type === "main"
+                                    ? "max-w-3xl"
+                                    : "max-w-lg"
+                            }>
                             <DialogHeader>
                                 <DialogTitle>
                                     {!isEditing ? "Add" : "Edit"} {type} key
@@ -95,78 +105,168 @@ export const BYOKEditKeyModal = ({
                             </DialogHeader>
 
                             <div className="-mx-6 mt-4 flex max-h-[70vh] flex-col gap-6 overflow-y-auto px-6 pb-1">
-                                <ErrorBoundary
-                                    onReset={reset}
-                                    fallbackRender={({
-                                        resetErrorBoundary,
-                                    }) => (
-                                        <Alert
-                                            variant="danger"
-                                            className="flex items-start justify-between gap-6">
-                                            <span className="text-sm">
-                                                There was an error when loading
-                                                providers. Please, try again
-                                                later.
-                                            </span>
-                                            <Button
-                                                variant="tertiary"
-                                                size="xs"
-                                                onClick={() =>
-                                                    resetErrorBoundary()
-                                                }>
-                                                Try again
-                                            </Button>
-                                        </Alert>
-                                    )}>
-                                    <Suspense
-                                        fallback={
-                                            <FormControl.Root>
-                                                <FormControl.Label>
-                                                    Provider
-                                                </FormControl.Label>
-
-                                                <FormControl.Input>
-                                                    <Skeleton className="h-10" />
-                                                </FormControl.Input>
-                                            </FormControl.Root>
+                                {type === "main" ? (
+                                    <Tabs
+                                        value={setupMode}
+                                        onValueChange={(v) =>
+                                            setSetupMode(
+                                                v as "curated" | "custom",
+                                            )
                                         }>
-                                        <ByokProviderSelect
-                                            onProviderChange={() =>
-                                                setShowKeyInput(true)
-                                            }
-                                        />
-                                    </Suspense>
-                                </ErrorBoundary>
+                                        <TabsList>
+                                            <TabsTrigger value="curated">
+                                                Curated
+                                            </TabsTrigger>
+                                            <TabsTrigger value="custom">
+                                                Custom
+                                            </TabsTrigger>
+                                        </TabsList>
 
-                                {provider && (
-                                    <ErrorBoundary
-                                        onReset={reset}
-                                        resetKeys={[provider]}
-                                        fallbackRender={() => null}>
-                                        <Suspense fallback={null}>
-                                            <ByokBaseURLInput />
-                                        </Suspense>
-                                    </ErrorBoundary>
-                                )}
+                                        <TabsContent value="curated">
+                                            <GuidedModelSelection />
+                                        </TabsContent>
 
-                                {provider && (
-                                    <ErrorBoundary
-                                        onReset={reset}
-                                        resetKeys={[provider]}
-                                        fallbackRender={({
-                                            resetErrorBoundary,
-                                        }) => (
-                                            <div className="flex flex-col gap-4">
+                                        <TabsContent value="custom">
+                                            <div className="flex flex-col gap-6">
+                                                <ErrorBoundary
+                                                    onReset={reset}
+                                                    fallbackRender={({
+                                                        resetErrorBoundary,
+                                                    }) => (
+                                                        <Alert
+                                                            variant="danger"
+                                                            className="flex items-start justify-between gap-6">
+                                                            <span className="text-sm">
+                                                                There was an
+                                                                error when
+                                                                loading
+                                                                providers.
+                                                                Please, try
+                                                                again later.
+                                                            </span>
+                                                            <Button
+                                                                variant="tertiary"
+                                                                size="xs"
+                                                                onClick={() =>
+                                                                    resetErrorBoundary()
+                                                                }>
+                                                                Try again
+                                                            </Button>
+                                                        </Alert>
+                                                    )}>
+                                                    <Suspense
+                                                        fallback={
+                                                            <FormControl.Root>
+                                                                <FormControl.Label>
+                                                                    Provider
+                                                                </FormControl.Label>
+
+                                                                <FormControl.Input>
+                                                                    <Skeleton className="h-10" />
+                                                                </FormControl.Input>
+                                                            </FormControl.Root>
+                                                        }>
+                                                        <ByokProviderSelect
+                                                            onProviderChange={() =>
+                                                                setShowKeyInput(
+                                                                    true,
+                                                                )
+                                                            }
+                                                        />
+                                                    </Suspense>
+                                                </ErrorBoundary>
+
+                                                {provider && (
+                                                    <ErrorBoundary
+                                                        onReset={reset}
+                                                        resetKeys={[provider]}
+                                                        fallbackRender={() =>
+                                                            null
+                                                        }>
+                                                        <Suspense
+                                                            fallback={null}>
+                                                            <ByokBaseURLInput />
+                                                        </Suspense>
+                                                    </ErrorBoundary>
+                                                )}
+
+                                                {provider && (
+                                                    <ErrorBoundary
+                                                        onReset={reset}
+                                                        resetKeys={[provider]}
+                                                        fallbackRender={({
+                                                            resetErrorBoundary,
+                                                        }) => (
+                                                            <div className="flex flex-col gap-4">
+                                                                <Alert
+                                                                    variant="danger"
+                                                                    className="flex items-start justify-between gap-6">
+                                                                    <span className="text-sm">
+                                                                        There
+                                                                        was an
+                                                                        error
+                                                                        when
+                                                                        loading
+                                                                        models.
+                                                                        You can
+                                                                        still
+                                                                        type a
+                                                                        model
+                                                                        manually
+                                                                        below,
+                                                                        or try
+                                                                        again
+                                                                        later /
+                                                                        switch
+                                                                        provider.
+                                                                    </span>
+                                                                    <Button
+                                                                        variant="tertiary"
+                                                                        size="xs"
+                                                                        onClick={() =>
+                                                                            resetErrorBoundary()
+                                                                        }>
+                                                                        Try
+                                                                        again
+                                                                    </Button>
+                                                                </Alert>
+
+                                                                <ByokManualModelInput />
+                                                            </div>
+                                                        )}>
+                                                        <Suspense
+                                                            fallback={
+                                                                <FormControl.Root>
+                                                                    <FormControl.Label>
+                                                                        Model
+                                                                    </FormControl.Label>
+
+                                                                    <FormControl.Input>
+                                                                        <Skeleton className="h-10" />
+                                                                    </FormControl.Input>
+                                                                </FormControl.Root>
+                                                            }>
+                                                            <ByokModelSelect />
+                                                        </Suspense>
+                                                    </ErrorBoundary>
+                                                )}
+                                            </div>
+                                        </TabsContent>
+                                    </Tabs>
+                                ) : (
+                                    <>
+                                        <ErrorBoundary
+                                            onReset={reset}
+                                            fallbackRender={({
+                                                resetErrorBoundary,
+                                            }) => (
                                                 <Alert
                                                     variant="danger"
                                                     className="flex items-start justify-between gap-6">
                                                     <span className="text-sm">
                                                         There was an error when
-                                                        loading models. You can
-                                                        still type a model
-                                                        manually below, or try
-                                                        again later / switch
-                                                        provider.
+                                                        loading providers.
+                                                        Please, try again later.
                                                     </span>
                                                     <Button
                                                         variant="tertiary"
@@ -177,25 +277,90 @@ export const BYOKEditKeyModal = ({
                                                         Try again
                                                     </Button>
                                                 </Alert>
+                                            )}>
+                                            <Suspense
+                                                fallback={
+                                                    <FormControl.Root>
+                                                        <FormControl.Label>
+                                                            Provider
+                                                        </FormControl.Label>
 
-                                                <ByokManualModelInput />
-                                            </div>
-                                        )}>
-                                        <Suspense
-                                            fallback={
-                                                <FormControl.Root>
-                                                    <FormControl.Label>
-                                                        Model
-                                                    </FormControl.Label>
+                                                        <FormControl.Input>
+                                                            <Skeleton className="h-10" />
+                                                        </FormControl.Input>
+                                                    </FormControl.Root>
+                                                }>
+                                                <ByokProviderSelect
+                                                    onProviderChange={() =>
+                                                        setShowKeyInput(true)
+                                                    }
+                                                />
+                                            </Suspense>
+                                        </ErrorBoundary>
 
-                                                    <FormControl.Input>
-                                                        <Skeleton className="h-10" />
-                                                    </FormControl.Input>
-                                                </FormControl.Root>
-                                            }>
-                                            <ByokModelSelect />
-                                        </Suspense>
-                                    </ErrorBoundary>
+                                        {provider && (
+                                            <ErrorBoundary
+                                                onReset={reset}
+                                                resetKeys={[provider]}
+                                                fallbackRender={() => null}>
+                                                <Suspense fallback={null}>
+                                                    <ByokBaseURLInput />
+                                                </Suspense>
+                                            </ErrorBoundary>
+                                        )}
+
+                                        {provider && (
+                                            <ErrorBoundary
+                                                onReset={reset}
+                                                resetKeys={[provider]}
+                                                fallbackRender={({
+                                                    resetErrorBoundary,
+                                                }) => (
+                                                    <div className="flex flex-col gap-4">
+                                                        <Alert
+                                                            variant="danger"
+                                                            className="flex items-start justify-between gap-6">
+                                                            <span className="text-sm">
+                                                                There was an
+                                                                error when
+                                                                loading models.
+                                                                You can still
+                                                                type a model
+                                                                manually below,
+                                                                or try again
+                                                                later / switch
+                                                                provider.
+                                                            </span>
+                                                            <Button
+                                                                variant="tertiary"
+                                                                size="xs"
+                                                                onClick={() =>
+                                                                    resetErrorBoundary()
+                                                                }>
+                                                                Try again
+                                                            </Button>
+                                                        </Alert>
+
+                                                        <ByokManualModelInput />
+                                                    </div>
+                                                )}>
+                                                <Suspense
+                                                    fallback={
+                                                        <FormControl.Root>
+                                                            <FormControl.Label>
+                                                                Model
+                                                            </FormControl.Label>
+
+                                                            <FormControl.Input>
+                                                                <Skeleton className="h-10" />
+                                                            </FormControl.Input>
+                                                        </FormControl.Root>
+                                                    }>
+                                                    <ByokModelSelect />
+                                                </Suspense>
+                                            </ErrorBoundary>
+                                        )}
+                                    </>
                                 )}
 
                                 {model?.trim().length > 0 &&
