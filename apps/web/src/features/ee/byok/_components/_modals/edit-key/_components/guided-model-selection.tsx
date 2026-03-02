@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Badge } from "@components/ui/badge";
+import { Button } from "@components/ui/button";
 import { Card, CardContent } from "@components/ui/card";
 import {
     Tooltip,
@@ -177,11 +179,16 @@ function ModelCard({
     );
 }
 
-export const GuidedModelSelection = () => {
+export const GuidedModelSelection = ({
+    collapseOnSelect = false,
+}: {
+    collapseOnSelect?: boolean;
+}) => {
     const form = useFormContext<EditKeyForm>();
     const selectedModel = form.watch("model");
     const currentProvider = form.watch("provider");
     const currentApiKey = form.watch("apiKey");
+    const [expanded, setExpanded] = useState(true);
 
     const models = catalog.models as CuratedModel[];
 
@@ -194,6 +201,9 @@ export const GuidedModelSelection = () => {
         .filter((g) => g.models.length > 0);
 
     const selectedCuratedModel = models.find((m) => m.id === selectedModel);
+
+    const isCollapsed =
+        collapseOnSelect && selectedCuratedModel && !expanded;
 
     const handleSelectModel = (model: CuratedModel) => {
         const preserveKey =
@@ -209,7 +219,44 @@ export const GuidedModelSelection = () => {
             maxInputTokens: null,
             maxConcurrentRequests: null,
         });
+
+        if (collapseOnSelect) {
+            setExpanded(false);
+        }
     };
+
+    if (isCollapsed && selectedCuratedModel) {
+        return (
+            <div className="flex flex-col gap-3">
+                <ModelCard
+                    model={selectedCuratedModel}
+                    isSelected
+                    onSelect={() => setExpanded(true)}
+                />
+                <Button
+                    type="button"
+                    variant="tertiary"
+                    size="sm"
+                    onClick={() => setExpanded(true)}>
+                    Choose another model
+                </Button>
+
+                {selectedCuratedModel && (
+                    <a
+                        href={selectedCuratedModel.apiKeyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary-light flex items-center gap-1.5 text-sm hover:underline">
+                        Get your{" "}
+                        {providerLabels[selectedCuratedModel.provider] ??
+                            selectedCuratedModel.provider}{" "}
+                        API key
+                        <ExternalLinkIcon size={14} />
+                    </a>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col gap-5">
