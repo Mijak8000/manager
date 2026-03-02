@@ -75,7 +75,7 @@ function TagWithTooltip({
                     </Badge>
                 </span>
             </TooltipTrigger>
-            <TooltipContent>{tooltip}</TooltipContent>
+            <TooltipContent side="bottom">{tooltip}</TooltipContent>
         </Tooltip>
     );
 }

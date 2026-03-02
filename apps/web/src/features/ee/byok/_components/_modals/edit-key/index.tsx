@@ -20,6 +20,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import { FormProvider, useForm } from "react-hook-form";
 
 import type { BYOKConfig } from "../../../_types";
+import curatedCatalog from "../../../_data/curated-models.json";
 import { ByokAdvancedSettings } from "./_components/advanced-settings";
 import { ByokBaseURLInput } from "./_components/baseurl-input";
 import { GuidedModelSelection } from "./_components/guided-model-selection";
@@ -31,6 +32,8 @@ import {
     editKeySchema,
     type EditKeyForm,
 } from "./_types";
+
+const curatedModelIds = new Set(curatedCatalog.models.map((m) => m.id));
 
 export const BYOKEditKeyModal = ({
     type,
@@ -45,8 +48,10 @@ export const BYOKEditKeyModal = ({
 }) => {
     const isEditing = !!config;
     const [showKeyInput, setShowKeyInput] = useState(!isEditing);
-    const [setupMode, setSetupMode] = useState<"curated" | "custom">(
-        "curated",
+    const [setupMode, setSetupMode] = useState<"curated" | "custom">(() =>
+        config?.model && !curatedModelIds.has(config.model)
+            ? "custom"
+            : "curated",
     );
 
     const form = useForm<EditKeyForm>({
