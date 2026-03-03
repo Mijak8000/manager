@@ -17,6 +17,38 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
         teamId: 'team-1',
     };
 
+    const buildExpectedMemoryLink = (
+        scope: string,
+        ruleId?: string,
+        teamId?: string,
+    ) => {
+        const baseUrl = (process.env.API_USER_INVITE_BASE_URL || '').replace(
+            /\/$/,
+            '',
+        );
+
+        if (!baseUrl) {
+            return '';
+        }
+
+        const url = new URL(baseUrl);
+
+        if (!ruleId) {
+            url.pathname = `/settings/code-review/${scope}/kody-rules`;
+            url.searchParams.set('tab', 'memories');
+            return url.toString();
+        }
+
+        url.pathname = `/settings/code-review/${scope}/kody-rules/${ruleId}`;
+        url.searchParams.set('tab', 'memories');
+
+        if (teamId) {
+            url.searchParams.set('teamId', teamId);
+        }
+
+        return url.toString();
+    };
+
     const existingMemory: Partial<IKodyRule> = {
         uuid: 'existing-memory-1',
         type: KodyRulesType.MEMORY,
@@ -116,7 +148,11 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: existingMemory,
             action: 'skipped',
             requiresApproval: false,
-            link: 'http://localhost:3000/settings/code-review/repo-1/kody-rules/existing-memory-1?tab=memories&teamId=team-1',
+            link: buildExpectedMemoryLink(
+                'repo-1',
+                'existing-memory-1',
+                'team-1',
+            ),
         });
         expect(createOrUpdateSpy).not.toHaveBeenCalled();
         expect(observabilityServiceMock.runLLMInSpan).toHaveBeenCalledTimes(1);
@@ -164,7 +200,11 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: updatedResult,
             action: 'updated',
             requiresApproval: false,
-            link: 'http://localhost:3000/settings/code-review/global/kody-rules/existing-memory-1?tab=memories&teamId=team-1',
+            link: buildExpectedMemoryLink(
+                'global',
+                'existing-memory-1',
+                'team-1',
+            ),
         });
     });
 
@@ -206,7 +246,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingCreate,
             action: 'created',
             requiresApproval: true,
-            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
+            link: buildExpectedMemoryLink('global'),
         });
     });
 
@@ -275,7 +315,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingRequest,
             action: 'created',
             requiresApproval: true,
-            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
+            link: buildExpectedMemoryLink('global'),
         });
     });
 
@@ -323,7 +363,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingRequest,
             action: 'created',
             requiresApproval: true,
-            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
+            link: buildExpectedMemoryLink('global'),
         });
     });
 
@@ -366,7 +406,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingRequest,
             action: 'created',
             requiresApproval: true,
-            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
+            link: buildExpectedMemoryLink('global'),
         });
     });
 
@@ -404,7 +444,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: persistedResult,
             action: 'created',
             requiresApproval: false,
-            link: 'http://localhost:3000/settings/code-review/global/kody-rules/new-memory?tab=memories&teamId=team-1',
+            link: buildExpectedMemoryLink('global', 'new-memory', 'team-1'),
         });
     });
 
