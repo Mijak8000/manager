@@ -116,6 +116,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: existingMemory,
             action: 'skipped',
             requiresApproval: false,
+            link: 'http://localhost:3000/settings/code-review/repo-1/kody-rules/existing-memory-1?tab=memories&teamId=team-1',
         });
         expect(createOrUpdateSpy).not.toHaveBeenCalled();
         expect(observabilityServiceMock.runLLMInSpan).toHaveBeenCalledTimes(1);
@@ -163,6 +164,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: updatedResult,
             action: 'updated',
             requiresApproval: false,
+            link: 'http://localhost:3000/settings/code-review/global/kody-rules/existing-memory-1?tab=memories&teamId=team-1',
         });
     });
 
@@ -204,6 +206,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingCreate,
             action: 'created',
             requiresApproval: true,
+            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
         });
     });
 
@@ -272,6 +275,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingRequest,
             action: 'created',
             requiresApproval: true,
+            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
         });
     });
 
@@ -319,6 +323,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingRequest,
             action: 'created',
             requiresApproval: true,
+            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
         });
     });
 
@@ -361,6 +366,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: pendingRequest,
             action: 'created',
             requiresApproval: true,
+            link: 'http://localhost:3000/settings/code-review/global/kody-rules?tab=memories',
         });
     });
 
@@ -398,6 +404,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
             rule: persistedResult,
             action: 'created',
             requiresApproval: false,
+            link: 'http://localhost:3000/settings/code-review/global/kody-rules/new-memory?tab=memories&teamId=team-1',
         });
     });
 
