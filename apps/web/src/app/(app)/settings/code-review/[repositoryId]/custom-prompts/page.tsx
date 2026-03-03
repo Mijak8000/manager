@@ -65,6 +65,7 @@ import GeneratingConfig from "../../_components/generating-config";
 import { OverrideIndicatorForm } from "../../_components/override";
 import { type CodeReviewFormType } from "../../_types";
 import {
+    useCodeReviewConfig,
     useDefaultCodeReviewConfig,
     usePlatformConfig,
 } from "../../../_components/context";
@@ -77,6 +78,7 @@ function CustomPromptsContent() {
     const { teamId } = useSelectedTeamId();
     const { repositoryId, directoryId } = useCodeReviewRouteParams();
     const { resetQueries, generateQueryKey } = useReactQueryInvalidateQueries();
+    const config = useCodeReviewConfig();
     const defaults = useDefaultCodeReviewConfig()?.v2PromptOverrides;
     const initialized = useRef(false);
 
@@ -106,20 +108,29 @@ function CustomPromptsContent() {
     const promptValues = form.watch(PROMPT_FIELDS as any);
     const initialTextsRef = useRef<string[] | null>(null);
 
-    // Capture initial text content AFTER prefill has run
-    useEffect(() => {
-        if (initialTextsRef.current) return;
-        if (!defaults) return;
+    // Derive initial text state directly from the saved config + factory defaults.
+    // This avoids a race condition where reading form state via requestAnimationFrame
+    // might fire before the prefill effect has updated the form values.
+    // For each field: use the saved config value if present, otherwise the factory default.
+    if (!initialTextsRef.current && defaults) {
+        initialTextsRef.current = PROMPT_FIELDS.map((fieldPath) => {
+            // Try saved config value first (mirrors form's initial state from layout)
+            const savedValue = (fieldPath as string)
+                .split(".")
+                .reduce<any>((acc, key) => acc?.[key], config);
+            const savedText = getTextFromValue(savedValue)?.trim() ?? "";
+            if (savedText) return savedText;
 
-        // Small delay to let the prefill useEffect run first
-        const id = requestAnimationFrame(() => {
-            initialTextsRef.current = PROMPT_FIELDS.map((path) => {
-                const value = form.getValues(path as any);
-                return getTextFromValue(value)?.trim() ?? "";
-            });
+            // Fallback to factory defaults (same data the prefill effect uses)
+            const defaultPath = (fieldPath as string)
+                .replace("v2PromptOverrides.", "")
+                .replace(".value", "");
+            const defaultValue = defaultPath
+                .split(".")
+                .reduce<any>((acc, key) => acc?.[key], defaults);
+            return getTextFromValue(defaultValue)?.trim() ?? "";
         });
-        return () => cancelAnimationFrame(id);
-    }, [defaults]);
+    }
 
     const isPromptsDirty = (() => {
         if (!initialTextsRef.current) return false;
