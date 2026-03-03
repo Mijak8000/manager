@@ -90,6 +90,7 @@ export type CodeReviewGlobalConfig = {
     kodusConfigFileOverridesWebPreferences: boolean;
     isRequestChangesActive: boolean;
     kodyRulesGeneratorEnabled?: boolean;
+    llmGeneratedMemoriesRequireApproval?: boolean;
     runOnDraft: boolean;
     codeReviewVersion?: "legacy" | "v2";
     ideRulesSyncEnabled: boolean;
@@ -114,6 +115,7 @@ export type CodeReviewGlobalConfig = {
         };
     };
     enableCommittableSuggestions: boolean;
+    crossFileDependenciesAnalysis: boolean;
 };
 
 export type CodeReviewBaseConfig = {

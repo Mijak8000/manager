@@ -282,6 +282,7 @@ export const reviewOptionsSchema = z.object({
     performance: z.boolean(),
     security: z.boolean(),
     cross_file: z.boolean(),
+    business_logic: z.boolean().optional(),
 });
 
 export interface ReviewOptions {
@@ -289,6 +290,7 @@ export interface ReviewOptions {
     performance?: boolean;
     security?: boolean;
     cross_file?: boolean;
+    business_logic?: boolean;
 }
 
 export interface SummaryConfig {
@@ -332,11 +334,13 @@ export type CodeReviewConfig = {
     languageResultPrompt: string;
     llmProvider?: LLMModelProvider;
     kodyRules?: Partial<IKodyRule>[];
+    kodyMemoryRules?: Partial<IKodyRule>[];
     suggestionControl?: SuggestionControlConfig;
     pullRequestApprovalActive: boolean;
     kodusConfigFileOverridesWebPreferences: boolean;
     isRequestChangesActive?: boolean;
     kodyRulesGeneratorEnabled?: boolean;
+    llmGeneratedMemoriesRequireApproval?: boolean;
     reviewModeConfig?: ReviewModeConfig;
     ideRulesSyncEnabled?: boolean;
     kodyFineTuningConfig?: KodyFineTuningConfig;
@@ -381,6 +385,7 @@ export type CodeReviewConfig = {
     contextReferenceId?: string;
     contextRequirementsHash?: string;
     enableCommittableSuggestions?: boolean;
+    crossFileDependenciesAnalysis?: boolean;
     // This is the default branch of the repository, used only during the review process
     // This field is populated dynamically from the API (GitHub/GitLab) and should NOT be saved to the database
     // It represents the repository's default branch (e.g., 'main', 'develop') that comes from the code management platform

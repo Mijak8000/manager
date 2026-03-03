@@ -1,10 +1,10 @@
+import { UserInfo } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 import { Injectable } from '@nestjs/common';
 import {
-    UnifiedLogHandler,
     BaseLogParams,
     ChangedDataToExport,
+    UnifiedLogHandler,
 } from './unifiedLog.handler';
-import { UserInfo } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 
 export interface CodeReviewConfigLogParams extends BaseLogParams {
     oldConfig: any;
@@ -82,6 +82,9 @@ const PROPERTY_CONFIGS: Record<string, PropertyConfig> = {
     'showStatusFeedback': {
         actionDescription: 'Show Status Feedback',
     },
+    'crossFileDependenciesAnalysis': {
+        actionDescription: 'Crossfile Dependencies Analysis',
+    },
     //#endregion
 
     //#region Suggestion Control
@@ -114,6 +117,9 @@ const PROPERTY_CONFIGS: Record<string, PropertyConfig> = {
     //#region Kody Rules
     'kodyRulesGeneratorEnabled': {
         actionDescription: 'Kody Rules Generator',
+    },
+    'llmGeneratedMemoriesRequireApproval': {
+        actionDescription: 'LLM Generated Memories Require Approval',
     },
     //#endregion
 

@@ -75,6 +75,10 @@ class ReviewOptionsDto {
     @IsOptional()
     @IsBoolean()
     cross_file?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    business_logic?: boolean;
 }
 
 class SummaryConfigDto {
@@ -366,6 +370,10 @@ class CodeReviewConfigWithoutLLMProviderDto {
     kodyRulesGeneratorEnabled?: boolean;
 
     @IsOptional()
+    @IsBoolean()
+    llmGeneratedMemoriesRequireApproval?: boolean;
+
+    @IsOptional()
     @ValidateNested()
     @Type(() => ReviewCadenceDto)
     reviewCadence?: ReviewCadenceDto;
@@ -403,6 +411,10 @@ class CodeReviewConfigWithoutLLMProviderDto {
     @IsOptional()
     @IsBoolean()
     enableCommittableSuggestions?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    crossFileDependenciesAnalysis?: boolean;
 }
 
 export class CreateOrUpdateCodeReviewParameterDto {

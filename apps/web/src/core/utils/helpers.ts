@@ -175,9 +175,11 @@ export const codeReviewConfigRemovePropertiesNotInType = (
         "summary",
         "isRequestChangesActive",
         "kodyRulesGeneratorEnabled",
+        "llmGeneratedMemoriesRequireApproval",
         "runOnDraft",
         "codeReviewVersion",
         "enableCommittableSuggestions",
+        "crossFileDependenciesAnalysis",
         // New v2 prompt overrides for categories/severity customization
         "v2PromptOverrides",
     ];

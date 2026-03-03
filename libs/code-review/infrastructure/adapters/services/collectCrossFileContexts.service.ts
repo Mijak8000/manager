@@ -257,12 +257,17 @@ export class CollectCrossFileContextsService {
                 : LLMModelProvider.CEREBRAS_GPT_OSS_120B;
 
             // Chunk diff items by token limits
+            const byokMaxInputTokens = byokConfig?.main?.maxInputTokens;
+
             const chunkingResult =
                 this.tokenChunkingService.chunkDataByTokens({
                     model: effectiveModel,
                     data: fileDiffItems,
                     usagePercentage: 50,
                     defaultMaxTokens: 64000,
+                    ...(byokMaxInputTokens && byokMaxInputTokens > 0
+                        ? { overrideMaxTokens: byokMaxInputTokens }
+                        : {}),
                 });
 
             this.logger.log({
@@ -366,7 +371,7 @@ export class CollectCrossFileContextsService {
 
         const builder = promptRunner
             .builder()
-            .setParser(ParserType.ZOD, CrossFileContextPlannerSchema)
+            .setParser(ParserType.ZOD, CrossFileContextPlannerSchema as any)
             .setLLMJsonMode(true)
             .setPayload(payload)
             .addPrompt({
@@ -395,7 +400,7 @@ export class CollectCrossFileContextsService {
                     builder.addCallbacks(callbacks).execute(),
             });
 
-        return result?.queries ?? [];
+        return (result as CrossFileContextPlannerSchemaType)?.queries ?? [];
     }
 
     private deduplicatePlannerQueries(
