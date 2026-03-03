@@ -138,12 +138,7 @@ export class CapabilityResourcePlanService {
                 PRIMARY_SEED_DIR,
                 providerType,
             ),
-            path.join(
-                __dirname,
-                '..',
-                PRIMARY_SEED_DIR,
-                providerType,
-            ),
+            path.join(__dirname, '..', PRIMARY_SEED_DIR, providerType),
             path.join(
                 process.cwd(),
                 'libs',

@@ -3,13 +3,16 @@ import { BusinessRulesContext } from './types';
 
 const DEFAULT_USER_LANGUAGE = 'en-US';
 
-export function buildBusinessRulesAnalysisPrompt(ctx: BusinessRulesContext): string {
+export function buildBusinessRulesAnalysisPrompt(
+    ctx: BusinessRulesContext,
+): string {
     const acceptanceCriteria = formatAcceptanceCriteria(ctx);
     const taskId = ctx.taskContextNormalized?.id;
     const taskTitle = ctx.taskContextNormalized?.title;
     const taskLinks = ctx.taskContextNormalized?.links ?? [];
     const userLanguage =
-        typeof ctx.userLanguage === 'string' && ctx.userLanguage.trim().length > 0
+        typeof ctx.userLanguage === 'string' &&
+        ctx.userLanguage.trim().length > 0
             ? ctx.userLanguage
             : DEFAULT_USER_LANGUAGE;
 
@@ -74,16 +77,17 @@ function formatAcceptanceCriteria(ctx: BusinessRulesContext): string {
     const criteria = ctx.taskContextNormalized?.acceptanceCriteria;
 
     if (criteria && criteria.length > 0) {
-        return criteria
-            .map((ac, i) => `${i + 1}. "${ac}"`)
-            .join('\n');
+        return criteria.map((ac, i) => `${i + 1}. "${ac}"`).join('\n');
     }
 
     // Fallback: try to extract bullet points from raw task context
     const extracted = extractCriteriaFromText(ctx.taskContext);
     if (extracted.length > 0) {
         return extracted
-            .map((ac, i) => `${i + 1}. "${ac}" (extracted from task description)`)
+            .map(
+                (ac, i) =>
+                    `${i + 1}. "${ac}" (extracted from task description)`,
+            )
             .join('\n');
     }
 

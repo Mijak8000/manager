@@ -240,27 +240,22 @@ describe('BusinessRulesValidationAgentProvider analyzer execution', () => {
             .fn()
             .mockResolvedValue('## Business Rules Validation');
 
-        const result = await (provider as any).runAnalyzer(
-            {} as any,
-            {
-                organizationAndTeamData: {
-                    organizationId: 'org-1',
-                    teamId: 'team-1',
-                },
-                userLanguage: 'en-US',
-                taskQuality: 'COMPLETE',
-                analysisEligibility: {
-                    mode: 'full_analysis',
-                    reason: 'analysis_ready',
-                    taskContextStatus: 'usable',
-                    prDiffStatus: 'usable',
-                },
+        const result = await (provider as any).runAnalyzer({} as any, {
+            organizationAndTeamData: {
+                organizationId: 'org-1',
+                teamId: 'team-1',
             },
-        );
+            userLanguage: 'en-US',
+            taskQuality: 'COMPLETE',
+            analysisEligibility: {
+                mode: 'full_analysis',
+                reason: 'analysis_ready',
+                taskContextStatus: 'usable',
+                prDiffStatus: 'usable',
+            },
+        });
 
-        expect(result.formattedResponse).toBe(
-            '## Business Rules Validation',
-        );
+        expect(result.formattedResponse).toBe('## Business Rules Validation');
         expect(result.formattedResponse).not.toBeInstanceOf(Promise);
         createLLMAdapterSpy.mockRestore();
     });
@@ -305,8 +300,7 @@ describe('BusinessRulesValidationAgentProvider analyzer execution', () => {
                     'Git change parsing no longer relies on any',
                 ],
             },
-            prDiff:
-                'diff --git a/src/commands/prCommentCommands.ts b/src/commands/prCommentCommands.ts\n+ changeGroups.forEach((change: GitChangeLike) => {\n',
+            prDiff: 'diff --git a/src/commands/prCommentCommands.ts b/src/commands/prCommentCommands.ts\n+ changeGroups.forEach((change: GitChangeLike) => {\n',
             analysisEligibility: {
                 mode: 'full_analysis',
                 reason: 'analysis_ready',

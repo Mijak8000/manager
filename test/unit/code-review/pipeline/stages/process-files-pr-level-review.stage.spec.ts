@@ -159,7 +159,9 @@ describe('ProcessFilesPrLevelReviewStage', () => {
 
         await (stage as any).runBusinessLogicValidation(context);
 
-        expect(businessRulesValidationAgentProvider.execute).toHaveBeenCalledWith(
+        expect(
+            businessRulesValidationAgentProvider.execute,
+        ).toHaveBeenCalledWith(
             expect.objectContaining({
                 organizationAndTeamData: context.organizationAndTeamData,
                 prepareContext: expect.objectContaining({
@@ -183,7 +185,8 @@ describe('ProcessFilesPrLevelReviewStage', () => {
 
     it('does not create a business-logic suggestion when the provider returns a limitation response', async () => {
         (posthog.isFeatureEnabled as jest.Mock).mockResolvedValue(true);
-        businessRulesValidationAgentProvider.execute.mockResolvedValue(`## 🤔 Need Pull Request Diff
+        businessRulesValidationAgentProvider.execute
+            .mockResolvedValue(`## 🤔 Need Pull Request Diff
 
 I found enough task context to understand the expected behavior, but I couldn't load the pull request diff.`);
 
@@ -220,7 +223,8 @@ I found enough task context to understand the expected behavior, but I couldn't 
 
     it('does not create a business-logic suggestion when the provider returns a limitation response in pt-BR', async () => {
         (posthog.isFeatureEnabled as jest.Mock).mockResolvedValue(true);
-        businessRulesValidationAgentProvider.execute.mockResolvedValue(`## 🤔 Preciso do Diff da Pull Request
+        businessRulesValidationAgentProvider.execute
+            .mockResolvedValue(`## 🤔 Preciso do Diff da Pull Request
 
 Encontrei contexto suficiente da task, mas nao consegui carregar o diff da pull request. Sem as alteracoes de codigo, nao consigo validar se a implementacao atende aos requisitos de negocio.`);
 

@@ -510,8 +510,9 @@ export class GenericSkillRunnerService {
             return;
         }
 
-        const matchingExternalConnections = externalConnections.filter((server) =>
-            this.serverMatchesRequiredHints(server, requiredProviderHints),
+        const matchingExternalConnections = externalConnections.filter(
+            (server) =>
+                this.serverMatchesRequiredHints(server, requiredProviderHints),
         );
 
         if (!matchingExternalConnections.length) {
@@ -683,7 +684,9 @@ export class GenericSkillRunnerService {
             metadataConnection?.appName,
         ];
 
-        return [...new Set(aliases.filter((alias) => typeof alias === 'string'))];
+        return [
+            ...new Set(aliases.filter((alias) => typeof alias === 'string')),
+        ];
     }
 
     private normalizeProviderToken(value: unknown): string {
@@ -713,7 +716,9 @@ export class GenericSkillRunnerService {
         const result: string[] = [];
 
         for (const server of mcpManagerServers ?? []) {
-            for (const providerType of this.resolveServerProviderTypes(server)) {
+            for (const providerType of this.resolveServerProviderTypes(
+                server,
+            )) {
                 if (!seen.has(providerType)) {
                     seen.add(providerType);
                     result.push(providerType);

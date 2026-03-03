@@ -2,7 +2,10 @@ import { BusinessRulesValidationAgentUseCase } from '@libs/agents/application/us
 import { buildBusinessRulesAnalysisPrompt } from '@libs/agents/infrastructure/services/kodus-flow/business-rules-validation/analysis-prompt.builder';
 import { BusinessRulesValidationAgentProvider } from '@libs/agents/infrastructure/services/kodus-flow/business-rules-validation/businessRulesValidationAgent';
 import { BaseAgentProvider } from '@libs/agents/infrastructure/services/kodus-flow/base-agent.provider';
-import { SkillCapabilityRuntimeConfig, ToolCaller } from '@libs/agents/skills/runtime/skill-runtime.types';
+import {
+    SkillCapabilityRuntimeConfig,
+    ToolCaller,
+} from '@libs/agents/skills/runtime/skill-runtime.types';
 
 function createMockToolCaller(params: {
     prBody: string;
@@ -175,8 +178,7 @@ describe('BusinessRulesValidation flow integration', () => {
         genericSkillRunner.createFetcherOrchestration.mockResolvedValue({
             toolCaller: createMockToolCaller({
                 prBody: 'Refines type-safety in extension commands.',
-                prDiff:
-                    'diff --git a/src/commands/prCommentCommands.ts b/src/commands/prCommentCommands.ts\n+ changeGroups.forEach((change: GitChangeLike) => {\n',
+                prDiff: 'diff --git a/src/commands/prCommentCommands.ts b/src/commands/prCommentCommands.ts\n+ changeGroups.forEach((change: GitChangeLike) => {\n',
                 task: {
                     id: 'KC-1441',
                     title: 'Replace any-based git change parsing with typed handling',
@@ -216,9 +218,11 @@ describe('BusinessRulesValidation flow integration', () => {
                         taskContextStatus: 'usable',
                         prDiffStatus: 'usable',
                         confidence: 'medium',
-                        summary: '## Validação de Regras de Negócio\n\nTudo certo.',
+                        summary:
+                            '## Validação de Regras de Negócio\n\nTudo certo.',
                     },
-                    formattedResponse: '## Validação de Regras de Negócio\n\nTudo certo.',
+                    formattedResponse:
+                        '## Validação de Regras de Negócio\n\nTudo certo.',
                 };
             });
 

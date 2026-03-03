@@ -48,30 +48,27 @@ describe('skill-capabilities', () => {
 
     describe('capabilityToolMap dynamic resolution', () => {
         it('resolves tools from capabilityToolMap when not in built-in registry', () => {
-            const result = resolveCapabilityTools(
-                ['custom.capability'],
-                { 'custom.capability': ['myCustomTool', 'anotherTool'] },
-            );
+            const result = resolveCapabilityTools(['custom.capability'], {
+                'custom.capability': ['myCustomTool', 'anotherTool'],
+            });
 
             expect(result.tools).toEqual(['myCustomTool', 'anotherTool']);
             expect(result.unknownCapabilities).toHaveLength(0);
         });
 
         it('prefers built-in registry over capabilityToolMap', () => {
-            const result = resolveCapabilityTools(
-                ['pr.diff.read'],
-                { 'pr.diff.read': ['overrideTool'] },
-            );
+            const result = resolveCapabilityTools(['pr.diff.read'], {
+                'pr.diff.read': ['overrideTool'],
+            });
 
             expect(result.tools).toEqual(['KODUS_GET_PULL_REQUEST_DIFF']);
             expect(result.unknownCapabilities).toHaveLength(0);
         });
 
         it('reports unknown when capability is not in registry or capabilityToolMap', () => {
-            const result = resolveCapabilityTools(
-                ['unknown.capability'],
-                { 'other.capability': ['tool'] },
-            );
+            const result = resolveCapabilityTools(['unknown.capability'], {
+                'other.capability': ['tool'],
+            });
 
             expect(result.tools).toHaveLength(0);
             expect(result.unknownCapabilities).toEqual(['unknown.capability']);
@@ -85,7 +82,9 @@ describe('skill-capabilities', () => {
                 toolMode: 'any',
             });
 
-            expect(result.toolByCapability['custom.read']).toBe('getCustomData');
+            expect(result.toolByCapability['custom.read']).toBe(
+                'getCustomData',
+            );
             expect(result.missingCapabilities).toHaveLength(0);
             expect(result.hasRequiredTools).toBe(true);
         });

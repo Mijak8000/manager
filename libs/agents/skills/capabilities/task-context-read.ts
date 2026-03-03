@@ -381,7 +381,9 @@ function resolveRegisteredToolAliases(
     return resolved;
 }
 
-function resolveTaskContextHints(params: TaskContextReadParams): TaskContextHints {
+function resolveTaskContextHints(
+    params: TaskContextReadParams,
+): TaskContextHints {
     const candidates = [
         params.taskContext,
         params.pullRequestDescription,
@@ -589,7 +591,8 @@ async function resolveDeterministicTaskContext(input: {
                 canExecute: true,
                 extract: (payload) => extractTaskContextFromToolResult(payload),
                 fallback: undefined,
-                isSuccessful: (value) => Boolean(value?.description || value?.title),
+                isSuccessful: (value) =>
+                    Boolean(value?.description || value?.title),
                 hooks: input.hooks,
                 logger: input.logger,
             });
@@ -997,8 +1000,7 @@ async function executeAndTrace<T>(
         toolName: input.toolName,
         args: input.args,
         callTool: (toolName, args) => input.toolCaller.callTool(toolName, args),
-        validate: () =>
-            input.canExecute ? undefined : 'precondition_failed',
+        validate: () => (input.canExecute ? undefined : 'precondition_failed'),
         extract: (payload) => input.extract(payload),
         fallback: input.fallback,
         onError: 'fallback',
@@ -1185,7 +1187,8 @@ Return ONLY JSON:
             message: 'Agentic fallback failed',
             context: 'TaskContextReadCapability',
             metadata: {
-                errorMessage: error instanceof Error ? error.message : String(error),
+                errorMessage:
+                    error instanceof Error ? error.message : String(error),
             },
         });
 
@@ -1400,7 +1403,13 @@ function extractContextCandidates(payload: unknown): Record<string, unknown>[] {
             'properties',
             'attributes',
         ];
-        const collectionKeys = ['items', 'results', 'records', 'nodes', 'content'];
+        const collectionKeys = [
+            'items',
+            'results',
+            'records',
+            'nodes',
+            'content',
+        ];
 
         for (const key of singletonKeys) {
             visit(record[key], depth + 1);
@@ -1677,8 +1686,10 @@ function tryParseJsonString(value: string): unknown | undefined {
         return undefined;
     }
     if (
-        !((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-            (trimmed.startsWith('[') && trimmed.endsWith(']')))
+        !(
+            (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))
+        )
     ) {
         return undefined;
     }

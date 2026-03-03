@@ -488,7 +488,10 @@ describe('GenericSkillRunnerService', () => {
             {
                 provider: 'custom',
                 name: 'Jira',
-                allowedTools: ['getAccessibleAtlassianResources', 'getJiraIssue'],
+                allowedTools: [
+                    'getAccessibleAtlassianResources',
+                    'getJiraIssue',
+                ],
             },
         ] as any);
 

@@ -508,12 +508,12 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
             result.mode ??
             (result.needsMoreInfo
                 ? 'limitation_response'
-                : eligibility?.mode ?? 'full_analysis');
+                : (eligibility?.mode ?? 'full_analysis'));
         const reason =
             result.reason ??
             (result.needsMoreInfo
                 ? eligibility?.reason
-                : eligibility?.reason ?? 'analysis_ready');
+                : (eligibility?.reason ?? 'analysis_ready'));
         const taskContextStatus =
             result.taskContextStatus ?? eligibility?.taskContextStatus;
         const prDiffStatus = result.prDiffStatus ?? eligibility?.prDiffStatus;
@@ -563,7 +563,9 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
             return message;
         }
 
-        if (userLanguage.trim().toLowerCase() === DEFAULT_LANGUAGE.toLowerCase()) {
+        if (
+            userLanguage.trim().toLowerCase() === DEFAULT_LANGUAGE.toLowerCase()
+        ) {
             return message;
         }
 

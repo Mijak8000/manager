@@ -51,7 +51,8 @@ export async function fetchPullRequestDiff(
                   prNumber: params.pullRequestNumber,
               }
             : {},
-        callTool: (selectedTool, args) => toolCaller.callTool(selectedTool, args),
+        callTool: (selectedTool, args) =>
+            toolCaller.callTool(selectedTool, args),
         validate: () => (params ? undefined : 'precondition_failed'),
         extract: extractDiffFromToolResult,
         fallback: '',
@@ -156,10 +157,7 @@ function extractDiffFromToolResult(payload: unknown): string {
             continue;
         }
 
-        const parsed = safeJsonParse<Record<string, unknown>>(
-            record.text,
-            {},
-        );
+        const parsed = safeJsonParse<Record<string, unknown>>(record.text, {});
         if (typeof parsed.data === 'string') {
             return parsed.data;
         }

@@ -116,9 +116,7 @@ export function classifyTaskQualityFromSources(input: {
 
     if (
         (hasAcceptanceCriteriaSection || bulletLikeRequirements >= 2) &&
-        (hasDescriptionSection ||
-            hasTitleSection ||
-            normalized.length >= 120)
+        (hasDescriptionSection || hasTitleSection || normalized.length >= 120)
     ) {
         return 'COMPLETE';
     }
@@ -184,7 +182,9 @@ export function createBusinessRulesBlueprintTooling(
     return {
         fetchPullRequestBody: async (ctx: BusinessRulesContext) => {
             const args = resolvePullRequestMetadataToolArgs(ctx);
-            const toolName = capabilityTools.getToolName(PR_METADATA_CAPABILITY);
+            const toolName = capabilityTools.getToolName(
+                PR_METADATA_CAPABILITY,
+            );
             const metadata = await fetchPullRequestMetadata(
                 fetcher,
                 toolName,
@@ -192,10 +192,7 @@ export function createBusinessRulesBlueprintTooling(
                 buildCapabilityExecutionContext(ctx, providerType),
             );
 
-            await recordCapabilityExecutionTraces(
-                hooks,
-                metadata.traces,
-            );
+            await recordCapabilityExecutionTraces(hooks, metadata.traces);
 
             return {
                 value: metadata.body,
@@ -213,10 +210,7 @@ export function createBusinessRulesBlueprintTooling(
                 buildCapabilityExecutionContext(ctx, providerType),
             );
 
-            await recordCapabilityExecutionTraces(
-                hooks,
-                diff.traces,
-            );
+            await recordCapabilityExecutionTraces(hooks, diff.traces);
 
             return {
                 value: diff.diff,
@@ -284,7 +278,8 @@ function resolvePullRequestNumber(
 
 function resolveExecutionScope(ctx: BusinessRulesContext): ExecutionScope {
     return {
-        organizationId: ctx.organizationAndTeamData?.organizationId ?? 'unknown-org',
+        organizationId:
+            ctx.organizationAndTeamData?.organizationId ?? 'unknown-org',
         teamId: ctx.organizationAndTeamData?.teamId ?? 'unknown-team',
     };
 }
@@ -385,13 +380,13 @@ async function recordCapabilityExecutionTraces(
     hooks: CapabilityExecutionHooks<BusinessRulesContext> | undefined,
     traces: CapabilityExecutionTrace[],
 ): Promise<void> {
-    await Promise.all(
-        traces.map((trace) => hooks?.recordExecution?.(trace)),
-    );
+    await Promise.all(traces.map((trace) => hooks?.recordExecution?.(trace)));
 }
 
 function asBusinessSignalHints(
-    value: BusinessRulesContext['prepareContext'] extends { businessSignals?: infer T }
+    value: BusinessRulesContext['prepareContext'] extends {
+        businessSignals?: infer T;
+    }
         ? T
         : unknown,
 ):
@@ -413,9 +408,7 @@ function asBusinessSignalHints(
 
     const ticketKeys = sanitizeStringArray(input.ticketKeys);
     const taskLinks = sanitizeStringArray(input.taskLinks);
-    const requirementKeywords = sanitizeStringArray(
-        input.requirementKeywords,
-    );
+    const requirementKeywords = sanitizeStringArray(input.requirementKeywords);
 
     if (!ticketKeys && !taskLinks && !requirementKeywords) {
         return undefined;

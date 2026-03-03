@@ -1,4 +1,7 @@
-import { asRecord, safeJsonParse } from '../../../../skills/runtime/value-utils';
+import {
+    asRecord,
+    safeJsonParse,
+} from '../../../../skills/runtime/value-utils';
 
 import { ValidationResult } from './types';
 
@@ -85,7 +88,9 @@ function unwrapValidationResult(result: unknown): unknown {
     return current;
 }
 
-function tryParseValidationObject(result: unknown): ValidationResult | undefined {
+function tryParseValidationObject(
+    result: unknown,
+): ValidationResult | undefined {
     const record = asRecord(result);
     if (!Object.keys(record).length) {
         return undefined;
@@ -109,8 +114,7 @@ function tryParseValidationObject(result: unknown): ValidationResult | undefined
     const missingInfo =
         typeof record.missingInfo === 'string' ? record.missingInfo : '';
     const mode =
-        record.mode === 'full_analysis' ||
-        record.mode === 'limitation_response'
+        record.mode === 'full_analysis' || record.mode === 'limitation_response'
             ? record.mode
             : record.needsMoreInfo === true
               ? 'limitation_response'
@@ -187,7 +191,9 @@ function extractFieldsFromString(text: string): Partial<ValidationResult> {
 
     const summaryMatch = text.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
     if (summaryMatch) {
-        fields.summary = summaryMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        fields.summary = summaryMatch[1]
+            .replace(/\\n/g, '\n')
+            .replace(/\\"/g, '"');
     }
 
     return fields;

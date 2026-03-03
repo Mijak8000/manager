@@ -468,9 +468,9 @@ export const KodyRuleAddOrUpdateItemModal = ({
                 initialScope === "pull-request"
                     ? ""
                     : rule
-                        ? !directory
-                            ? rule.path
-                            : (() => {
+                      ? !directory
+                          ? rule.path
+                          : (() => {
                                 const pathWithoutDirectory =
                                     getKodyRulePathWithoutDirectoryPath({
                                         directory,
@@ -481,9 +481,9 @@ export const KodyRuleAddOrUpdateItemModal = ({
                                     DEFAULT_PATH_FOR_DIRECTORIES
                                 );
                             })()
-                        : directory
-                            ? DEFAULT_PATH_FOR_DIRECTORIES
-                            : "",
+                      : directory
+                        ? DEFAULT_PATH_FOR_DIRECTORIES
+                        : "",
             rule: rule?.rule ?? "",
             title: rule?.title ?? "",
             severity: rule?.severity ?? "high",
@@ -933,7 +933,7 @@ export const KodyRuleAddOrUpdateItemModal = ({
                                                                     className={cn(
                                                                         "h-auto flex-1 items-start px-4 py-4",
                                                                         isSelected &&
-                                                                        "ring-primary-light ring-2",
+                                                                            "ring-primary-light ring-2",
                                                                     )}>
                                                                     <div className="flex w-full items-start justify-between gap-3">
                                                                         <div className="flex items-start gap-3">
@@ -1088,15 +1088,15 @@ export const KodyRuleAddOrUpdateItemModal = ({
                                                     error={fieldState.error}
                                                     className={cn(
                                                         directory &&
-                                                        !isInherited &&
-                                                        watchScope ===
-                                                        "file" &&
-                                                        "rounded-l-none",
+                                                            !isInherited &&
+                                                            watchScope ===
+                                                                "file" &&
+                                                            "rounded-l-none",
                                                     )}
                                                     disabled={
                                                         field.disabled ||
                                                         watchScope ===
-                                                        "pull-request"
+                                                            "pull-request"
                                                     }
                                                     onChange={(e) =>
                                                         field.onChange(
@@ -1252,13 +1252,13 @@ export const KodyRuleAddOrUpdateItemModal = ({
                                                                 <div className="flex flex-col gap-3">
                                                                     <span className="text-text-primary text-xs font-medium">
                                                                         {watchScope ===
-                                                                            "file"
+                                                                        "file"
                                                                             ? "File context"
                                                                             : "PR context"}
                                                                     </span>
                                                                     <div className="flex flex-wrap gap-1.5">
                                                                         {(watchScope ===
-                                                                            "file"
+                                                                        "file"
                                                                             ? FILE_CONTEXT_VARIABLES
                                                                             : PR_CONTEXT_VARIABLES
                                                                         ).map(
@@ -1291,7 +1291,7 @@ export const KodyRuleAddOrUpdateItemModal = ({
 
                                                     {!isMemory &&
                                                         mcpGroups.length >
-                                                        0 && (
+                                                            0 && (
                                                             <MCPToolsPopover
                                                                 mcpGroups={
                                                                     mcpGroups

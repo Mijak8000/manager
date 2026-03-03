@@ -546,8 +546,7 @@ export class SkillLoaderService {
                     : undefined;
             const tools = this.normalizeAllowedTools(definition.tools);
             const mode =
-                parsedMode ??
-                (tools?.length ? 'fixed_tools' : undefined);
+                parsedMode ?? (tools?.length ? 'fixed_tools' : undefined);
 
             if (!mode) {
                 continue;
@@ -557,9 +556,7 @@ export class SkillLoaderService {
             }
 
             normalized[trimmedCapability] =
-                mode === 'provider_dynamic'
-                    ? { mode }
-                    : { mode, tools };
+                mode === 'provider_dynamic' ? { mode } : { mode, tools };
         }
 
         return Object.keys(normalized).length ? normalized : undefined;

@@ -18,7 +18,10 @@ import { buildBusinessRulesAnalysisPrompt } from '@libs/agents/infrastructure/se
 import { BaseAgentProvider } from '@libs/agents/infrastructure/services/kodus-flow/base-agent.provider';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { ChatWithKodyFromGitUseCase } from '@libs/platform/application/use-cases/codeManagement/chatWithKodyFromGit.use-case';
-import { SkillCapabilityRuntimeConfig, ToolCaller } from '@libs/agents/skills/runtime/skill-runtime.types';
+import {
+    SkillCapabilityRuntimeConfig,
+    ToolCaller,
+} from '@libs/agents/skills/runtime/skill-runtime.types';
 
 function createMockToolCaller(params: {
     prBody: string;
@@ -153,7 +156,11 @@ describe('ChatWithKodyFromGitUseCase business-logic integration', () => {
         provider = new BusinessRulesValidationAgentProvider(
             {} as any,
             { getBYOKConfig: jest.fn().mockResolvedValue(undefined) } as any,
-            { findByKey: jest.fn().mockResolvedValue({ configValue: 'pt-BR' }) } as any,
+            {
+                findByKey: jest
+                    .fn()
+                    .mockResolvedValue({ configValue: 'pt-BR' }),
+            } as any,
             {} as any,
             genericSkillRunner as any,
             {
@@ -172,8 +179,7 @@ describe('ChatWithKodyFromGitUseCase business-logic integration', () => {
         genericSkillRunner.createFetcherOrchestration.mockResolvedValue({
             toolCaller: createMockToolCaller({
                 prBody: 'Refines type-safety in extension commands.',
-                prDiff:
-                    'diff --git a/src/commands/prCommentCommands.ts b/src/commands/prCommentCommands.ts\n+ changeGroups.forEach((change: GitChangeLike) => {\n',
+                prDiff: 'diff --git a/src/commands/prCommentCommands.ts b/src/commands/prCommentCommands.ts\n+ changeGroups.forEach((change: GitChangeLike) => {\n',
                 task: {
                     id: 'KC-1441',
                     title: 'Replace any-based git change parsing with typed handling',
@@ -345,6 +351,5 @@ describe('ChatWithKodyFromGitUseCase business-logic integration', () => {
         expect(
             codeManagementService.removeReactionsFromComment,
         ).toHaveBeenCalled();
-
     });
 });

@@ -49,9 +49,7 @@ describe('buildBusinessRulesAnalysisPrompt', () => {
             prBody: 'PR body',
         } as BusinessRulesContext);
 
-        expect(prompt).toContain(
-            'Write ALL generated prose in USER LANGUAGE.',
-        );
+        expect(prompt).toContain('Write ALL generated prose in USER LANGUAGE.');
         expect(prompt).toContain(
             'Only requirement quotes copied from task context may remain in the original source language.',
         );
@@ -72,9 +70,7 @@ describe('buildBusinessRulesAnalysisPrompt', () => {
             taskContextNormalized: {
                 id: 'KC-1441',
                 title: 'Kody rules por time',
-                links: [
-                    'https://kodustech.atlassian.net/browse/KC-1441',
-                ],
+                links: ['https://kodustech.atlassian.net/browse/KC-1441'],
             },
             prDiff: 'diff --git a/file.ts b/file.ts',
             prBody: 'PR body',

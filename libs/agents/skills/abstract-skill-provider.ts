@@ -129,7 +129,9 @@ export abstract class AbstractSkillProvider<
         return this.extractResponse(ctx);
     }
 
-    async execute(context: SkillExecutionContext<TPrepareContext>): Promise<string> {
+    async execute(
+        context: SkillExecutionContext<TPrepareContext>,
+    ): Promise<string> {
         const organizationAndTeamData = context.organizationAndTeamData;
         if (!organizationAndTeamData) {
             throw new Error(
@@ -208,15 +210,20 @@ export abstract class AbstractSkillProvider<
         context: SkillExecutionContext<TPrepareContext>,
         organizationAndTeamData: OrganizationAndTeamData,
         userLanguage: string,
-    ): Promise<{
-        runtime: Awaited<
-            ReturnType<GenericSkillRunnerService['createFetcherOrchestration']>
-        >;
-        feedback?: undefined;
-    } | {
-        runtime?: undefined;
-        feedback: string;
-    }> {
+    ): Promise<
+        | {
+              runtime: Awaited<
+                  ReturnType<
+                      GenericSkillRunnerService['createFetcherOrchestration']
+                  >
+              >;
+              feedback?: undefined;
+          }
+        | {
+              runtime?: undefined;
+              feedback: string;
+          }
+    > {
         try {
             return {
                 runtime:
@@ -250,13 +257,16 @@ export abstract class AbstractSkillProvider<
         capabilityHooks: CapabilityExecutionHooks<TContext>,
         organizationAndTeamData: OrganizationAndTeamData,
         userLanguage: string,
-    ): Promise<{
-        result: Awaited<ReturnType<typeof runBlueprint<TContext>>>;
-        feedback?: undefined;
-    } | {
-        result?: undefined;
-        feedback: string;
-    }> {
+    ): Promise<
+        | {
+              result: Awaited<ReturnType<typeof runBlueprint<TContext>>>;
+              feedback?: undefined;
+          }
+        | {
+              result?: undefined;
+              feedback: string;
+          }
+    > {
         try {
             return {
                 result: await runBlueprint<TContext>({

@@ -26,10 +26,12 @@ import { ChevronsUpDownIcon } from "lucide-react";
 import { Controller, useFormContext } from "react-hook-form";
 import { ArrayHelpers } from "src/core/utils/array";
 
-import catalog from "../../../../_data/curated-models.json";
-import { getAnnotationForModel } from "../../../../_data/curated-models.types";
-import type { CuratedModelsCatalog } from "../../../../_data/curated-models.types";
 import type { EditKeyForm } from "../_types";
+import catalog from "../../../../_data/curated-models.json";
+import {
+    getAnnotationForModel,
+    type CuratedModelsCatalog,
+} from "../../../../_data/curated-models.types";
 
 const annotations = (catalog as CuratedModelsCatalog).annotations;
 
@@ -213,8 +215,7 @@ const ModelSelect = ({ onUseManual }: { onUseManual?: () => void }) => {
                                         }}>
                                         <span className="flex items-center gap-2">
                                             {r.name}
-                                            {annotation?.badge ===
-                                                "tested" && (
+                                            {annotation?.badge === "tested" && (
                                                 <Badge
                                                     variant="success"
                                                     size="xs">
@@ -227,8 +228,7 @@ const ModelSelect = ({ onUseManual }: { onUseManual?: () => void }) => {
                                                     {annotation.note}
                                                 </span>
                                             )}
-                                            {annotation?.badge ===
-                                                "legacy" && (
+                                            {annotation?.badge === "legacy" && (
                                                 <span className="text-text-tertiary text-xs">
                                                     {annotation.note}
                                                 </span>

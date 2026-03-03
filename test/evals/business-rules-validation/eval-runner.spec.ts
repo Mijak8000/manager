@@ -5,7 +5,10 @@ import { runBlueprint } from '@libs/shared/blueprint/blueprint.runner';
 import { LLMStep } from '@libs/shared/blueprint/blueprint.types';
 import { createBusinessRulesBlueprint } from '@libs/agents/infrastructure/services/kodus-flow/business-rules-validation/blueprint';
 import { BusinessRulesContext } from '@libs/agents/infrastructure/services/kodus-flow/business-rules-validation/types';
-import { SkillCapabilityRuntimeConfig, ToolCaller } from '@libs/agents/skills/runtime/skill-runtime.types';
+import {
+    SkillCapabilityRuntimeConfig,
+    ToolCaller,
+} from '@libs/agents/skills/runtime/skill-runtime.types';
 
 type TaskContextFixture = {
     id?: string;
@@ -30,7 +33,9 @@ type EvalFixture = {
         | { capability: string; status: 'success' | 'failed' | 'skipped' }
         | {
               step: string;
-              output?: { taskQuality?: 'EMPTY' | 'MINIMAL' | 'PARTIAL' | 'COMPLETE' };
+              output?: {
+                  taskQuality?: 'EMPTY' | 'MINIMAL' | 'PARTIAL' | 'COMPLETE';
+              };
               passed?: boolean;
               status?: 'success';
           }
@@ -63,7 +68,9 @@ function loadFixtures(): EvalFixture[] {
         .sort()
         .map((file) => {
             const absolutePath = path.join(FIXTURES_DIR, file);
-            return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as EvalFixture;
+            return JSON.parse(
+                fs.readFileSync(absolutePath, 'utf8'),
+            ) as EvalFixture;
         });
 }
 
@@ -71,7 +78,8 @@ function createMockToolCaller(fixture: EvalFixture): ToolCaller {
     const hasStructuredTaskContext =
         typeof fixture.input.taskContext === 'object' &&
         fixture.input.taskContext !== null;
-    const taskContextToolName = fixture.input.taskContextToolName ?? 'getJiraIssue';
+    const taskContextToolName =
+        fixture.input.taskContextToolName ?? 'getJiraIssue';
 
     const registeredTools = [
         { name: 'KODUS_GET_PULL_REQUEST' },
@@ -135,9 +143,12 @@ function createMockToolCaller(fixture: EvalFixture): ToolCaller {
     };
 }
 
-function createCapabilityRuntime(fixture: EvalFixture): SkillCapabilityRuntimeConfig {
+function createCapabilityRuntime(
+    fixture: EvalFixture,
+): SkillCapabilityRuntimeConfig {
     const providerType = fixture.input.providerType ?? 'jira';
-    const taskContextToolName = fixture.input.taskContextToolName ?? 'getJiraIssue';
+    const taskContextToolName =
+        fixture.input.taskContextToolName ?? 'getJiraIssue';
 
     return {
         capabilities: ['pr.metadata.read', 'pr.diff.read', 'task.context.read'],
@@ -310,7 +321,8 @@ describe('business-rules-validation eval runner', () => {
 
         if (fixture.expectedOutcome.resolvedTaskContextContains?.length) {
             const resolvedTaskContext = result.context.taskContext ?? '';
-            for (const token of fixture.expectedOutcome.resolvedTaskContextContains) {
+            for (const token of fixture.expectedOutcome
+                .resolvedTaskContextContains) {
                 expect(resolvedTaskContext.toLowerCase()).toContain(
                     token.toLowerCase(),
                 );
@@ -323,7 +335,9 @@ describe('business-rules-validation eval runner', () => {
                 result.context.formattedResponse ??
                 '';
             for (const token of fixture.expectedOutcome.summaryContains) {
-                expect(summarySource.toLowerCase()).toContain(token.toLowerCase());
+                expect(summarySource.toLowerCase()).toContain(
+                    token.toLowerCase(),
+                );
             }
         }
     });

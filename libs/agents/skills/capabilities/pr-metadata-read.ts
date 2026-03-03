@@ -53,7 +53,8 @@ export async function fetchPullRequestMetadata(
                   prNumber: params.pullRequestNumber,
               }
             : {},
-        callTool: (selectedTool, args) => toolCaller.callTool(selectedTool, args),
+        callTool: (selectedTool, args) =>
+            toolCaller.callTool(selectedTool, args),
         validate: () => (params ? undefined : 'precondition_failed'),
         extract: extractPrBodyFromToolResult,
         fallback: undefined,

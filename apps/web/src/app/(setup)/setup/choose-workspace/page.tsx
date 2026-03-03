@@ -128,9 +128,7 @@ export default function ChooseWorkspacePage() {
                                 <Checkbox
                                     id={org.uuid}
                                     className="flex-shrink-0 self-center"
-                                    checked={
-                                        selectedOrganization === org.uuid
-                                    }
+                                    checked={selectedOrganization === org.uuid}
                                     onCheckedChange={() =>
                                         handleSelectOrganization(org.uuid)
                                     }

@@ -102,7 +102,8 @@ describe('ChatWithKodyFromGitUseCase', () => {
                     teamId: 'team-1',
                 },
                 prepareContext: expect.objectContaining({
-                    userQuestion: '@kody -v business-logic validate this change',
+                    userQuestion:
+                        '@kody -v business-logic validate this change',
                     pullRequestDescription: 'PR description body',
                     platformType: PlatformType.GITHUB,
                     repository: {

@@ -19,7 +19,10 @@ describe('CapabilityResourcePlanService', () => {
 
         const linearTools = service.getSeedTools('linear', 'task.context.read');
         const notionTools = service.getSeedTools('notion', 'task.context.read');
-        const clickupTools = service.getSeedTools('clickup', 'task.context.read');
+        const clickupTools = service.getSeedTools(
+            'clickup',
+            'task.context.read',
+        );
 
         expect(linearTools).toEqual([
             'get_issue',
