@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
 import {
@@ -17,6 +17,7 @@ import { RichTextEditorWithMentions } from "@components/ui/rich-text-editor-with
 import { getTextStatsFromTiptapJSON } from "@components/ui/rich-text-editor";
 import { convertTiptapJSONToText } from "src/core/utils/tiptap-json-to-text";
 import { useMCPMentions } from "src/core/hooks/use-mcp-mentions";
+import { useUnsavedChangesGuard } from "src/core/hooks/use-unsaved-changes-guard";
 
 // Use the exported utility function from rich-text-editor
 function getTextFromValue(value: string | object | null | undefined): string {
@@ -79,10 +80,6 @@ function CustomPromptsContent() {
     const defaults = useDefaultCodeReviewConfig()?.v2PromptOverrides;
     const initialized = useRef(false);
 
-    if (!defaults) {
-        return null;
-    }
-
     const canEdit = usePermission(
         Action.Update,
         ResourceType.CodeReviewSettings,
@@ -91,6 +88,106 @@ function CustomPromptsContent() {
 
     const { mcpGroups, formatInsertByType } = useMCPMentions();
 
+    // --- Manual dirty tracking for navigation guard ---
+    // RHF's isDirty is unreliable for these fields because the rich text
+    // editor converts plain strings to Tiptap JSON on render, making the
+    // form permanently dirty. We compare TEXT CONTENT instead.
+    const PROMPT_FIELDS: Array<keyof any> = [
+        "v2PromptOverrides.generation.main.value",
+        "v2PromptOverrides.categories.descriptions.bug.value",
+        "v2PromptOverrides.categories.descriptions.performance.value",
+        "v2PromptOverrides.categories.descriptions.security.value",
+        "v2PromptOverrides.severity.flags.critical.value",
+        "v2PromptOverrides.severity.flags.high.value",
+        "v2PromptOverrides.severity.flags.medium.value",
+        "v2PromptOverrides.severity.flags.low.value",
+    ];
+
+    const promptValues = form.watch(PROMPT_FIELDS as any);
+    const initialTextsRef = useRef<string[] | null>(null);
+
+    // Capture initial text content AFTER prefill has run
+    useEffect(() => {
+        if (initialTextsRef.current) return;
+        if (!defaults) return;
+
+        // Small delay to let the prefill useEffect run first
+        const id = requestAnimationFrame(() => {
+            initialTextsRef.current = PROMPT_FIELDS.map((path) => {
+                const value = form.getValues(path as any);
+                return getTextFromValue(value)?.trim() ?? "";
+            });
+        });
+        return () => cancelAnimationFrame(id);
+    }, [defaults]);
+
+    const isPromptsDirty = (() => {
+        if (!initialTextsRef.current) return false;
+        return PROMPT_FIELDS.some((_, i) => {
+            const currentText =
+                getTextFromValue(promptValues[i])?.trim() ?? "";
+            return currentText !== initialTextsRef.current![i];
+        });
+    })();
+
+    const scrollToDirtyPrompt = useCallback(() => {
+        if (!initialTextsRef.current) return;
+
+        const dirtyIndex = PROMPT_FIELDS.findIndex((_, i) => {
+            const currentText =
+                getTextFromValue(promptValues[i])?.trim() ?? "";
+            return currentText !== initialTextsRef.current![i];
+        });
+
+        if (dirtyIndex >= 0) {
+            const fieldPath = PROMPT_FIELDS[dirtyIndex] as string;
+            let el: Element | null = null;
+            const segments = fieldPath.split(".");
+            for (let i = segments.length; i > 0 && !el; i--) {
+                el = document.querySelector(
+                    `[data-field-name="${segments.slice(0, i).join(".")}"]`,
+                );
+            }
+            if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                el.classList.add("field-highlight");
+                setTimeout(
+                    () => el!.classList.remove("field-highlight"),
+                    1800,
+                );
+                el.querySelectorAll<HTMLElement>(
+                    "[data-reset-button]:not(:disabled)",
+                ).forEach((btn) => {
+                    btn.classList.add("field-highlight");
+                    setTimeout(
+                        () => btn.classList.remove("field-highlight"),
+                        1800,
+                    );
+                });
+                return;
+            }
+        }
+
+        const header = document.querySelector("[data-header-actions]");
+        if (header) {
+            header.scrollIntoView({ behavior: "smooth", block: "center" });
+            header.classList.add("field-highlight");
+            setTimeout(
+                () => header.classList.remove("field-highlight"),
+                1800,
+            );
+        }
+    }, [promptValues]);
+
+    useUnsavedChangesGuard({
+        id: "custom-prompts",
+        isDirty: isPromptsDirty,
+        onBlock: scrollToDirtyPrompt,
+    });
+
+    if (!defaults) {
+        return null;
+    }
 
     const handleSubmit = form.handleSubmit(async (formData) => {
         try {
@@ -130,6 +227,12 @@ function CustomPromptsContent() {
 
             form.reset(formData);
 
+            // Update the text-based dirty tracking baseline
+            initialTextsRef.current = PROMPT_FIELDS.map((path) => {
+                const value = form.getValues(path as any);
+                return getTextFromValue(value)?.trim() ?? "";
+            });
+
             toast({
                 description: "Settings saved",
                 variant: "success",
@@ -147,7 +250,6 @@ function CustomPromptsContent() {
     });
 
     const {
-        isDirty: formIsDirty,
         isValid: formIsValid,
         isSubmitting: formIsSubmitting,
     } = form.formState;
@@ -235,7 +337,7 @@ function CustomPromptsContent() {
                         variant="primary"
                         leftIcon={<SaveIcon />}
                         onClick={handleSubmit}
-                        disabled={!canEdit || !formIsDirty || !formIsValid}
+                        disabled={!canEdit || !isPromptsDirty || !formIsValid}
                         loading={formIsSubmitting}>
                         Save settings
                     </Button>
@@ -243,7 +345,7 @@ function CustomPromptsContent() {
             </Page.Header>
 
             <Page.Content className="gap-8">
-                <Card>
+                <Card data-field-name="v2PromptOverrides.generation">
                     <CardHeader>
                         <CardTitle>Suggestion Prompts</CardTitle>
                         <CardDescription>
@@ -282,6 +384,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -368,7 +471,7 @@ function CustomPromptsContent() {
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card data-field-name="v2PromptOverrides.categories">
                     <CardHeader>
                         <CardTitle>Category Prompts</CardTitle>
                         <CardDescription>
@@ -407,6 +510,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -519,6 +623,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -631,6 +736,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -715,7 +821,7 @@ function CustomPromptsContent() {
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card data-field-name="v2PromptOverrides.severity">
                     <CardHeader>
                         <CardTitle>Severity Prompts</CardTitle>
                         <CardDescription>
@@ -754,6 +860,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -865,6 +972,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -976,6 +1084,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -1087,6 +1196,7 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
+                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
