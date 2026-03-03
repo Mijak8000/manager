@@ -16,12 +16,12 @@ import {
 import { ContextAugmentationsMap } from '@libs/ai-engine/infrastructure/adapters/services/context/interfaces/code-review-context-pack.interface';
 import { LLMResponseProcessor } from '@libs/ai-engine/infrastructure/adapters/services/llmResponseProcessor.transform';
 import { IAIAnalysisService } from '@libs/code-review/domain/contracts/AIAnalysisService.contract';
+import { CrossFileContextSnippet } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
 import {
     prompt_codeReviewSafeguard_system,
     prompt_validateImplementedSuggestions,
 } from '@libs/common/utils/langchainCommon/prompts';
 import { SAFEGUARD_CROSS_FILE_CONTEXT_PREAMBLE } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguard';
-import { CrossFileContextSnippet } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
 import {
     prompt_codereview_system_gemini,
     prompt_codereview_system_gemini_v2,
@@ -41,6 +41,7 @@ import {
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
+import { IKodyRule } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 
 export const LLM_ANALYSIS_SERVICE_TOKEN = Symbol.for('LLMAnalysisService');
 
@@ -399,6 +400,7 @@ ${JSON.stringify(context?.suggestions) || 'No suggestions provided'}
             } as ContextAugmentationsMap,
             contextPack: context?.sharedContextPack as ContextPack | undefined,
             crossFileSnippets: context?.crossFileSnippets,
+            memories: context?.codeReviewConfig?.kodyMemoryRules || [],
         };
 
         return baseContext;
@@ -612,6 +614,9 @@ ${JSON.stringify(context?.suggestions) || 'No suggestions provided'}
         reviewMode: ReviewModeResponse,
         byokConfig: BYOKConfig,
         crossFileSnippets?: CrossFileContextSnippet[],
+        memories?: Array<Partial<IKodyRule>>,
+        externalReferences?: unknown[],
+        externalReferenceErrors?: unknown[] | string,
     ): Promise<ISafeguardResponse> {
         const runName = 'filterSuggestionsSafeGuard';
 
@@ -647,6 +652,9 @@ ${JSON.stringify(context?.suggestions) || 'No suggestions provided'}
             languageResultPrompt,
             reviewMode,
             crossFileSnippets,
+            memories,
+            externalReferences,
+            externalReferenceErrors,
         };
 
         const spanName = `${LLMAnalysisService.name}::${runName}`;

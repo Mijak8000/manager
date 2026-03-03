@@ -84,8 +84,12 @@ export const PageHeader = (props: React.ComponentProps<"div">) => {
     );
 };
 
-export const PageHeaderActions = (props: React.PropsWithChildren) => (
-    <div className="flex items-center justify-between gap-2">
+export const PageHeaderActions = (props: React.ComponentProps<"div">) => (
+    <div
+        className={cn(
+            "flex items-center justify-between gap-2",
+            props.className,
+        )}>
         {props.children}
     </div>
 );
