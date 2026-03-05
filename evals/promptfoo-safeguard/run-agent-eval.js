@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { materializeFixture, cleanupFixture } = require('./materialize-fixture');
 
 // ── Load API keys from .env ──
@@ -132,9 +132,9 @@ function triageSuggestion(features) {
 // ── Local search tools ──
 function searchCodebase(repoDir, pattern) {
     try {
-        const escaped = pattern.replace(/"/g, '\\"');
-        const result = execSync(
-            `grep -rEn "${escaped}" "${repoDir}" 2>/dev/null || true`,
+        const result = execFileSync(
+            'grep',
+            ['-rEn', pattern, repoDir],
             { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 }
         );
         if (!result.trim()) return 'No matches found.';

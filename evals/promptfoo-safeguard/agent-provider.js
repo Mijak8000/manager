@@ -9,7 +9,7 @@
  *     - id: file://agent-provider.js
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const { materializeFixture, cleanupFixture } = require('./materialize-fixture');
 
@@ -37,8 +37,9 @@ function triageSuggestion(features) {
 
 function searchCodebase(repoDir, pattern) {
     try {
-        const result = execSync(
-            `rg --json "${pattern.replace(/"/g, '\\"')}" "${repoDir}" 2>/dev/null || true`,
+        const result = execFileSync(
+            'rg',
+            ['--json', pattern, repoDir],
             { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 }
         );
         // Parse ripgrep JSON output into readable format
