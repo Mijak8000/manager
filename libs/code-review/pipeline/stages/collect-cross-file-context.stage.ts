@@ -5,7 +5,10 @@ import {
     COLLECT_CROSS_FILE_CONTEXTS_SERVICE_TOKEN,
     CollectCrossFileContextsService,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import { E2BSandboxService } from '@libs/code-review/infrastructure/adapters/services/e2bSandbox.service';
+import {
+    ISandboxProvider,
+    SANDBOX_PROVIDER_TOKEN,
+} from '@libs/code-review/domain/contracts/sandbox.provider';
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
@@ -54,7 +57,8 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
     constructor(
         @Inject(COLLECT_CROSS_FILE_CONTEXTS_SERVICE_TOKEN)
         private readonly collectCrossFileContextsService: CollectCrossFileContextsService,
-        private readonly e2bSandboxService: E2BSandboxService,
+        @Inject(SANDBOX_PROVIDER_TOKEN)
+        private readonly sandboxProvider: ISandboxProvider,
         private readonly codeManagementService: CodeManagementService,
     ) {
         super();
@@ -115,10 +119,10 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
             return context;
         }
 
-        // Guard: skip if E2B is not available
-        if (!this.e2bSandboxService.isAvailable()) {
+        // Guard: skip if sandbox is not available
+        if (!this.sandboxProvider.isAvailable()) {
             this.logger.log({
-                message: `Skipping cross-file context collection: API_E2B_KEY not configured for ${label}`,
+                message: `Skipping cross-file context collection: no sandbox provider configured for ${label}`,
                 context: this.stageName,
                 metadata: {
                     organizationAndTeamData: context?.organizationAndTeamData,
@@ -148,8 +152,8 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                 return context;
             }
 
-            // Create E2B sandbox and clone repo
-            const sandbox = await this.e2bSandboxService.createSandboxWithRepo({
+            // Create sandbox and clone repo
+            const sandbox = await this.sandboxProvider.createSandboxWithRepo({
                 cloneUrl: cloneInfo.url,
                 authToken: cloneInfo.authToken,
                 branch: cloneInfo.branch,

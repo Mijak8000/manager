@@ -4,26 +4,18 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Sandbox } from 'e2b';
 
+import {
+    CreateSandboxParams,
+    ISandboxProvider,
+    SandboxInstance,
+} from '@libs/code-review/domain/contracts/sandbox.provider';
 import { RemoteCommands } from './collectCrossFileContexts.service';
 
 const SANDBOX_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const REPO_DIR = '/home/user/repo';
 
-interface CreateSandboxParams {
-    cloneUrl: string;
-    authToken: string;
-    branch: string;
-    prNumber?: number;
-    platform: PlatformType;
-}
-
-interface SandboxWithCommands {
-    remoteCommands: RemoteCommands;
-    cleanup: () => Promise<void>;
-}
-
 @Injectable()
-export class E2BSandboxService {
+export class E2BSandboxService implements ISandboxProvider {
     private readonly logger = createLogger(E2BSandboxService.name);
 
     constructor(private readonly configService: ConfigService) {}
@@ -38,7 +30,7 @@ export class E2BSandboxService {
 
     async createSandboxWithRepo(
         params: CreateSandboxParams,
-    ): Promise<SandboxWithCommands> {
+    ): Promise<SandboxInstance> {
         const { cloneUrl, authToken, branch, prNumber, platform } = params;
         const apiKey = this.configService.get<string>('API_E2B_KEY');
 
@@ -278,3 +270,4 @@ export class E2BSandboxService {
         return `${REPO_DIR}/${path}`;
     }
 }
+// sandbox-test
