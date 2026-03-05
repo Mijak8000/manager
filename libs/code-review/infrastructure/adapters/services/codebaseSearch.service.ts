@@ -243,39 +243,43 @@ export class CodebaseSearchService {
         remoteCommands: RemoteCommands,
         contextLines: number,
     ): Promise<CodebaseSearchContext[]> {
-        const contexts: CodebaseSearchContext[] = [];
-
+        const tasks: { file: string; start: number; end: number }[] = [];
         for (const [file, ranges] of fileRanges) {
             for (const [start, end] of ranges) {
-                const readStart = Math.max(1, start - contextLines);
-                const readEnd = end + contextLines;
-
-                try {
-                    const content = await remoteCommands.read(
-                        file,
-                        readStart,
-                        readEnd,
-                    );
-
-                    if (content && content.trim()) {
-                        contexts.push({
-                            file,
-                            content,
-                            lines: [[start, end]],
-                        });
-                    }
-                } catch (error) {
-                    this.logger.warn({
-                        message: `Failed to read context for ${file}:${start}-${end}`,
-                        context: CodebaseSearchService.name,
-                        error,
-                    });
-                    // Skip this range, continue with others
-                }
+                tasks.push({ file, start, end });
             }
         }
 
-        return contexts;
+        const results = await Promise.allSettled(
+            tasks.map(async ({ file, start, end }) => {
+                const readStart = Math.max(1, start - contextLines);
+                const readEnd = end + contextLines;
+                const content = await remoteCommands.read(
+                    file,
+                    readStart,
+                    readEnd,
+                );
+
+                if (content && content.trim()) {
+                    return { file, content, lines: [[start, end]] } as CodebaseSearchContext;
+                }
+                return null;
+            }),
+        );
+
+        return results.reduce<CodebaseSearchContext[]>((acc, result, index) => {
+            if (result.status === 'fulfilled' && result.value) {
+                acc.push(result.value);
+            } else if (result.status === 'rejected') {
+                const { file, start, end } = tasks[index];
+                this.logger.warn({
+                    message: `Failed to read context for ${file}:${start}-${end}`,
+                    context: CodebaseSearchService.name,
+                    error: result.reason,
+                });
+            }
+            return acc;
+        }, []);
     }
 
     /**
