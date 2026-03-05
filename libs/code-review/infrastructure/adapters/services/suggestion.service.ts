@@ -532,13 +532,12 @@ export class SuggestionService implements ISuggestionService {
                 ),
         );
 
-        // PERF: Mutar in-place ao invés de criar novos objetos
-        for (const suggestion of relatedToPrioritized) {
-            suggestion.priorityStatus =
-                PriorityStatus.PRIORITIZED_BY_CLUSTERING;
-        }
+        const relatedWithStatus = relatedToPrioritized.map((suggestion) => ({
+            ...suggestion,
+            priorityStatus: PriorityStatus.PRIORITIZED_BY_CLUSTERING,
+        }));
 
-        return [...prioritizedByQuantity, ...relatedToPrioritized];
+        return [...prioritizedByQuantity, ...relatedWithStatus];
     }
 
     /**
@@ -1010,16 +1009,15 @@ export class SuggestionService implements ISuggestionService {
             const acceptedSeverities =
                 severityLevels[severityLevelFilter] || [];
 
-            // PERF: Mutar in-place ao invés de criar novos objetos com spread
-            for (const suggestion of suggestions) {
-                suggestion.priorityStatus = acceptedSeverities.includes(
+            return suggestions.map((suggestion) => ({
+                ...suggestion,
+                priorityStatus: acceptedSeverities.includes(
                     suggestion?.severity?.toLowerCase(),
                 )
                     ? PriorityStatus.PRIORITIZED
-                    : PriorityStatus.DISCARDED_BY_SEVERITY;
-                suggestion.deliveryStatus = DeliveryStatus.NOT_SENT;
-            }
-            return suggestions;
+                    : PriorityStatus.DISCARDED_BY_SEVERITY,
+                deliveryStatus: DeliveryStatus.NOT_SENT,
+            }));
         } catch (error) {
             this.logger.log({
                 message: `Failed to prioritize suggestions by severity level for PR#${prNumber}`,
