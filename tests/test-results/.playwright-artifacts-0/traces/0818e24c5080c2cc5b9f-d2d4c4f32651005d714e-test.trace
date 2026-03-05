@@ -1,0 +1,49 @@
+{"version":8,"type":"context-options","origin":"testRunner","browserName":"","playwrightVersion":"1.58.2","options":{},"platform":"linux","wallTime":1772714605184,"monotonicTime":75728.957,"sdkLanguage":"javascript"}
+{"type":"before","callId":"hook@1","stepId":"hook@1","startTime":75729.796,"class":"Test","method":"hook","title":"Before Hooks","params":{},"stack":[]}
+{"type":"before","callId":"hook@2","stepId":"hook@2","parentId":"hook@1","startTime":75730.074,"class":"Test","method":"hook","title":"beforeEach hook","params":{},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":4,"column":10}]}
+{"type":"before","callId":"fixture@23","stepId":"fixture@23","parentId":"hook@2","startTime":75735.744,"class":"Test","method":"fixture","title":"Fixture \"context\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@24","stepId":"pw:api@24","parentId":"fixture@23","startTime":75736.691,"class":"Test","method":"pw:api","title":"Create context","params":{"selectorEngines":"[]","testIdAttributeName":"data-testid","acceptDownloads":"accept","bypassCSP":"false","colorScheme":"light","deviceScaleFactor":"1","hasTouch":"false","ignoreHTTPSErrors":"false","isMobile":"false","javaScriptEnabled":"true","locale":"en-US","offline":"false","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.6 Safari/537.36","viewport":"Object","baseURL":"http://localhost:3000","serviceWorkers":"allow","noDefaultViewport":"false","extraHTTPHeaders":"undefined","storageState":"undefined","reducedMotion":"undefined","forcedColors":"undefined","contrast":"undefined","clientCertificates":"undefined"},"stack":[]}
+{"type":"after","callId":"pw:api@24","endTime":75741.681,"annotations":[]}
+{"type":"after","callId":"fixture@23","endTime":75744.182,"annotations":[]}
+{"type":"before","callId":"fixture@25","stepId":"fixture@25","parentId":"hook@2","startTime":75744.731,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@26","stepId":"pw:api@26","parentId":"fixture@25","startTime":75746.423,"class":"Test","method":"pw:api","title":"Create page","params":{},"stack":[]}
+{"type":"after","callId":"pw:api@26","endTime":75795.756,"annotations":[]}
+{"type":"after","callId":"fixture@25","endTime":75795.924,"annotations":[]}
+{"type":"before","callId":"pw:api@27","stepId":"pw:api@27","parentId":"hook@2","startTime":75797.681,"class":"Test","method":"pw:api","title":"Route requests","params":{"patterns":"[Object]"},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":5,"column":20}],"group":"route"}
+{"type":"after","callId":"pw:api@27","endTime":75800.183,"annotations":[]}
+{"type":"before","callId":"pw:api@28","stepId":"pw:api@28","parentId":"hook@2","startTime":75801.75,"class":"Test","method":"pw:api","title":"Navigate to \"/sign-in\"","params":{"url":"/sign-in","waitUntil":"load","timeout":"0"},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":18,"column":20}]}
+{"type":"after","callId":"pw:api@28","endTime":77133.153,"annotations":[]}
+{"type":"before","callId":"pw:api@29","stepId":"pw:api@29","parentId":"hook@2","startTime":77137.245,"class":"Test","method":"pw:api","title":"Wait for load state \"domcontentloaded\"","params":{"info":"Object"},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":19,"column":20}]}
+{"type":"after","callId":"pw:api@29","endTime":77138.043,"annotations":[]}
+{"type":"after","callId":"hook@2","endTime":77138.129,"annotations":[]}
+{"type":"after","callId":"hook@1","endTime":77138.313,"annotations":[]}
+{"type":"before","callId":"pw:api@30","stepId":"pw:api@30","startTime":77141.085,"class":"Test","method":"pw:api","title":"Fill \"test@test.io\" locator('#email')","params":{"selector":"#email","value":"test@test.io","timeout":"0"},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":30,"column":20}]}
+{"type":"after","callId":"pw:api@30","endTime":77445.324,"annotations":[]}
+{"type":"before","callId":"pw:api@31","stepId":"pw:api@31","startTime":77447.605,"class":"Test","method":"pw:api","title":"Click locator('button:has-text(\"Continue\")')","params":{"selector":"button:has-text(\"Continue\")","timeout":"0"},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":31,"column":20}]}
+{"type":"after","callId":"pw:api@31","endTime":78028.032,"annotations":[]}
+{"type":"before","callId":"expect@32","stepId":"expect@32","startTime":78029.985,"class":"Test","method":"expect","title":"Expect \"toBeVisible\"","params":{},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":33,"column":49}]}
+{"type":"after","callId":"expect@32","endTime":78061.63,"annotations":[]}
+{"type":"before","callId":"expect@33","stepId":"expect@33","startTime":78063.268,"class":"Test","method":"expect","title":"Expect \"toBeVisible\"","params":{},"stack":[{"file":"/home/ana-lucia-cavalcante-sirino/Documentos/kodus-ai/test/e2e/login.e2e.ts","line":36,"column":11}]}
+{"type":"after","callId":"expect@33","endTime":78192.101,"annotations":[]}
+{"type":"before","callId":"hook@34","stepId":"hook@34","startTime":78192.804,"class":"Test","method":"hook","title":"After Hooks","params":{},"stack":[]}
+{"type":"before","callId":"fixture@35","stepId":"fixture@35","parentId":"hook@34","startTime":78193.718,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[]}
+{"type":"after","callId":"fixture@35","endTime":78194.022,"annotations":[]}
+{"type":"before","callId":"fixture@36","stepId":"fixture@36","parentId":"hook@34","startTime":78195.497,"class":"Test","method":"fixture","title":"Fixture \"context\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@37","stepId":"pw:api@37","parentId":"fixture@36","startTime":78696.531,"class":"Test","method":"pw:api","title":"Close context","params":{"reason":"Test ended."},"stack":[]}
+{"type":"after","callId":"pw:api@37","endTime":78703.471,"annotations":[]}
+{"type":"after","callId":"fixture@36","endTime":78703.61,"annotations":[]}
+{"type":"before","callId":"fixture@42","stepId":"fixture@42","parentId":"hook@34","startTime":78704.684,"class":"Test","method":"fixture","title":"Fixture \"baseURL\"","params":{},"stack":[{"file":"project#chromium","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@42","endTime":78704.72,"annotations":[]}
+{"type":"before","callId":"fixture@43","stepId":"fixture@43","parentId":"hook@34","startTime":78704.855,"class":"Test","method":"fixture","title":"Fixture \"userAgent\"","params":{},"stack":[{"file":"project#chromium","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@43","endTime":78704.876,"annotations":[]}
+{"type":"before","callId":"fixture@45","stepId":"fixture@45","parentId":"hook@34","startTime":78705.327,"class":"Test","method":"fixture","title":"Fixture \"viewport\"","params":{},"stack":[{"file":"project#chromium","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@45","endTime":78705.384,"annotations":[]}
+{"type":"before","callId":"fixture@52","stepId":"fixture@52","parentId":"hook@34","startTime":78706.635,"class":"Test","method":"fixture","title":"Fixture \"isMobile\"","params":{},"stack":[{"file":"project#chromium","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@52","endTime":78706.693,"annotations":[]}
+{"type":"before","callId":"fixture@56","stepId":"fixture@56","parentId":"hook@34","startTime":78707.568,"class":"Test","method":"fixture","title":"Fixture \"hasTouch\"","params":{},"stack":[{"file":"project#chromium","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@56","endTime":78707.617,"annotations":[]}
+{"type":"before","callId":"fixture@58","stepId":"fixture@58","parentId":"hook@34","startTime":78708.075,"class":"Test","method":"fixture","title":"Fixture \"deviceScaleFactor\"","params":{},"stack":[{"file":"project#chromium","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@58","endTime":78708.106,"annotations":[]}
+{"type":"after","callId":"hook@34","endTime":78710.37,"annotations":[]}
+{"type":"before","callId":"attach@1949bd5a64386026ef993064fe7a1cc8","stepId":"attach@1949bd5a64386026ef993064fe7a1cc8","startTime":79115.276,"class":"Test","method":"test.attach","title":"Attach \"trace\"","params":{},"stack":[]}
+{"type":"after","callId":"attach@1949bd5a64386026ef993064fe7a1cc8","endTime":79115.39,"attachments":[]}

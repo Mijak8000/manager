@@ -138,7 +138,7 @@
         "libs",
         "apps",
         "test/**/*.ts",
-        "tests/**/*.ts",
+        "test/e2e/**/*.ts",
         "playwright.config.ts",
         "tsconfig-paths-bootstrap.js"
     ],

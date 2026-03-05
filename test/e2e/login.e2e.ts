@@ -2,6 +2,19 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Authentication', () => {
     test.beforeEach(async ({ page }) => {
+        await page.route(
+            /\/api\/auth\/callback\/credentials/,
+            async (route) => {
+                await route.fulfill({
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: '/setup' }),
+                });
+            },
+        );
+
         await page.goto('/sign-in');
         await page.waitForLoadState('domcontentloaded');
     });
@@ -27,5 +40,17 @@ test.describe('Authentication', () => {
         await expect(
             page.getByRole('button', { name: 'Sign in with Github' }),
         ).toBeVisible();
+    });
+
+    test('should login and redirect to setup', async ({ page }) => {
+        await page.fill('#email', 'test@test.io');
+        await page.click('button:has-text("Continue")');
+
+        await expect(page.locator('#password')).toBeVisible();
+
+        await page.fill('#password', 'Test@123');
+        await page.click('button:has-text("Sign in")');
+
+        await page.waitForURL(/\/setup|sign-in|sign-up/, { timeout: 10000 });
     });
 });

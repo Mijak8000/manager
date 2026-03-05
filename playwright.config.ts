@@ -24,7 +24,7 @@ export default defineConfig({
     workers: 1,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: 'html',
-    outputDir: 'test-results',
+    outputDir: './tests/test-results',
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
         /* Base URL to use in actions like `await page.goto('')`. */
@@ -73,12 +73,10 @@ export default defineConfig({
     ],
 
     /* Run your local dev server before starting the tests */
-    /*
       webServer: {
-        command: 'cd apps/web && yarn start',
+        command: 'cd apps/web && yarn start:dev',
         url: 'http://localhost:3000',
         reuseExistingServer: !process.env.CI,
         timeout: 120000,
       },
-      */
 });
