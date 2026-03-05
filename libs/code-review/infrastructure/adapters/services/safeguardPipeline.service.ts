@@ -19,6 +19,10 @@ import {
     STRUCTURAL_DEFECT_FEATURES,
     prompt_codeReviewSafeguard_featureExtraction,
 } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguardFeatures';
+import {
+    TriageDecision,
+    triageSuggestion,
+} from '@libs/code-review/infrastructure/adapters/services/safeguardTriage.service';
 import { prompt_codeReviewSafeguard_verification } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguardVerification';
 import {
     SAFEGUARD_CROSS_FILE_CONTEXT_PREAMBLE,
@@ -118,11 +122,20 @@ export class SafeguardPipelineService {
                 const features = featuresById.get(suggestion.id);
                 if (!features) {
                     // No features extracted — keep suggestion as-is (safe default)
+                    this.logger.log({
+                        message: `[TRIAGE] PR#${prNumber} ${fileLabel} — suggestion "${suggestion.label || suggestion.id}" (${suggestion.severity}): no features → keep (default)`,
+                        context: SafeguardPipelineService.name,
+                    });
                     kept.push(suggestion);
                     continue;
                 }
 
                 const decision: TriageDecision = triageSuggestion(features);
+
+                this.logger.log({
+                    message: `[TRIAGE] PR#${prNumber} ${fileLabel} — suggestion "${suggestion.label || suggestion.id}" (${suggestion.severity}): decision=${decision} | features: ${JSON.stringify(features)}`,
+                    context: SafeguardPipelineService.name,
+                });
 
                 if (decision === 'keep') {
                     // Handle improvedCode correctness
@@ -269,6 +282,7 @@ export class SafeguardPipelineService {
                         has_data_exposure: z.boolean(),
                         has_missing_error_handling: z.boolean(),
                         has_redundant_work_in_loop: z.boolean(),
+                        has_unsafe_data_flow: z.boolean(),
                         requires_assumed_input: z.boolean(),
                         requires_assumed_workload: z.boolean(),
                         is_quality_opinion: z.boolean(),
