@@ -1,4 +1,10 @@
 import { createLogger } from '@kodus/flow';
+import {
+    LLMModelProvider,
+    ParserType,
+    PromptRole,
+    PromptRunnerService,
+} from '@kodus/kodus-common/llm';
 import { DocumentationSearchCacheService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-cache.service';
 import {
     DocumentationItem,
@@ -7,8 +13,24 @@ import {
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Exa from 'exa-js';
+import {
+    prompt_code_review_documentation_formatter_system,
+    prompt_code_review_documentation_formatter_user,
+} from '../../../../common/utils/langchainCommon/prompts/codeReviewDocumentationFormatter';
 
 const CACHE_PROVIDER = 'exa';
+type ExaSearchResponse = Awaited<ReturnType<Exa['search']>>;
+
+type CitationLike = {
+    title?: string;
+    url?: string;
+};
+
+type ResultLike = {
+    title?: string;
+    url?: string;
+    text?: string;
+};
 
 @Injectable()
 export class DocumentationSearchExaService {
@@ -22,6 +44,7 @@ export class DocumentationSearchExaService {
     constructor(
         private readonly configService: ConfigService,
         private readonly documentationSearchCacheService: DocumentationSearchCacheService,
+        private readonly promptRunnerService: PromptRunnerService,
     ) {
         const apiKey = this.configService.get<string>('API_EXA_KEY');
         this.exaClient = apiKey ? new Exa(apiKey) : null;
@@ -132,19 +155,29 @@ export class DocumentationSearchExaService {
                 task.query,
             );
 
-            const response = await this.exaClient.answer(packageScopedQuery, {
-                systemPrompt:
-                    'Find relevant documentation from official sources. Focus on practical implementation guidance and API usage relevant to the query. Return concise markdown suitable for LLM prompt context.',
+            const response = await this.exaClient.search(packageScopedQuery, {
+                category: 'company',
+                type: 'auto',
+            });
+
+            const formattedSnippet = await this.formatDocumentationForPrompt({
+                packageName: task.packageName,
+                query: task.query,
+                rawSearchContent: this.buildRawSearchContent(response),
             });
 
             const item: DocumentationItem = {
-                url: response.citations[0]?.url || 'unknown',
-                title: `Documentation for ${task.packageName}`,
+                url: response.results?.[0]?.url || 'unknown',
+                title:
+                    response.results?.[0]?.title ||
+                    `Documentation for ${task.packageName}`,
                 source: 'exa-search',
-                snippet: this.buildSnippet(
-                    response.answer as string,
-                    task.query,
-                ),
+                snippet:
+                    formattedSnippet ||
+                    this.buildSnippet(
+                        this.buildRawSearchContent(response),
+                        task.query,
+                    ),
                 query: packageScopedQuery,
             };
 
@@ -208,7 +241,149 @@ export class DocumentationSearchExaService {
             return `No extract was returned by Exa for query: ${query}`;
         }
 
-        return sanitized.slice(0, 320);
+        return sanitized.slice(0, 1200);
+    }
+
+    private buildRawSearchContent(response: ExaSearchResponse): string {
+        const sections: string[] = [];
+
+        const citations = this.extractCitations(response);
+        if (citations.length) {
+            sections.push(
+                `Citations:\n${citations
+                    .map((citation, index) => {
+                        const url = citation.url || 'unknown';
+                        const title = citation.title || '';
+                        return `${index + 1}. ${title ? `${title} - ` : ''}${url}`;
+                    })
+                    .join('\n')}`,
+            );
+        }
+
+        const results = this.extractResults(response);
+        if (results.length) {
+            sections.push(
+                `Results:\n${results
+                    .map((result, index) => {
+                        const title = result.title || 'Untitled';
+                        const url = result.url || 'unknown';
+                        const text = (result.text || '')
+                            .toString()
+                            .replace(/\s+/g, ' ')
+                            .trim();
+
+                        return `${index + 1}. ${title}\nURL: ${url}\nExcerpt: ${text}`;
+                    })
+                    .join('\n\n')}`,
+            );
+        }
+
+        return sections.join('\n\n').slice(0, 12000);
+    }
+
+    private extractCitations(response: ExaSearchResponse): CitationLike[] {
+        if (!('citations' in response)) {
+            return [];
+        }
+
+        const value = (response as Record<string, unknown>).citations;
+        if (!Array.isArray(value)) {
+            return [];
+        }
+
+        return value
+            .filter(
+                (entry): entry is Record<string, unknown> =>
+                    typeof entry === 'object' && entry !== null,
+            )
+            .map((entry) => ({
+                title:
+                    typeof entry.title === 'string' ? entry.title : undefined,
+                url: typeof entry.url === 'string' ? entry.url : undefined,
+            }))
+            .slice(0, 8);
+    }
+
+    private extractResults(response: ExaSearchResponse): ResultLike[] {
+        const value = (response as Record<string, unknown>).results;
+        if (!Array.isArray(value)) {
+            return [];
+        }
+
+        return value
+            .filter(
+                (entry): entry is Record<string, unknown> =>
+                    typeof entry === 'object' && entry !== null,
+            )
+            .map((entry) => ({
+                title:
+                    typeof entry.title === 'string' ? entry.title : undefined,
+                url: typeof entry.url === 'string' ? entry.url : undefined,
+                text: typeof entry.text === 'string' ? entry.text : undefined,
+            }))
+            .slice(0, 5);
+    }
+
+    private async formatDocumentationForPrompt(params: {
+        packageName: string;
+        query: string;
+        rawSearchContent: string;
+    }): Promise<string> {
+        if (!params.rawSearchContent.trim()) {
+            return '';
+        }
+
+        try {
+            const response = await this.promptRunnerService
+                .builder()
+                .setProviders({
+                    main: LLMModelProvider.OPENAI_GPT_4O_MINI,
+                    fallback: LLMModelProvider.OPENAI_GPT_4O,
+                })
+                .setParser(ParserType.STRING)
+                .setPayload(params)
+                .addPrompt({
+                    role: PromptRole.SYSTEM,
+                    prompt: prompt_code_review_documentation_formatter_system,
+                })
+                .addPrompt({
+                    role: PromptRole.USER,
+                    prompt: prompt_code_review_documentation_formatter_user,
+                })
+                .setTemperature(0)
+                .setRunName('documentationSearchExaFormat')
+                .execute();
+
+            return this.extractPromptExecutionText(response);
+        } catch (error) {
+            this.logger.warn({
+                message:
+                    'LLM documentation formatter failed, falling back to raw summary truncation',
+                context: DocumentationSearchExaService.name,
+                error,
+            });
+
+            return '';
+        }
+    }
+
+    private extractPromptExecutionText(response: unknown): string {
+        if (typeof response === 'string') {
+            return response.trim();
+        }
+
+        if (typeof response === 'object' && response !== null) {
+            const resultValue = (response as Record<string, unknown>).result;
+            if (typeof resultValue === 'string') {
+                return resultValue.trim();
+            }
+
+            if (resultValue != null) {
+                return String(resultValue).trim();
+            }
+        }
+
+        return '';
     }
 
     private deduplicateByQuery(

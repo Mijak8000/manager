@@ -396,6 +396,7 @@ describe('GatherDocumentationContextStage', () => {
                 get: jest.fn().mockResolvedValue(null),
                 set: jest.fn().mockResolvedValue(undefined),
             } as unknown as DocumentationSearchCacheService,
+            buildRealPromptRunnerService(),
         );
 
         const stage = new GatherDocumentationContextStage(

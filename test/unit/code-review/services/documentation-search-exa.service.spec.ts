@@ -1,12 +1,17 @@
+import {
+    ParserType,
+    PromptRole,
+    PromptRunnerService,
+} from '@kodus/kodus-common/llm';
 import { DocumentationSearchCacheService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-cache.service';
 import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
 import { ConfigService } from '@nestjs/config';
 
-const exaAnswerMock = jest.fn();
+const exaSearchMock = jest.fn();
 
 jest.mock('exa-js', () => {
     return jest.fn().mockImplementation(() => ({
-        answer: exaAnswerMock,
+        search: exaSearchMock,
     }));
 });
 
@@ -22,15 +27,48 @@ describe('DocumentationSearchExaService', () => {
         jest.clearAllMocks();
     });
 
+    function buildPromptRunnerServiceMock(params?: {
+        formattedResult?: string;
+    }) {
+        const builder = {
+            setProviders: jest.fn().mockReturnThis(),
+            setParser: jest.fn((parser: ParserType) => {
+                expect(parser).toBe(ParserType.STRING);
+                return builder;
+            }),
+            setPayload: jest.fn().mockReturnThis(),
+            addPrompt: jest.fn(
+                (input: { role: PromptRole; prompt: string }) => {
+                    expect(input.role).toBeDefined();
+                    expect(typeof input.prompt).toBe('string');
+                    return builder;
+                },
+            ),
+            setTemperature: jest.fn().mockReturnThis(),
+            setRunName: jest.fn().mockReturnThis(),
+            execute: jest.fn().mockResolvedValue({
+                result:
+                    params?.formattedResult ||
+                    '## Summary\n- formatted doc snippet',
+            }),
+        };
+
+        return {
+            builder: jest.fn().mockReturnValue(builder),
+        } as unknown as PromptRunnerService;
+    }
+
     it('should skip search when API key is missing', async () => {
         const configService = {
             get: jest.fn().mockReturnValue(undefined),
         } as unknown as ConfigService;
 
         const cacheService = buildCacheServiceMock();
+        const promptRunnerService = buildPromptRunnerServiceMock();
         const service = new DocumentationSearchExaService(
             configService,
             cacheService as unknown as DocumentationSearchCacheService,
+            promptRunnerService,
         );
 
         const result = await service.searchByFilePlan({
@@ -41,7 +79,7 @@ describe('DocumentationSearchExaService', () => {
         });
 
         expect(result).toEqual({});
-        expect(exaAnswerMock).not.toHaveBeenCalled();
+        expect(exaSearchMock).not.toHaveBeenCalled();
     });
 
     it('should return documentation from Exa and persist in cache', async () => {
@@ -51,15 +89,26 @@ describe('DocumentationSearchExaService', () => {
             ),
         } as unknown as ConfigService;
 
-        exaAnswerMock.mockResolvedValue({
-            answer: 'Use official docs and controller decorators.',
+        exaSearchMock.mockResolvedValue({
+            results: [
+                {
+                    title: 'NestJS Controllers',
+                    url: 'https://docs.nestjs.com/controllers',
+                    text: 'Use official docs and controller decorators.',
+                },
+            ],
             citations: [{ url: 'https://docs.nestjs.com/controllers' }],
         });
 
         const cacheService = buildCacheServiceMock();
+        const promptRunnerService = buildPromptRunnerServiceMock({
+            formattedResult:
+                '## Summary\n- Use @Controller decorators correctly.',
+        });
         const service = new DocumentationSearchExaService(
             configService,
             cacheService as unknown as DocumentationSearchCacheService,
+            promptRunnerService,
         );
 
         const result = await service.searchByFilePlan({
@@ -69,12 +118,13 @@ describe('DocumentationSearchExaService', () => {
             },
         });
 
-        expect(exaAnswerMock).toHaveBeenCalledTimes(1);
+        expect(exaSearchMock).toHaveBeenCalledTimes(1);
         expect(result['src/a.ts']).toHaveLength(1);
         expect(result['src/a.ts'][0]).toEqual(
             expect.objectContaining({
                 source: 'exa-search',
                 url: 'https://docs.nestjs.com/controllers',
+                snippet: '## Summary\n- Use @Controller decorators correctly.',
             }),
         );
         expect(cacheService.set).toHaveBeenCalledTimes(1);
@@ -97,9 +147,12 @@ describe('DocumentationSearchExaService', () => {
             },
         });
 
+        const promptRunnerService = buildPromptRunnerServiceMock();
+
         const service = new DocumentationSearchExaService(
             configService,
             cacheService as unknown as DocumentationSearchCacheService,
+            promptRunnerService,
         );
 
         const result = await service.searchByFilePlan({
@@ -111,6 +164,6 @@ describe('DocumentationSearchExaService', () => {
 
         expect(result['src/a.ts']).toHaveLength(1);
         expect(result['src/a.ts'][0].snippet).toBe('cached snippet');
-        expect(exaAnswerMock).not.toHaveBeenCalled();
+        expect(exaSearchMock).not.toHaveBeenCalled();
     });
 });
