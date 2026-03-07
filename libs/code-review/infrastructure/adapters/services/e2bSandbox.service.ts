@@ -301,7 +301,8 @@ export class E2BSandboxService implements ISandboxProvider {
                 const cmd =
                     start === 0 && end === 0
                         ? `cat '${escapedPath}'`
-                        : `sed -n '${start},${end}p' '${escapedPath}'`;
+                        // sed is 1-indexed; a start address of 0 is invalid in GNU sed.
+                        : `sed -n '${start < 1 ? 1 : start},${end}p' '${escapedPath}'`;
                 const result = await sandbox.commands.run(cmd, {
                     timeoutMs: 10_000,
                 });

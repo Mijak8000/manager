@@ -16,6 +16,7 @@ import {
 import {
     CreateSandboxParams,
     ISandboxProvider,
+    SandboxInstance,
 } from '@libs/code-review/domain/contracts/sandbox.provider';
 import {
     SafeguardFeatureExtractionResult,
@@ -199,8 +200,9 @@ export class SafeguardPipelineService {
                         });
                         return false;
                     }
+                    let newSandbox: SandboxInstance | undefined;
                     try {
-                        const newSandbox = await this.sandboxProvider.createSandboxWithRepo(params.sandboxCloneParams);
+                        newSandbox = await this.sandboxProvider.createSandboxWithRepo(params.sandboxCloneParams);
                         currentRemoteCommands = newSandbox.remoteCommands;
                         if (renewedCleanup) await renewedCleanup().catch(() => {});
                         renewedCleanup = newSandbox.cleanup;
@@ -215,6 +217,10 @@ export class SafeguardPipelineService {
                             context: SafeguardPipelineService.name,
                             error: renewErr,
                         });
+                        // Clean up the new sandbox if it was created but setup failed after
+                        if (newSandbox?.cleanup) {
+                            await newSandbox.cleanup().catch(() => {});
+                        }
                         return false;
                     }
                 };
