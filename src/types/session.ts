@@ -15,7 +15,7 @@ export interface LifecycleEvent {
   sessionId: string;
   sessionRef: string; // transcript path
   prompt?: string;
-  timestamp: Date;
+  timestamp: string;
   toolUseId?: string;
   subagentId?: string;
   subagentType?: string;

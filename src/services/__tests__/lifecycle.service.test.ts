@@ -58,7 +58,7 @@ function makeEvent(overrides: Partial<LifecycleEvent>): LifecycleEvent {
     type: 'SessionStart',
     sessionId: 'sess-1',
     sessionRef: '/tmp/transcript.jsonl',
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
     ...overrides,
   };
 }

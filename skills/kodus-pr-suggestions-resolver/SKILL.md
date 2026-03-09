@@ -1,6 +1,6 @@
 ---
 name: kodus-pr-suggestions-resolver
-description: Run Kodus CLI PR suggestions and apply fixes with judgment. Use when asked to fetch `kodus pr suggestions` for a PR URL/number/repo-id, analyze each suggestion against the PR intent, implement reasonable fixes, run build/tests when available, and report what was done or skipped.
+description: Use when asked to fetch `kodus pr suggestions` for a PR URL/number/repo-id, analyze each suggestion against PR intent, implement reasonable fixes, run build/tests when available, and report what was done or skipped. Not for generic local `kodus review`.
 ---
 
 # Kodus PR Suggestions Resolver

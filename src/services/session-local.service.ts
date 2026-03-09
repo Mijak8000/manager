@@ -10,7 +10,9 @@ export interface LocalSessionData {
 const SESSION_DIR = '.kody/sessions';
 
 function sessionPath(repoRoot: string, sessionId: string): string {
-  return path.join(repoRoot, SESSION_DIR, `${sessionId}.json`);
+  // Sanitize sessionId to prevent path traversal
+  const sanitized = path.basename(sessionId);
+  return path.join(repoRoot, SESSION_DIR, `${sanitized}.json`);
 }
 
 export async function saveLocal(repoRoot: string, sessionId: string, data: LocalSessionData): Promise<void> {

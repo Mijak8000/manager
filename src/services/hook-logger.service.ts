@@ -43,11 +43,11 @@ class HookLoggerService {
     if (!this.logPath) return;
 
     const entry: LogEntry = {
+      ...fields,
       time: new Date().toISOString(),
       level,
       msg,
       component,
-      ...fields,
     };
 
     try {

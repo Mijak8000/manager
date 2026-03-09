@@ -100,7 +100,7 @@ describe('Lifecycle API event dispatch', () => {
       type: 'SessionStart',
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     await lifecycleService.dispatch(repoRoot, 'claude-code', event);
@@ -122,7 +122,7 @@ describe('Lifecycle API event dispatch', () => {
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
       prompt: 'create a login endpoint',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     await lifecycleService.dispatch(repoRoot, 'claude-code', event);
@@ -150,7 +150,7 @@ describe('Lifecycle API event dispatch', () => {
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
       prompt: 'create a login endpoint',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     const turnStartEvent = sentEvents[0];
@@ -161,7 +161,7 @@ describe('Lifecycle API event dispatch', () => {
       type: 'TurnEnd',
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     expect(sentEvents).toHaveLength(2);
@@ -191,14 +191,14 @@ describe('Lifecycle API event dispatch', () => {
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
       prompt: 'test',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     await lifecycleService.dispatch(repoRoot, 'claude-code', {
       type: 'SessionEnd',
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     const sessionEnd = sentEvents.find(e => e.type === 'session_end');
@@ -213,7 +213,7 @@ describe('Lifecycle API event dispatch', () => {
       type: 'SubagentStart',
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       toolUseId: 'tool-123',
       subagentType: 'Explore',
       taskDescription: 'Find authentication files',
@@ -234,7 +234,7 @@ describe('Lifecycle API event dispatch', () => {
       type: 'SubagentEnd',
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       toolUseId: 'tool-123',
     });
 
@@ -250,7 +250,7 @@ describe('Lifecycle API event dispatch', () => {
       type: 'SubagentStart',
       sessionId,
       sessionRef: '/tmp/transcript.jsonl',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     expect(sentEvents).toHaveLength(0);
@@ -258,16 +258,16 @@ describe('Lifecycle API event dispatch', () => {
 
   it('includes branch in every event', async () => {
     await lifecycleService.dispatch(repoRoot, 'claude-code', {
-      type: 'SessionStart', sessionId, sessionRef: '/tmp/t.jsonl', timestamp: new Date(),
+      type: 'SessionStart', sessionId, sessionRef: '/tmp/t.jsonl', timestamp: new Date().toISOString(),
     });
     await lifecycleService.dispatch(repoRoot, 'claude-code', {
-      type: 'TurnStart', sessionId, sessionRef: '/tmp/t.jsonl', prompt: 'test', timestamp: new Date(),
+      type: 'TurnStart', sessionId, sessionRef: '/tmp/t.jsonl', prompt: 'test', timestamp: new Date().toISOString(),
     });
     await lifecycleService.dispatch(repoRoot, 'claude-code', {
-      type: 'TurnEnd', sessionId, sessionRef: '/tmp/t.jsonl', timestamp: new Date(),
+      type: 'TurnEnd', sessionId, sessionRef: '/tmp/t.jsonl', timestamp: new Date().toISOString(),
     });
     await lifecycleService.dispatch(repoRoot, 'claude-code', {
-      type: 'SessionEnd', sessionId, sessionRef: '/tmp/t.jsonl', timestamp: new Date(),
+      type: 'SessionEnd', sessionId, sessionRef: '/tmp/t.jsonl', timestamp: new Date().toISOString(),
     });
 
     for (const event of sentEvents) {

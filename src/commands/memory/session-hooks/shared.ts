@@ -57,6 +57,7 @@ async function readStdinPayload(): Promise<string> {
       process.stdin.removeAllListeners('data');
       process.stdin.removeAllListeners('end');
       process.stdin.removeAllListeners('error');
+      process.stdin.pause();
       resolve(value);
     };
 

@@ -1,6 +1,6 @@
 ---
 name: kodus-review
-description: Use the Kodus CLI to run code reviews and apply fixes based on CLI output. Trigger when asked to review code with Kodus, run `kodus review`, use `--prompt-only`, or act on Kodus review results.
+description: Use when asked to review code with Kodus, run `kodus review`, use `--prompt-only`, or act on Kodus review results. Run the Kodus CLI review flow and apply fixes based on CLI output. Not for local dev CLI flow, PR suggestions, or business validation.
 ---
 
 # Kodus Review
