@@ -171,6 +171,7 @@ class LifecycleService {
     let filesRead: string[] = [];
     let commands: string[] = [];
     let tokenUsage = emptyTokenUsage;
+    let response = '';
 
     if (transcriptPath) {
       const flushed = await transcriptService.waitForFlush(transcriptPath, 3000);
@@ -182,6 +183,7 @@ class LifecycleService {
           commands = parseResult.commands;
           tokenUsage = parseResult.tokenUsage;
           filesModified = parseResult.modifiedFiles.map(p => ({ path: p, action: 'modified' as const }));
+          response = parseResult.assistantMessages.join('\n\n');
         } catch (error) {
           await hookLogger.warn('transcript-parse-error', 'transcript', {
             error: error instanceof Error ? error.message : String(error),
@@ -201,6 +203,7 @@ class LifecycleService {
       branch,
       timestamp: new Date().toISOString(),
       turnId,
+      response,
       toolCalls,
       filesModified,
       filesRead,

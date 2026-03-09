@@ -37,6 +37,7 @@ export interface TurnStartEvent extends BaseEvent {
 export interface TurnEndEvent extends BaseEvent {
   type: 'turn_end';
   turnId: string;
+  response: string;
   toolCalls: ToolCall[];
   filesModified: FileChange[];
   filesRead: string[];

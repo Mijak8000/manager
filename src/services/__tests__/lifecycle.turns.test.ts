@@ -178,6 +178,7 @@ describe('Lifecycle API event dispatch', () => {
       expect(turnEnd.filesModified.map(f => f.path)).toContain('src/config.ts');
       expect(turnEnd.filesRead).toEqual(['src/old.ts']);
       expect(turnEnd.commands).toEqual(['npm test']);
+      expect(turnEnd.response).toBe('test response');
       expect(turnEnd.tokenUsage.inputTokens).toBe(500);
       expect(turnEnd.tokenUsage.outputTokens).toBe(100);
       expect(turnEnd.commitAfter).toBe('abc123def456');
