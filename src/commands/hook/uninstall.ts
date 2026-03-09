@@ -5,8 +5,24 @@ import { gitService } from '../../services/git.service.js';
 import { KODUS_MARKER } from './install.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
+import type { GlobalOptions } from '../../types/index.js';
+import { createCommandContext } from '../../utils/command-context.js';
+import {
+    buildAgentSuccessEnvelope,
+    emitAgentEnvelope,
+} from '../../utils/command-output.js';
 
-export async function uninstallAction(): Promise<void> {
+export async function uninstallAction(
+    options: { dryRun?: boolean } = {},
+    globalOpts?: GlobalOptions,
+): Promise<void> {
+    const ctx = createCommandContext('hook uninstall', {
+        format: globalOpts?.format ?? 'terminal',
+        output: globalOpts?.output,
+        verbose: globalOpts?.verbose ?? false,
+        quiet: globalOpts?.quiet ?? false,
+        agent: globalOpts?.agent ?? false,
+    });
     const isRepo = await gitService.isGitRepository();
     if (!isRepo) {
         cliError(chalk.red('Error: Not a git repository.'));
@@ -21,6 +37,26 @@ export async function uninstallAction(): Promise<void> {
         content = await fs.readFile(hookPath, 'utf-8');
     } catch {
         cliInfo(chalk.yellow('No pre-push hook found.'));
+        return;
+    }
+
+    if (options.dryRun) {
+        const payload = {
+            action: 'hook uninstall',
+            path: hookPath,
+            installedByKodus: content.includes(KODUS_MARKER),
+            fileExists: true,
+        };
+        if (ctx.isAgent) {
+            await emitAgentEnvelope(
+                buildAgentSuccessEnvelope(ctx.command, payload, ctx.startedAt),
+                ctx.outputFile,
+            );
+            return;
+        }
+
+        cliInfo(chalk.cyan('Dry run: no changes were made.'));
+        cliInfo(JSON.stringify(payload, null, 2));
         return;
     }
 

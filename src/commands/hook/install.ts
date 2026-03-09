@@ -5,6 +5,12 @@ import { confirm } from '@inquirer/prompts';
 import { gitService } from '../../services/git.service.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
+import type { GlobalOptions } from '../../types/index.js';
+import { createCommandContext } from '../../utils/command-context.js';
+import {
+    buildAgentSuccessEnvelope,
+    emitAgentEnvelope,
+} from '../../utils/command-output.js';
 
 const KODUS_MARKER = '# kodus-hook';
 
@@ -66,11 +72,22 @@ done
 `;
 }
 
-export async function installAction(options: {
-    failOn?: string;
-    fast?: boolean;
-    force?: boolean;
-}): Promise<void> {
+export async function installAction(
+    options: {
+        failOn?: string;
+        fast?: boolean;
+        force?: boolean;
+        dryRun?: boolean;
+    },
+    globalOpts?: GlobalOptions,
+): Promise<void> {
+    const ctx = createCommandContext('hook install', {
+        format: globalOpts?.format ?? 'terminal',
+        output: globalOpts?.output,
+        verbose: globalOpts?.verbose ?? false,
+        quiet: globalOpts?.quiet ?? false,
+        agent: globalOpts?.agent ?? false,
+    });
     const failOn = options.failOn ?? 'critical';
     const fast = options.fast !== false; // default true
 
@@ -92,9 +109,35 @@ export async function installAction(options: {
         // File doesn't exist
     }
 
-    if (existingContent) {
-        const isKodusHook = existingContent.includes(KODUS_MARKER);
+    const isKodusHook = existingContent
+        ? existingContent.includes(KODUS_MARKER)
+        : false;
 
+    if (options.dryRun) {
+        const payload = {
+            action: 'hook install',
+            path: hookPath,
+            failOn,
+            fast,
+            hasExistingHook: !!existingContent,
+            wouldPromptForOverwrite:
+                !!existingContent && !isKodusHook && !options.force,
+        };
+
+        if (ctx.isAgent) {
+            await emitAgentEnvelope(
+                buildAgentSuccessEnvelope(ctx.command, payload, ctx.startedAt),
+                ctx.outputFile,
+            );
+            return;
+        }
+
+        cliInfo(chalk.cyan('Dry run: no changes were made.'));
+        cliInfo(JSON.stringify(payload, null, 2));
+        return;
+    }
+
+    if (existingContent) {
         if (!isKodusHook && !options.force) {
             const overwrite = await confirm({
                 message: 'A pre-push hook already exists. Overwrite it?',

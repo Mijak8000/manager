@@ -25,24 +25,31 @@ decisionsCommand
         'Path to Codex config.toml (default: ~/.codex/config.toml)',
     )
     .option('--force', 'Overwrite existing modules.yml')
-    .action(enableAction);
+    .option('--dry-run', 'Print planned changes without writing files', false)
+    .action((options, cmd) => enableAction(options, cmd.optsWithGlobals()));
 
 decisionsCommand
     .command('disable')
     .description('Remove all decision hooks (preserves .kody/ data)')
-    .action(disableAction);
+    .option('--dry-run', 'Print planned changes without writing files', false)
+    .action((options, cmd) => disableAction(options, cmd.optsWithGlobals()));
 
 decisionsCommand
     .command('capture')
     .description('Internal hook command to persist decision capture')
     .argument('[payload]', 'Optional payload JSON (used by Codex notify)')
     .requiredOption(
-        '--agent <agent>',
+        '--capture-agent <agent>',
         'Agent name: claude-compatible, claude-code, cursor, codex',
     )
     .requiredOption('--event <event>', 'Hook event name')
     .option('--summary <text>', 'Optional summary text')
-    .action(captureAction);
+    .action((payload, options) =>
+        captureAction(payload, {
+            ...options,
+            agent: options.captureAgent,
+        }),
+    );
 
 decisionsCommand
     .command('status')
@@ -63,4 +70,5 @@ decisionsCommand
         '--modules <ids>',
         'Comma-separated module IDs (default: all matched)',
     )
-    .action(promoteAction);
+    .option('--dry-run', 'Print planned changes without writing files', false)
+    .action((options, cmd) => promoteAction(options, cmd.optsWithGlobals()));

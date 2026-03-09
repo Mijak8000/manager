@@ -3,13 +3,31 @@ import { gitService } from '../../services/git.service.js';
 import { memoryService } from '../../services/memory.service.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
+import type { GlobalOptions } from '../../types/index.js';
+import { createCommandContext } from '../../utils/command-context.js';
+import {
+    buildAgentSuccessEnvelope,
+    emitAgentEnvelope,
+} from '../../utils/command-output.js';
 
 interface PromoteOptions {
     branch?: string;
     modules?: string;
+    dryRun?: boolean;
 }
 
-export async function promoteAction(options: PromoteOptions): Promise<void> {
+export async function promoteAction(
+    options: PromoteOptions,
+    globalOpts?: GlobalOptions,
+): Promise<void> {
+    const ctx = createCommandContext('decisions promote', {
+        format: globalOpts?.format ?? 'terminal',
+        output: globalOpts?.output,
+        verbose: globalOpts?.verbose ?? false,
+        quiet: globalOpts?.quiet ?? false,
+        agent: globalOpts?.agent ?? false,
+    });
+
     const isRepo = await gitService.isGitRepository();
     if (!isRepo) {
         cliError(chalk.red('Error: Not a git repository.'));
@@ -38,6 +56,28 @@ export async function promoteAction(options: PromoteOptions): Promise<void> {
               .map((m) => m.trim())
               .filter(Boolean)
         : undefined;
+
+    if (options.dryRun) {
+        const payload = {
+            action: 'decisions promote',
+            repositoryRoot: repoRoot,
+            branch,
+            modules: moduleIds ?? 'all matched modules',
+            willWriteModuleMemoryFiles: true,
+        };
+
+        if (ctx.isAgent) {
+            await emitAgentEnvelope(
+                buildAgentSuccessEnvelope(ctx.command, payload, ctx.startedAt),
+                ctx.outputFile,
+            );
+            return;
+        }
+
+        cliInfo(chalk.cyan('Dry run: no changes were made.'));
+        cliInfo(JSON.stringify(payload, null, 2));
+        return;
+    }
 
     const result = await memoryService.promoteToModuleMemory(
         repoRoot,

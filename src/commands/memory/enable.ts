@@ -14,14 +14,32 @@ import {
 } from './hooks.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
+import type { GlobalOptions } from '../../types/index.js';
+import { createCommandContext } from '../../utils/command-context.js';
+import {
+    buildAgentSuccessEnvelope,
+    emitAgentEnvelope,
+} from '../../utils/command-output.js';
 
 interface EnableOptions {
     agents?: string;
     codexConfig?: string;
     force?: boolean;
+    dryRun?: boolean;
 }
 
-export async function enableAction(options: EnableOptions): Promise<void> {
+export async function enableAction(
+    options: EnableOptions,
+    globalOpts?: GlobalOptions,
+): Promise<void> {
+    const ctx = createCommandContext('decisions enable', {
+        format: globalOpts?.format ?? 'terminal',
+        output: globalOpts?.output,
+        verbose: globalOpts?.verbose ?? false,
+        quiet: globalOpts?.quiet ?? false,
+        agent: globalOpts?.agent ?? false,
+    });
+
     const isRepo = await gitService.isGitRepository();
     if (!isRepo) {
         cliError(chalk.red('Error: Not a git repository.'));
@@ -40,6 +58,34 @@ export async function enableAction(options: EnableOptions): Promise<void> {
 
     const installClaudeCompat = agents.has('claude') || agents.has('cursor');
     const installCodex = agents.has('codex');
+
+    if (options.dryRun) {
+        const payload = {
+            action: 'decisions enable',
+            repositoryRoot: gitRoot,
+            agents: [...agents],
+            installClaudeCompatibleHooks: installClaudeCompat,
+            installCodexNotify: installCodex,
+            installPostMergeHook: true,
+            initializeModulesConfig: true,
+            force: !!options.force,
+            codexConfigPath: installCodex
+                ? resolveCodexConfigPath(options.codexConfig)
+                : undefined,
+        };
+
+        if (ctx.isAgent) {
+            await emitAgentEnvelope(
+                buildAgentSuccessEnvelope(ctx.command, payload, ctx.startedAt),
+                ctx.outputFile,
+            );
+            return;
+        }
+
+        cliInfo(chalk.cyan('Dry run: no changes were made.'));
+        cliInfo(JSON.stringify(payload, null, 2));
+        return;
+    }
 
     // 1. Claude Code / Cursor hooks
     let claudeStatus = 'skipped';

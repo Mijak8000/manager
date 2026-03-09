@@ -181,6 +181,7 @@ export interface GlobalOptions {
     output?: string;
     verbose: boolean;
     quiet: boolean;
+    agent?: boolean;
     interactive?: boolean;
     promptOnly?: boolean;
     fix?: boolean;
