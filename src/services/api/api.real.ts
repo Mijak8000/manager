@@ -18,8 +18,10 @@ import type {
     IReviewApi,
     ITrialApi,
     IMemoryApi,
+    ISessionsApi,
     GitMetrics,
 } from './api.interface.js';
+import { RealSessionsApi } from './sessions.api.js';
 import { loadConfig, type CliConfig } from '../../utils/config.js';
 import { getDeviceIdentity, updateDeviceToken } from '../../utils/device.js';
 import { cliDebug, cliError, isCliVerboseMode } from '../../utils/logger.js';
@@ -222,7 +224,7 @@ function normalizeApiErrorMessage(
     return trimmed;
 }
 
-async function request<T>(
+export async function request<T>(
     endpoint: string,
     options: RequestInit = {},
 ): Promise<T> {
@@ -736,4 +738,5 @@ export class RealApi implements IKodusApi {
     review: IReviewApi = new RealReviewApi();
     trial: ITrialApi = new RealTrialApi();
     memory: IMemoryApi = new RealMemoryApi();
+    sessions: ISessionsApi = new RealSessionsApi();
 }
