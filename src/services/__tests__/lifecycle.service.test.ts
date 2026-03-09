@@ -30,6 +30,7 @@ vi.mock('../transcript.service.js', () => ({
       toolCalls: [],
       filesRead: [],
       commands: [],
+      assistantMessages: [],
       tokenUsage: { inputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens: 0, apiCallCount: 0 },
       modifiedFiles: [],
     }),
