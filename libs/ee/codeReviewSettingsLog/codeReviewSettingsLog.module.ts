@@ -23,6 +23,7 @@ import { UnifiedLogHandler } from './infrastructure/adapters/services/unifiedLog
 import { UserStatusLogHandler } from './infrastructure/adapters/services/userStatusLog.handler';
 import { UserInviteLogHandler } from './infrastructure/adapters/services/userInviteLog.handler';
 import { UserManagementLogHandler } from './infrastructure/adapters/services/userManagementLog.handler';
+import { OrgSettingsLogHandler } from './infrastructure/adapters/services/orgSettingsLog.handler';
 import { AuditLogListener } from './listeners/audit-log.listener';
 
 @Module({
@@ -55,6 +56,7 @@ import { AuditLogListener } from './listeners/audit-log.listener';
         UserStatusLogHandler,
         UserInviteLogHandler,
         UserManagementLogHandler,
+        OrgSettingsLogHandler,
         RegisterUserStatusLogUseCase,
         FindCodeReviewSettingsLogsUseCase,
         AuditLogListener,

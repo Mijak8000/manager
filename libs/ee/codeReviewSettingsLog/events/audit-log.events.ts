@@ -10,4 +10,5 @@ export const AuditLogEvents = {
     USER_INVITE: 'audit.userInvite',
     USER_ROLE_CHANGE: 'audit.userRoleChange',
     USER_REPO_ACCESS: 'audit.userRepoAccess',
+    ORG_SETTINGS: 'audit.orgSettings',
 } as const;

@@ -18,6 +18,11 @@ import { IntegrationLogParams } from '../infrastructure/adapters/services/integr
 import { UserStatusLogParams } from '../infrastructure/adapters/services/userStatusLog.handler';
 import { PullRequestMessagesLogParams } from '../infrastructure/adapters/services/pullRequestMessageLog.handler';
 import { UserInviteLogParams } from '../infrastructure/adapters/services/userInviteLog.handler';
+import {
+    UserRoleChangeLogParams,
+    UserRepoAccessLogParams,
+} from '../infrastructure/adapters/services/userManagementLog.handler';
+import { OrgSettingsLogParams } from '../infrastructure/adapters/services/orgSettingsLog.handler';
 
 @Injectable()
 export class AuditLogListener {
@@ -122,6 +127,39 @@ export class AuditLogListener {
             );
         } catch (error) {
             this.logError('user invite', error, params);
+        }
+    }
+
+    @OnEvent(AuditLogEvents.USER_ROLE_CHANGE)
+    async handleUserRoleChange(params: UserRoleChangeLogParams) {
+        try {
+            await this.codeReviewSettingsLogService.registerUserRoleChangeLog(
+                params,
+            );
+        } catch (error) {
+            this.logError('user role change', error, params);
+        }
+    }
+
+    @OnEvent(AuditLogEvents.USER_REPO_ACCESS)
+    async handleUserRepoAccess(params: UserRepoAccessLogParams) {
+        try {
+            await this.codeReviewSettingsLogService.registerUserRepoAccessLog(
+                params,
+            );
+        } catch (error) {
+            this.logError('user repo access', error, params);
+        }
+    }
+
+    @OnEvent(AuditLogEvents.ORG_SETTINGS)
+    async handleOrgSettings(params: OrgSettingsLogParams) {
+        try {
+            await this.codeReviewSettingsLogService.registerOrgSettingsLog(
+                params,
+            );
+        } catch (error) {
+            this.logError('org settings', error, params);
         }
     }
 

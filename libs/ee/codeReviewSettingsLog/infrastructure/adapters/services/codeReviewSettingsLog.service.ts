@@ -33,6 +33,10 @@ import {
     UserRoleChangeLogParams,
     UserRepoAccessLogParams,
 } from './userManagementLog.handler';
+import {
+    OrgSettingsLogHandler,
+    OrgSettingsLogParams,
+} from './orgSettingsLog.handler';
 import { ICodeReviewSettingsLogService } from '@libs/ee/codeReviewSettingsLog/domain/contracts/codeReviewSettingsLog.service.contract';
 import {
     CODE_REVIEW_SETTINGS_LOG_REPOSITORY_TOKEN,
@@ -58,6 +62,7 @@ export class CodeReviewSettingsLogService implements ICodeReviewSettingsLogServi
         private readonly pullRequestMessagesLogHandler: PullRequestMessagesLogHandler,
         private readonly userInviteLogHandler: UserInviteLogHandler,
         private readonly userManagementLogHandler: UserManagementLogHandler,
+        private readonly orgSettingsLogHandler: OrgSettingsLogHandler,
     ) {}
 
     /**
@@ -249,5 +254,19 @@ export class CodeReviewSettingsLogService implements ICodeReviewSettingsLogServi
         }
 
         await this.userManagementLogHandler.logUserRepoAccessChange(params);
+    }
+
+    // Organization Settings (Auto-Join, Timezone)
+    public async registerOrgSettingsLog(
+        params: OrgSettingsLogParams,
+    ): Promise<void> {
+        const canAudit = await this.shouldAllowAuditLogs(
+            params.organizationAndTeamData,
+        );
+        if (!canAudit) {
+            return;
+        }
+
+        await this.orgSettingsLogHandler.logOrgSettingsChange(params);
     }
 }
