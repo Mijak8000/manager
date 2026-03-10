@@ -143,6 +143,9 @@ export class CreateOrUpdatePullRequestMessagesUseCase implements IUseCase {
                 existingPullRequestMessage?.startReviewMessage,
             existingEndMessage:
                 existingPullRequestMessage?.endReviewMessage,
+            globalSettings: pullRequestMessages.globalSettings,
+            existingGlobalSettings:
+                existingPullRequestMessage?.globalSettings,
             directoryPath:
                 (await this.contextResolutionService.getDirectoryPathByOrganizationAndRepository(
                     pullRequestMessages.organizationId,

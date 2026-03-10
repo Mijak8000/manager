@@ -16,12 +16,24 @@ function getDefaultMessages() {
     return {
         start: defaults.customMessages?.startReviewMessage?.content ?? '',
         end: defaults.customMessages?.endReviewMessage?.content ?? '',
+        globalSettings: {
+            hideComments:
+                defaults.customMessages?.globalSettings?.hideComments ?? false,
+            suggestionCopyPrompt:
+                defaults.customMessages?.globalSettings
+                    ?.suggestionCopyPrompt ?? true,
+        },
     };
 }
 
 export interface PullRequestMessage {
     content: string;
     status: PullRequestMessageStatus;
+}
+
+export interface GlobalSettings {
+    hideComments?: boolean;
+    suggestionCopyPrompt?: boolean;
 }
 
 export interface PullRequestMessagesLogParams extends BaseLogParams {
@@ -31,6 +43,8 @@ export interface PullRequestMessagesLogParams extends BaseLogParams {
     endReviewMessage?: PullRequestMessage;
     existingStartMessage?: PullRequestMessage;
     existingEndMessage?: PullRequestMessage;
+    globalSettings?: GlobalSettings;
+    existingGlobalSettings?: GlobalSettings;
     directoryPath?: string;
     isUpdate: boolean; // true for update, false for create
 }
@@ -107,6 +121,24 @@ export class PullRequestMessagesLogHandler {
             if (endChange) {
                 changedData.push(endChange);
             }
+        }
+
+        // Check globalSettings changes
+        if (params.globalSettings) {
+            const globalSettingsChanges = this.analyzeGlobalSettingsChanges(
+                params.globalSettings,
+                params.isUpdate
+                    ? params.existingGlobalSettings
+                    : undefined,
+                defaultMessages.globalSettings,
+                params.isUpdate,
+                params.configLevel,
+                params.repositoryId,
+                params.directoryPath,
+                params.userInfo.userEmail,
+            );
+
+            changedData.push(...globalSettingsChanges);
         }
 
         return changedData;
@@ -201,6 +233,63 @@ export class PullRequestMessagesLogHandler {
 
     private hasContentChanged(oldContent: string, newContent: string): boolean {
         return oldContent.trim() !== newContent.trim();
+    }
+
+    private analyzeGlobalSettingsChanges(
+        newSettings: GlobalSettings,
+        existingSettings: GlobalSettings | undefined,
+        defaultSettings: GlobalSettings,
+        isUpdate: boolean,
+        configLevel: ConfigLevel,
+        repositoryId?: string,
+        directoryPath?: string,
+        userEmail?: string,
+    ): ChangedDataToExport[] {
+        const changes: ChangedDataToExport[] = [];
+        const baseSettings = isUpdate
+            ? existingSettings ?? defaultSettings
+            : defaultSettings;
+        const levelDesc = this.getConfigLevelDescription(
+            configLevel,
+            repositoryId,
+            directoryPath,
+        );
+
+        // Check hideComments
+        const prevHideComments = baseSettings.hideComments ?? false;
+        const newHideComments = newSettings.hideComments ?? false;
+
+        if (prevHideComments !== newHideComments) {
+            const action = newHideComments ? 'enabled' : 'disabled';
+            changes.push({
+                actionDescription: 'Global Setting Updated: Post as Hidden Comment',
+                previousValue: { hideComments: prevHideComments },
+                currentValue: { hideComments: newHideComments },
+                description: `User ${userEmail} ${action} Post as Hidden Comment ${levelDesc}`,
+            });
+        }
+
+        // Check suggestionCopyPrompt
+        const prevSuggestionCopyPrompt =
+            baseSettings.suggestionCopyPrompt ?? true;
+        const newSuggestionCopyPrompt =
+            newSettings.suggestionCopyPrompt ?? true;
+
+        if (prevSuggestionCopyPrompt !== newSuggestionCopyPrompt) {
+            const action = newSuggestionCopyPrompt ? 'enabled' : 'disabled';
+            changes.push({
+                actionDescription: 'Global Setting Updated: Enable LLM Prompt',
+                previousValue: {
+                    suggestionCopyPrompt: prevSuggestionCopyPrompt,
+                },
+                currentValue: {
+                    suggestionCopyPrompt: newSuggestionCopyPrompt,
+                },
+                description: `User ${userEmail} ${action} Enable LLM Prompt ${levelDesc}`,
+            });
+        }
+
+        return changes;
     }
 
     private getConfigLevelDescription(
