@@ -605,40 +605,7 @@ describe('hook integration', () => {
 // Decision commands — enable and capture
 // ---------------------------------------------------------------------------
 describe('decisions integration', () => {
-    it('kodus decisions enable --dry-run does not create files or hooks', async () => {
-        const settingsPath = path.join(gitRepoDir, '.claude', 'settings.json');
-        const codexConfigPath = path.join(tmpHome, '.codex', 'config.toml');
-        const postMergePath = path.join(
-            gitRepoDir,
-            '.git',
-            'hooks',
-            'post-merge',
-        );
-        const modulesPath = path.join(gitRepoDir, '.kody', 'modules.yml');
-
-        await fs.unlink(settingsPath).catch(() => {});
-        await fs.unlink(codexConfigPath).catch(() => {});
-        await fs.unlink(postMergePath).catch(() => {});
-        await fs.unlink(modulesPath).catch(() => {});
-
-        const { stdout, stderr, exitCode } = await runCli([
-            'decisions',
-            'enable',
-            '--agents',
-            'claude,codex',
-            '--dry-run',
-        ]);
-        expect(exitCode).toBe(0);
-        const output = stdout + stderr;
-        expect(output.toLowerCase()).toContain('dry run');
-
-        await expect(fs.access(settingsPath)).rejects.toThrow();
-        await expect(fs.access(codexConfigPath)).rejects.toThrow();
-        await expect(fs.access(postMergePath)).rejects.toThrow();
-        await expect(fs.access(modulesPath)).rejects.toThrow();
-    });
-
-    it('kodus decisions enable configures .claude/settings.json, ~/.codex/config.toml, post-merge hook and modules.yml', async () => {
+    it('kodus decisions enable configures .claude/settings.json and ~/.codex/config.toml', async () => {
         const { stdout, stderr, exitCode } = await runCli([
             'decisions',
             'enable',
@@ -678,19 +645,9 @@ describe('decisions integration', () => {
         expect(codexConfig).toContain(
             'notify = ["kodus", "decisions", "capture", "--capture-agent", "codex", "--event", "stop"]',
         );
-
-        const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'post-merge');
-        const hookContent = await fs.readFile(hookPath, 'utf-8');
-        expect(hookContent).toContain('kodus decisions promote');
     });
 
-    it('kodus decisions capture writes markdown memory file under .kody/pr/<branch>.md', async () => {
-        const branch = (
-            await execFileAsync('git', ['branch', '--show-current'], {
-                cwd: gitRepoDir,
-            })
-        ).stdout.trim();
-
+    it('kodus decisions capture exits cleanly for non-stop events (no local storage)', async () => {
         const payload = JSON.stringify({
             session_id: 'session-1',
             turn_id: 'turn-1',
@@ -711,26 +668,12 @@ describe('decisions integration', () => {
         ]);
         expect(exitCode).toBe(0);
 
-        const memoryFilePath = path.join(
-            gitRepoDir,
-            '.kody',
-            'pr',
-            `${branch}.md`,
-        );
-        const content = await fs.readFile(memoryFilePath, 'utf-8');
-        expect(content).toContain(`# PR Memory: ${branch}`);
-        expect(content).toContain('codex');
-        expect(content).toContain('agent-turn-complete');
-        expect(content).toContain('Use idempotent cache key');
+        // No local file should be created — capture only sends to API on stop
+        const memoryDir = path.join(gitRepoDir, '.kody', 'pr');
+        await expect(fs.access(memoryDir)).rejects.toThrow();
     });
 
-    it('kodus decisions capture resolves claude-compatible to cursor when Cursor env vars are present', async () => {
-        const branch = (
-            await execFileAsync('git', ['branch', '--show-current'], {
-                cwd: gitRepoDir,
-            })
-        ).stdout.trim();
-
+    it('kodus decisions capture exits cleanly with claude-compatible agent and Cursor env vars', async () => {
         const payload = JSON.stringify({
             session_id: 'session-2',
             prompt: 'add retry with backoff',
@@ -754,14 +697,9 @@ describe('decisions integration', () => {
         );
         expect(exitCode).toBe(0);
 
-        const memoryFilePath = path.join(
-            gitRepoDir,
-            '.kody',
-            'pr',
-            `${branch}.md`,
-        );
-        const content = await fs.readFile(memoryFilePath, 'utf-8');
-        expect(content).toContain('| cursor | user-prompt-submit');
+        // No local file should be created — capture only sends to API on stop
+        const memoryDir = path.join(gitRepoDir, '.kody', 'pr');
+        await expect(fs.access(memoryDir)).rejects.toThrow();
     });
 });
 

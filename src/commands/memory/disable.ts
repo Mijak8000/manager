@@ -3,9 +3,9 @@ import { gitService } from '../../services/git.service.js';
 import {
     removeClaudeCompatibleHooks,
     removeCodexNotify,
-    removeMergeHook,
     resolveCodexConfigPath,
 } from './hooks.js';
+import { removeSessionHooks } from './session-hooks-install.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
 import type { GlobalOptions } from '../../types/index.js';
@@ -60,16 +60,14 @@ export async function disableAction(
     }
 
     const claudeResult = await removeClaudeCompatibleHooks(gitRoot);
+    const sessionResult = await removeSessionHooks(gitRoot);
     const codexResult = await removeCodexNotify(resolveCodexConfigPath());
-    const mergeResult = await removeMergeHook(gitRoot);
+
+    const captureRemoved = claudeResult.removed;
+    const sessionRemoved = sessionResult.removed;
 
     cliInfo(chalk.green('\u2713 Decision hooks removed.'));
-    cliInfo(
-        `  Claude Code / Cursor hooks: ${claudeResult.removed ? 'removed' : 'not found'}`,
-    );
+    cliInfo(`  Decision capture hooks: ${captureRemoved ? 'removed' : 'not found'}`);
+    cliInfo(`  Session tracking hooks: ${sessionRemoved ? 'removed' : 'not found'}`);
     cliInfo(`  Codex notify: ${codexResult.removed ? 'removed' : 'not found'}`);
-    cliInfo(
-        `  Post-merge hook: ${mergeResult.removed ? 'removed' : 'not found'}`,
-    );
-    cliInfo(chalk.dim('  Memory data in .kody/ preserved.'));
 }
