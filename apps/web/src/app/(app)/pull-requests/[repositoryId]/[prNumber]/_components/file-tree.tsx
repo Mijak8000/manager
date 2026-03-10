@@ -44,6 +44,9 @@ function buildTree(
                     suggestionCount: isFile ? count : 0,
                 };
                 currentLevel.push(existing);
+            } else if (!isFile && existing.isFile) {
+                // Node was created as file but is now a directory prefix
+                existing.isFile = false;
             }
             if (!isFile) {
                 existing.suggestionCount += count;

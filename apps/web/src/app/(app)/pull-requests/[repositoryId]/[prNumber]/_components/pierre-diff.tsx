@@ -52,8 +52,10 @@ export function PierrePatchDiffComponent({
     // or standard unified diff headers to parse correctly.
     const prev = previousFilename ?? filename;
     const isNewFile = patch.startsWith("@@ -0,0");
+    const isDeletedFile = /^@@ -\d+,\d+ \+0,0 @@/.test(patch);
     const fromPath = isNewFile ? "/dev/null" : `a/${prev}`;
-    const fullPatch = `diff --git a/${prev} b/${filename}\n--- ${fromPath}\n+++ b/${filename}\n${patch}`;
+    const toPath = isDeletedFile ? "/dev/null" : `b/${filename}`;
+    const fullPatch = `diff --git a/${prev} b/${filename}\n--- ${fromPath}\n+++ ${toPath}\n${patch}`;
 
     return (
         <div className="pierre-diff-container overflow-x-auto">

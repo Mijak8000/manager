@@ -90,13 +90,13 @@ export function DiffViewer({
         ? filePaths.indexOf(state.selectedFilePath)
         : -1;
 
-    if (filePaths.length === 0) {
+    if (filePaths.length === 0 && (!patchFiles || patchFiles.length === 0)) {
         return (
             <div className="flex h-full items-center justify-center">
                 <div className="text-center">
                     <FileIcon className="mx-auto mb-3 size-10 text-text-tertiary/40" />
                     <p className="text-sm text-text-tertiary">
-                        No suggestions found for this pull request.
+                        No changed files found for this pull request.
                     </p>
                 </div>
             </div>

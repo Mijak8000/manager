@@ -239,7 +239,9 @@ export const usePullRequestExecutionSSE = (enabled = true) => {
             });
         };
 
-        connect();
+        connect().catch(() => {
+            // Silently handle fatal SSE connection errors (e.g., 401, 500)
+        });
 
         return () => {
             cancelled = true;
