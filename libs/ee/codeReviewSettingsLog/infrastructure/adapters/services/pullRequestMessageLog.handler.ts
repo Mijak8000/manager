@@ -4,15 +4,20 @@ import {
     BaseLogParams,
     ChangedDataToExport,
 } from './unifiedLog.handler';
+import { getDefaultKodusConfigFile } from '@libs/common/utils/validateCodeReviewConfigFile';
 import { PullRequestMessageStatus } from '@libs/core/infrastructure/config/types/general/pullRequestMessages.type';
 import {
     ActionType,
     ConfigLevel,
 } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 
-// Default messages constants - to be filled with actual content
-const DEFAULT_START_MESSAGE = '';
-const DEFAULT_END_MESSAGE = '';
+function getDefaultMessages() {
+    const defaults = getDefaultKodusConfigFile();
+    return {
+        start: defaults.customMessages?.startReviewMessage?.content ?? '',
+        end: defaults.customMessages?.endReviewMessage?.content ?? '',
+    };
+}
 
 export interface PullRequestMessage {
     content: string;
@@ -64,6 +69,7 @@ export class PullRequestMessagesLogHandler {
         params: PullRequestMessagesLogParams,
     ): ChangedDataToExport[] {
         const changedData: ChangedDataToExport[] = [];
+        const defaultMessages = getDefaultMessages();
 
         // Check start message changes
         if (params.startReviewMessage) {
@@ -71,7 +77,7 @@ export class PullRequestMessagesLogHandler {
                 'Start',
                 params.startReviewMessage,
                 params.existingStartMessage,
-                DEFAULT_START_MESSAGE,
+                defaultMessages.start,
                 params.isUpdate,
                 params.configLevel,
                 params.repositoryId,
@@ -90,7 +96,7 @@ export class PullRequestMessagesLogHandler {
                 'End',
                 params.endReviewMessage,
                 params.existingEndMessage,
-                DEFAULT_END_MESSAGE,
+                defaultMessages.end,
                 params.isUpdate,
                 params.configLevel,
                 params.repositoryId,
