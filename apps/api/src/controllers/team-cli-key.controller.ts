@@ -35,6 +35,9 @@ import {
     ITeamCliKeyConfig,
     TEAM_CLI_KEY_CAPABILITIES,
 } from '@libs/organization/domain/team-cli-key/interfaces/team-cli-key.interface';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditLogEvents } from '@libs/ee/codeReviewSettingsLog/events/audit-log.events';
+import { ActionType } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 import { ApiStandardResponses } from '../docs/api-standard-responses.decorator';
 import {
     TeamCliKeyCreatedResponseDto,
@@ -58,6 +61,7 @@ export class TeamCliKeyController {
         private readonly teamCliKeyService: ITeamCliKeyService,
         @Inject(REQUEST)
         private readonly request: UserRequest,
+        private readonly eventEmitter: EventEmitter2,
     ) {}
 
     /**
@@ -100,6 +104,19 @@ export class TeamCliKeyController {
             userId,
             body.config,
         );
+
+        this.eventEmitter.emit(AuditLogEvents.CLI_KEY, {
+            organizationAndTeamData: {
+                organizationId: this.request.user?.organization?.uuid,
+                teamId,
+            },
+            userInfo: {
+                userId: this.request.user?.uuid,
+                userEmail: this.request.user?.email,
+            },
+            actionType: ActionType.CREATE,
+            keyName: body.name,
+        });
 
         return {
             key,
@@ -223,6 +240,19 @@ export class TeamCliKeyController {
         }
 
         await this.teamCliKeyService.revokeKey(keyId);
+
+        this.eventEmitter.emit(AuditLogEvents.CLI_KEY, {
+            organizationAndTeamData: {
+                organizationId: this.request.user?.organization?.uuid,
+                teamId,
+            },
+            userInfo: {
+                userId: this.request.user?.uuid,
+                userEmail: this.request.user?.email,
+            },
+            actionType: ActionType.DELETE,
+            keyName: key.name,
+        });
 
         return {
             message: 'CLI key revoked successfully',
