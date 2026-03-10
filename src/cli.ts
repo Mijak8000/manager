@@ -10,6 +10,7 @@ import { decisionsCommand } from './commands/memory/index.js';
 import { statusCommand } from './commands/status.js';
 import { skillsCommand } from './commands/skills.js';
 import { createSchemaCommand } from './commands/schema.js';
+import { configCommand } from './commands/config.js';
 import { checkForUpdates } from './utils/update-check.js';
 import { setCliOutputMode } from './utils/logger.js';
 import { recordRecentActivity } from './utils/recent-activity.js';
@@ -43,6 +44,7 @@ program.addCommand(hookCommand);
 program.addCommand(decisionsCommand);
 program.addCommand(statusCommand);
 program.addCommand(skillsCommand);
+program.addCommand(configCommand);
 program.addCommand(createSchemaCommand(() => program));
 
 program.hook('preAction', (_thisCommand, actionCommand) => {

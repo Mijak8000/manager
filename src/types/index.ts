@@ -128,6 +128,24 @@ export interface BusinessValidationResponse {
     result: string;
 }
 
+export interface ConfigRepository {
+    id: string;
+    name: string;
+    full_name?: string;
+    http_url?: string;
+    organizationName: string;
+    selected?: boolean;
+    lastActivityAt?: string;
+}
+
+export interface ConfigAddRepositoriesResponse {
+    status: boolean;
+    addedRepositoryIds: string[];
+    alreadyAddedRepositoryIds?: string[];
+    totalSelected: number;
+    message?: string;
+}
+
 export interface TrialReviewResult extends ReviewResult {
     trialInfo?: {
         reviewsUsed: number;

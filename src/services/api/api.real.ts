@@ -1,5 +1,7 @@
 import type {
     AuthResponse,
+    ConfigAddRepositoriesResponse,
+    ConfigRepository,
     ReviewConfig,
     ReviewResult,
     PullRequestSuggestionsResponse,
@@ -20,6 +22,7 @@ import type {
     IMemoryApi,
     ISessionsApi,
     GitMetrics,
+    IConfigApi,
 } from './api.interface.js';
 import { RealSessionsApi } from './sessions.api.js';
 import { loadConfig, type CliConfig } from '../../utils/config.js';
@@ -723,8 +726,61 @@ class RealMemoryApi implements IMemoryApi {
     }
 }
 
+class RealConfigApi implements IConfigApi {
+    async getAvailableRepositories(
+        accessToken: string,
+    ): Promise<ConfigRepository[]> {
+        return requestWithRetry<ConfigRepository[]>(
+            '/cli/config/repositories/available',
+            {
+                headers: {
+                    ...(accessToken.startsWith('kodus_')
+                        ? { 'X-Team-Key': accessToken }
+                        : { Authorization: `Bearer ${accessToken}` }),
+                },
+            },
+        );
+    }
+
+    async getSelectedRepositories(
+        accessToken: string,
+    ): Promise<ConfigRepository[]> {
+        return requestWithRetry<ConfigRepository[]>(
+            '/cli/config/repositories/selected',
+            {
+                headers: {
+                    ...(accessToken.startsWith('kodus_')
+                        ? { 'X-Team-Key': accessToken }
+                        : { Authorization: `Bearer ${accessToken}` }),
+                },
+            },
+        );
+    }
+
+    async addRepositories(
+        accessToken: string,
+        repositoryIds: string[],
+    ): Promise<ConfigAddRepositoriesResponse> {
+        return requestWithRetry<ConfigAddRepositoriesResponse>(
+            '/cli/config/repositories',
+            {
+                method: 'POST',
+                headers: {
+                    ...(accessToken.startsWith('kodus_')
+                        ? { 'X-Team-Key': accessToken }
+                        : { Authorization: `Bearer ${accessToken}` }),
+                },
+                body: JSON.stringify({
+                    repositoryIds,
+                }),
+            },
+        );
+    }
+}
+
 export class RealApi implements IKodusApi {
     auth: IAuthApi = new RealAuthApi();
+    config: IConfigApi = new RealConfigApi();
     review: IReviewApi = new RealReviewApi();
     trial: ITrialApi = new RealTrialApi();
     memory: IMemoryApi = new RealMemoryApi();
