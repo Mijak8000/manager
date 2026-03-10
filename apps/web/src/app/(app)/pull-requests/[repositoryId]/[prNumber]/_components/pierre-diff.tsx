@@ -34,19 +34,31 @@ export default function PierreDiff({
 
 interface PierrePatchDiffProps {
     patch: string;
+    filename: string;
+    previousFilename?: string;
     diffStyle?: "split" | "unified";
 }
 
 export function PierrePatchDiffComponent({
     patch,
+    filename,
+    previousFilename,
     diffStyle = "split",
 }: PierrePatchDiffProps) {
     if (!patch) return null;
 
+    // GitHub's API returns only hunk content (starting with @@) without
+    // the unified diff headers. PatchDiff requires either git diff headers
+    // or standard unified diff headers to parse correctly.
+    const prev = previousFilename ?? filename;
+    const isNewFile = patch.startsWith("@@ -0,0");
+    const fromPath = isNewFile ? "/dev/null" : `a/${prev}`;
+    const fullPatch = `diff --git a/${prev} b/${filename}\n--- ${fromPath}\n+++ b/${filename}\n${patch}`;
+
     return (
         <div className="pierre-diff-container overflow-x-auto">
             <PatchDiff
-                patch={patch}
+                patch={fullPatch}
                 options={{
                     theme: "pierre-dark",
                     diffStyle,

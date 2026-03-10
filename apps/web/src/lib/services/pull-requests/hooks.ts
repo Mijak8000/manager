@@ -167,19 +167,27 @@ export const usePullRequestFiles = (
     repositoryId: string | undefined,
     prNumber: number | undefined,
     teamId: string | undefined,
+    repositoryName?: string,
 ) => {
     return useQuery({
-        queryKey: ["pull-request-files", repositoryId, prNumber, teamId],
+        queryKey: [
+            "pull-request-files",
+            repositoryId,
+            prNumber,
+            teamId,
+            repositoryName,
+        ],
         queryFn: () =>
             axiosAuthorized.fetcher<PullRequestFilesResponse>(
                 PULL_REQUEST_API.GET_FILES({
                     repositoryId: repositoryId!,
                     prNumber: prNumber!,
                     teamId: teamId!,
+                    repositoryName,
                 }),
             ),
         enabled: !!repositoryId && !!prNumber && !!teamId,
-        retry: false,
+        retry: 1,
         staleTime: 5 * 60 * 1000,
     });
 };

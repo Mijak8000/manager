@@ -659,6 +659,7 @@ ${'```'}`,
         @Query('repositoryId') repositoryId: string,
         @Query('prNumber') prNumber: string,
         @Query('teamId') teamId: string,
+        @Query('repositoryName') repositoryName?: string,
     ) {
         const organizationId = this.request.user?.organization?.uuid;
         if (!organizationId || !repositoryId || !prNumber || !teamId) {
@@ -667,23 +668,31 @@ ${'```'}`,
 
         const organizationAndTeamData = { organizationId, teamId };
 
-        const repositories =
-            await this.codeManagementService.getRepositories({
-                organizationAndTeamData,
-            });
+        let repoName = repositoryName;
 
-        const repo = (repositories || []).find(
-            (r: any) => r?.id === repositoryId,
-        );
+        if (!repoName) {
+            const repositories =
+                await this.codeManagementService.getRepositories({
+                    organizationAndTeamData,
+                });
 
-        if (!repo) {
-            throw new NotFoundException('Repository not found');
+            const repo = (repositories || []).find(
+                (r: any) => r?.id === repositoryId,
+            );
+
+            if (!repo) {
+                throw new NotFoundException(
+                    `Repository not found (id: ${repositoryId})`,
+                );
+            }
+
+            repoName = repo.name;
         }
 
         const files =
             await this.codeManagementService.getFilesByPullRequestId({
                 organizationAndTeamData,
-                repository: { name: repo.name, id: repositoryId },
+                repository: { name: repoName, id: repositoryId },
                 prNumber: parseInt(prNumber, 10),
             });
 

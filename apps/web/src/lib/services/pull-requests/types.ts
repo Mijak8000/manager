@@ -138,5 +138,9 @@ export interface PullRequestFile {
 }
 
 export interface PullRequestFilesResponse {
-    files: PullRequestFile[];
+    data: {
+        files: PullRequestFile[];
+    };
+    statusCode: number;
+    type: string;
 }

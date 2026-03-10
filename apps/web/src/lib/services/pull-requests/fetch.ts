@@ -81,11 +81,14 @@ export const PULL_REQUEST_API = {
         repositoryId: string;
         prNumber: number;
         teamId: string;
+        repositoryName?: string;
     }) => {
         const searchParams = new URLSearchParams();
         searchParams.append("repositoryId", params.repositoryId);
         searchParams.append("prNumber", params.prNumber.toString());
         searchParams.append("teamId", params.teamId);
+        if (params.repositoryName)
+            searchParams.append("repositoryName", params.repositoryName);
         return pathToApiUrl(
             `/pull-requests/files?${searchParams.toString()}`,
         );

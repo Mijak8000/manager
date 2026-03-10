@@ -54,31 +54,42 @@ export function ReviewPageClient({
             { pageSize: 1 },
         );
 
-    // Get full file diffs from Git provider
-    const { data: filesData, isLoading: filesLoading } =
-        usePullRequestFiles(repositoryId, prNumber, teamId);
-
     const prExecution = useMemo(
         () => executions.find((e) => e.prNumber === prNumber),
         [executions, prNumber],
     );
 
+    // Extract repo name from suggestions or execution data
+    const repoFullName =
+        suggestionsData?.data?.repositoryFullName ??
+        prExecution?.repositoryName;
+    const repoName = repoFullName?.includes("/")
+        ? repoFullName.split("/").pop()
+        : repoFullName;
+
+    // Get full file diffs from Git provider
+    const {
+        data: filesData,
+        isLoading: filesLoading,
+        error: filesError,
+    } = usePullRequestFiles(repositoryId, prNumber, teamId, repoName);
+
     const fileSuggestions = suggestionsData?.data?.suggestions?.files ?? [];
     const prLevelSuggestions =
         suggestionsData?.data?.suggestions?.prLevel ?? [];
-    const patchFiles: PullRequestFile[] = filesData?.files ?? [];
+    const patchFiles: PullRequestFile[] = filesData?.data?.files ?? [];
     const patchFilenames = useMemo(
         () => patchFiles.map((f) => f.filename),
         [patchFiles],
     );
 
-    if (suggestionsLoading || executionsLoading) {
+    if (suggestionsLoading) {
         return (
             <div className="flex h-full items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
                     <Spinner className="size-6" />
                     <p className="text-sm text-text-tertiary">
-                        Loading review...
+                        Loading suggestions...
                     </p>
                 </div>
             </div>
@@ -109,6 +120,7 @@ export function ReviewPageClient({
                 prLevelSuggestions={prLevelSuggestions}
                 patchFiles={patchFiles}
                 patchesLoading={filesLoading}
+                patchesError={filesError}
                 prTitle={prExecution?.title}
                 prNumber={prNumber}
                 prUrl={prExecution?.url}
@@ -128,6 +140,7 @@ function ReviewLayout({
     prLevelSuggestions,
     patchFiles,
     patchesLoading,
+    patchesError,
     prTitle,
     prNumber,
     prUrl,
@@ -139,6 +152,7 @@ function ReviewLayout({
     prLevelSuggestions: any[];
     patchFiles: PullRequestFile[];
     patchesLoading: boolean;
+    patchesError?: Error | null;
     prTitle?: string;
     prNumber: number;
     prUrl?: string;
@@ -277,6 +291,7 @@ function ReviewLayout({
                     <DiffViewer
                         patchFiles={patchFiles}
                         patchesLoading={patchesLoading}
+                        patchesError={patchesError}
                     />
                 </div>
 

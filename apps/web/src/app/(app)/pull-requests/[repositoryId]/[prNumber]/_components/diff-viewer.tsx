@@ -26,9 +26,14 @@ const PierrePatchDiff = lazy(() =>
 interface DiffViewerProps {
     patchFiles?: PullRequestFile[];
     patchesLoading?: boolean;
+    patchesError?: Error | null;
 }
 
-export function DiffViewer({ patchFiles, patchesLoading }: DiffViewerProps) {
+export function DiffViewer({
+    patchFiles,
+    patchesLoading,
+    patchesError,
+}: DiffViewerProps) {
     const { state, dispatch, fileGroups, filePaths, navigateFile } =
         useReviewStore();
     const [diffStyle, setDiffStyle] = useState<"split" | "unified">("split");
@@ -175,6 +180,8 @@ export function DiffViewer({ patchFiles, patchesLoading }: DiffViewerProps) {
                         }>
                         <PierrePatchDiff
                             patch={currentPatch.patch}
+                            filename={currentPatch.filename}
+                            previousFilename={currentPatch.previous_filename}
                             diffStyle={diffStyle}
                         />
                     </Suspense>
@@ -185,6 +192,17 @@ export function DiffViewer({ patchFiles, patchesLoading }: DiffViewerProps) {
                             <span className="text-xs text-text-tertiary">
                                 Loading diff...
                             </span>
+                        </div>
+                    </div>
+                ) : patchesError ? (
+                    <div className="flex items-center justify-center py-8">
+                        <div className="text-center">
+                            <p className="text-xs text-red-400">
+                                Failed to load file diff
+                            </p>
+                            <p className="mt-1 text-[10px] text-text-tertiary">
+                                {patchesError.message}
+                            </p>
                         </div>
                     </div>
                 ) : null}
