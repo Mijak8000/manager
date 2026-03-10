@@ -1,4 +1,8 @@
-import { UserInfo } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
+import {
+    ActionType,
+    ConfigLevel,
+    UserInfo,
+} from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 import { getDefaultKodusConfigFile } from '@libs/common/utils/validateCodeReviewConfigFile';
 import { Injectable } from '@nestjs/common';
 import {
@@ -10,6 +14,7 @@ import {
 export interface CodeReviewConfigLogParams extends BaseLogParams {
     oldConfig: any;
     newConfig: any;
+    isCreation?: boolean;
 }
 
 interface PropertyConfig {
@@ -145,6 +150,11 @@ export class CodeReviewConfigLogHandler {
             params.userInfo,
         );
 
+        if (params.isCreation) {
+            const creationEntry = this.generateCreationEntry(params);
+            changedData.unshift(creationEntry);
+        }
+
         if (changedData.length === 0) {
             return;
         }
@@ -152,12 +162,51 @@ export class CodeReviewConfigLogHandler {
         await this.unifiedLogHandler.saveLogEntry({
             organizationAndTeamData: params.organizationAndTeamData,
             userInfo: params.userInfo,
-            actionType: params.actionType,
+            actionType: params.isCreation
+                ? ActionType.CREATE
+                : params.actionType,
             configLevel: params.configLevel,
             repository: params.repository,
             directory: params?.directory,
             changedData,
         });
+    }
+
+    private generateCreationEntry(
+        params: CodeReviewConfigLogParams,
+    ): ChangedDataToExport {
+        const userEmail = params.userInfo.userEmail;
+
+        if (
+            params.configLevel === ConfigLevel.DIRECTORY &&
+            params.directory
+        ) {
+            const directoryLabel = params.directory.path || params.directory.id;
+            const repoLabel = params.repository?.name || params.repository?.id;
+
+            return {
+                actionDescription: 'Directory Configuration Created',
+                previousValue: null,
+                currentValue: {
+                    directoryId: params.directory.id,
+                    directoryPath: params.directory.path,
+                    repositoryId: params.repository?.id,
+                },
+                description: `User ${userEmail} created configuration for directory "${directoryLabel}" in repository "${repoLabel}"`,
+            };
+        }
+
+        const repoLabel = params.repository?.name || params.repository?.id;
+
+        return {
+            actionDescription: 'Repository Configuration Created',
+            previousValue: null,
+            currentValue: {
+                repositoryId: params.repository?.id,
+                repositoryName: repoLabel,
+            },
+            description: `User ${userEmail} created configuration for repository "${repoLabel}"`,
+        };
     }
 
     private async generateChangedData(

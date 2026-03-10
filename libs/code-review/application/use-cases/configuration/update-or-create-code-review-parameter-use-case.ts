@@ -290,16 +290,19 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
         let level: ConfigLevel;
         let repository: RepositoryCodeReviewConfig | undefined;
         let directory: DirectoryCodeReviewConfig | undefined;
+        let isCreation = false;
 
         if (directoryId && repositoryId) {
             level = ConfigLevel.DIRECTORY;
             repository = resolver.findRepository(repositoryId);
             directory = resolver.findDirectory(repository, directoryId);
             oldConfig = directory.configs ?? {};
+            isCreation = !directory.isSelected;
         } else if (repositoryId) {
             level = ConfigLevel.REPOSITORY;
             repository = resolver.findRepository(repositoryId);
             oldConfig = repository.configs ?? {};
+            isCreation = !repository.isSelected;
         } else {
             level = ConfigLevel.GLOBAL;
             oldConfig = codeReviewConfigs.configs ?? {};
@@ -345,6 +348,7 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
             level,
             repository,
             directory,
+            isCreation,
         });
 
         return true;
@@ -631,8 +635,9 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
         level: ConfigLevel;
         repository?: RepositoryCodeReviewConfig;
         directory?: DirectoryCodeReviewConfig;
+        isCreation?: boolean;
     }) {
-        const { organizationAndTeamData, oldConfig, newConfig, level, repository, directory } = options;
+        const { organizationAndTeamData, oldConfig, newConfig, level, repository, directory, isCreation } = options;
 
         this.eventEmitter.emit(AuditLogEvents.CODE_REVIEW_CONFIG, {
             organizationAndTeamData,
@@ -642,8 +647,9 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
             },
             oldConfig,
             newConfig,
-            actionType: ActionType.EDIT,
+            actionType: isCreation ? ActionType.CREATE : ActionType.EDIT,
             configLevel: level,
+            isCreation,
             ...(repository && { repository: { id: repository.id, name: repository.name } }),
             ...(directory && { directory: { id: directory.id, path: directory.path } }),
         });
