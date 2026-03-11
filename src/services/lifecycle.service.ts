@@ -173,9 +173,38 @@ class LifecycleService {
         });
 
         const local = await loadLocal(repoRoot, event.sessionId);
-        const turnId = local?.turnId ?? '';
         const transcriptPath = local?.transcriptPath ?? event.sessionRef ?? '';
         const transcriptOffset = local?.transcriptOffset ?? 0;
+
+        // When local state is missing it means turn_start never fired
+        // (e.g. UserPromptSubmit hook didn't trigger). Generate a synthetic
+        // turn_start so the backend always receives a matching pair.
+        const turnId = local?.turnId ?? `${Date.now()}`;
+        if (!local) {
+            await hookLogger.warn('turn-end-without-turn-start', 'lifecycle', {
+                agent: agentType,
+                model_session_id: event.sessionId,
+                synthetic_turn_id: turnId,
+            });
+
+            const [synthBranch, synthCommit] = await Promise.all([
+                getBranch(),
+                getHead(),
+            ]);
+
+            sendEvent(
+                {
+                    type: 'turn_start',
+                    sessionId: event.sessionId,
+                    branch: synthBranch,
+                    timestamp: new Date().toISOString(),
+                    turnId,
+                    prompt: '',
+                    commitBefore: synthCommit,
+                },
+                repoRoot,
+            );
+        }
 
         const emptyTokenUsage: TokenUsage = {
             inputTokens: 0,

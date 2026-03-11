@@ -126,6 +126,16 @@ describe('LifecycleService.dispatch', () => {
             }),
         );
 
+        // loadLocal returns null, so a synthetic turn_start is sent first
+        expect(sendEventMock).toHaveBeenCalledTimes(2);
+        expect(sendEventMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'turn_start',
+                sessionId: 'sess-1',
+                prompt: '',
+            }),
+            '/tmp/repo',
+        );
         expect(sendEventMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'turn_end',
@@ -133,6 +143,41 @@ describe('LifecycleService.dispatch', () => {
             }),
             '/tmp/repo',
         );
+    });
+
+    it('emits synthetic turn_start when turn_end fires without prior turn_start', async () => {
+        const { hookLogger } = await import('../hook-logger.service.js');
+
+        await lifecycleService.dispatch(
+            '/tmp/repo',
+            'claude-code',
+            makeEvent({
+                type: 'TurnEnd',
+            }),
+        );
+
+        // Should warn about missing turn_start
+        expect(hookLogger.warn).toHaveBeenCalledWith(
+            'turn-end-without-turn-start',
+            'lifecycle',
+            expect.objectContaining({
+                agent: 'claude-code',
+                model_session_id: 'sess-1',
+                synthetic_turn_id: expect.any(String),
+            }),
+        );
+
+        // Should send synthetic turn_start + turn_end
+        const calls = sendEventMock.mock.calls.map(
+            (c: unknown[]) => (c[0] as { type: string }).type,
+        );
+        expect(calls).toEqual(['turn_start', 'turn_end']);
+
+        // Both should share the same turnId
+        const synthStart = sendEventMock.mock.calls[0][0];
+        const turnEnd = sendEventMock.mock.calls[1][0];
+        expect(synthStart.turnId).toBe(turnEnd.turnId);
+        expect(synthStart.turnId).toBeTruthy();
     });
 
     it('sends session_end event and cleans up local state', async () => {
