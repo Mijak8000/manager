@@ -172,9 +172,12 @@ export type ClaudeCodeHookEvent =
     | 'session-end'
     | 'stop'
     | 'user-prompt-submit'
+    | 'subagent-start'
+    | 'subagent-stop'
+    | 'post-todo'
+    // Legacy aliases (kept for backwards compat with existing installations)
     | 'pre-task'
-    | 'post-task'
-    | 'post-todo';
+    | 'post-task';
 
 export type CursorHookEvent =
     | 'sessionStart'

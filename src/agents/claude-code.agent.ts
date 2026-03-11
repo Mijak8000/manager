@@ -14,9 +14,12 @@ const HOOK_TO_EVENT_TYPE: Record<ClaudeCodeHookEvent, EventType> = {
     'session-end': 'SessionEnd',
     'stop': 'TurnEnd',
     'user-prompt-submit': 'TurnStart',
+    'subagent-start': 'SubagentStart',
+    'subagent-stop': 'SubagentEnd',
+    'post-todo': 'TurnEnd',
+    // Legacy aliases — old installations used PreToolUse(Task)/PostToolUse(Task)
     'pre-task': 'SubagentStart',
     'post-task': 'SubagentEnd',
-    'post-todo': 'TurnEnd',
 };
 
 export class ClaudeCodeAgent implements AgentAdapter {
