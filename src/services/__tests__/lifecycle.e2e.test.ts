@@ -449,14 +449,15 @@ describe('Lifecycle E2E — synthetic turn_start', () => {
         expect(warnLog).toBeDefined();
         expect(warnLog!.data.model_session_id).toBe(sessionId);
 
-        // No local state file should exist (since TurnStart was never dispatched,
-        // markTurnCompleted is skipped)
+        // Local state file should exist with turnCompleted (saved even for
+        // synthetic turns to prevent dedup issues)
         const localFile = path.join(
             tmpRepoRoot,
             '.kody',
             'sessions',
             `${sessionId}.json`,
         );
-        await expect(fs.access(localFile)).rejects.toThrow();
+        const localData = JSON.parse(await fs.readFile(localFile, 'utf-8'));
+        expect(localData.turnCompleted).toBe(true);
     });
 });

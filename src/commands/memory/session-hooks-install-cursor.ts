@@ -32,15 +32,27 @@ async function readCursorHooksConfig(
         if (!isRecord(parsed)) {
             return { version: 1, hooks: {} };
         }
+        const rawHooks = isRecord(parsed.hooks) ? parsed.hooks : {};
+        // Validate that each hook value is an array of objects with `command`
+        const hooks: Record<string, CursorHookEntry[]> = {};
+        for (const [key, value] of Object.entries(rawHooks)) {
+            if (Array.isArray(value)) {
+                hooks[key] = value.filter(
+                    (e) => isRecord(e) && typeof e.command === 'string',
+                ) as CursorHookEntry[];
+            }
+        }
         return {
             version:
                 typeof parsed.version === 'number' ? parsed.version : 1,
-            hooks: isRecord(parsed.hooks)
-                ? (parsed.hooks as Record<string, CursorHookEntry[]>)
-                : {},
+            hooks,
         };
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return { version: 1, hooks: {} };
+        }
+        // Malformed JSON — start fresh rather than crashing
+        if (error instanceof SyntaxError) {
             return { version: 1, hooks: {} };
         }
         throw error;

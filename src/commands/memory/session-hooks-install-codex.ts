@@ -68,29 +68,22 @@ export async function removeCodexSessionHooks(
     // [[something]] or end of file.
     const lines = content.split('\n');
     const resultLines: string[] = [];
-    let inKodusBlock = false;
+    let i = 0;
 
-    for (const line of lines) {
+    while (i < lines.length) {
+        const line = lines[i];
+
         if (line.trim() === '[[hooks]]') {
             // Peek ahead — if this block contains our marker, skip it
-            const blockStart = lines.indexOf(line, resultLines.length);
-            const blockLines = getTomlBlock(lines, blockStart);
+            const blockLines = getTomlBlock(lines, i);
             if (blockLines.some((l) => l.includes(SESSION_HOOK_MARKER))) {
-                inKodusBlock = true;
+                i += blockLines.length;
                 continue;
             }
         }
 
-        if (inKodusBlock) {
-            // We're inside a kodus block — skip lines until next section
-            if (line.trim().startsWith('[[') || line.trim().startsWith('[')) {
-                inKodusBlock = false;
-                resultLines.push(line);
-            }
-            continue;
-        }
-
         resultLines.push(line);
+        i++;
     }
 
     const nextContent = resultLines

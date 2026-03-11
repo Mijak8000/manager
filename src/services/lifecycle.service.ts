@@ -6,7 +6,6 @@ import {
     saveLocal,
     loadLocal,
     removeLocal,
-    markTurnCompleted,
     listStaleSessions,
 } from './session-local.service.js';
 import { api } from './api/index.js';
@@ -282,6 +281,17 @@ class LifecycleService {
             getHead(),
         ]);
 
+        // Mark turn as completed BEFORE sending the event to prevent
+        // duplicate turn_end from Stop + PostToolUse(TodoWrite) both firing.
+        // Save even for synthetic turns (when local was null) so subsequent
+        // TurnEnd calls for the same session are deduped.
+        await saveLocal(repoRoot, event.sessionId, {
+            turnId,
+            transcriptPath,
+            transcriptOffset,
+            turnCompleted: true,
+        });
+
         sendEvent(
             {
                 type: 'turn_end',
@@ -299,12 +309,6 @@ class LifecycleService {
             },
             repoRoot,
         );
-
-        // Mark turn as completed to prevent duplicate turn_end from
-        // Stop + PostToolUse(TodoWrite) both firing.
-        if (local) {
-            await markTurnCompleted(repoRoot, event.sessionId);
-        }
     }
 
     // -------------------------------------------------------------------------
