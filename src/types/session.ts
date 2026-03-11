@@ -176,6 +176,14 @@ export type ClaudeCodeHookEvent =
     | 'post-task'
     | 'post-todo';
 
+export type CursorHookEvent =
+    | 'sessionStart'
+    | 'sessionEnd'
+    | 'stop'
+    | 'beforeSubmitPrompt'
+    | 'subagentStart'
+    | 'subagentStop';
+
 // ---------------------------------------------------------------------------
 // Transcript parsing (JSONL)
 // ---------------------------------------------------------------------------

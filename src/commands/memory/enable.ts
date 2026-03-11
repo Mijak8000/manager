@@ -7,6 +7,7 @@ import {
     resolveCodexConfigPath,
 } from './hooks.js';
 import { installSessionHooks } from './session-hooks-install.js';
+import { installCursorSessionHooks } from './session-hooks-install-cursor.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
 
@@ -42,14 +43,23 @@ export async function enableAction(options: EnableOptions): Promise<void> {
         captureStatus = result.changed ? 'installed' : 'already configured';
     }
 
-    // 2. Session tracking hooks (Claude Code / Cursor)
+    // 2. Session tracking hooks (Claude Code)
     let sessionStatus = 'skipped';
-    if (installClaudeCompat) {
+    if (agents.has('claude')) {
         const result = await installSessionHooks(gitRoot, 'claude-code');
         sessionStatus = result.changed ? 'installed' : 'already configured';
     }
 
-    // 3. Codex notify
+    // 3. Session tracking hooks (Cursor — native .cursor/hooks.json)
+    let cursorSessionStatus = 'skipped';
+    if (agents.has('cursor')) {
+        const result = await installCursorSessionHooks(gitRoot);
+        cursorSessionStatus = result.changed
+            ? 'installed'
+            : 'already configured';
+    }
+
+    // 4. Codex notify
     let codexStatus = 'skipped';
     if (installCodex) {
         const codexConfigPath = resolveCodexConfigPath(options.codexConfig);
@@ -66,6 +76,7 @@ export async function enableAction(options: EnableOptions): Promise<void> {
     // Summary
     cliInfo(chalk.green('\u2713 Decisions enabled for this repository.'));
     cliInfo(`  Decision capture hooks: ${captureStatus}`);
-    cliInfo(`  Session tracking hooks: ${sessionStatus}`);
+    cliInfo(`  Claude Code session hooks: ${sessionStatus}`);
+    cliInfo(`  Cursor session hooks: ${cursorSessionStatus}`);
     cliInfo(`  Codex notify: ${codexStatus}`);
 }

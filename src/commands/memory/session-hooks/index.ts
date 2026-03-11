@@ -18,5 +18,8 @@ sessionHooksCommand
 sessionHooksCommand
     .command('cursor')
     .description('Handle Cursor lifecycle hooks')
-    .argument('<hook-name>', 'Hook event name (same as claude-code)')
+    .argument(
+        '<hook-name>',
+        'Hook event name (sessionStart, sessionEnd, stop, beforeSubmitPrompt, subagentStart, subagentStop)',
+    )
     .action(cursorHookAction);
