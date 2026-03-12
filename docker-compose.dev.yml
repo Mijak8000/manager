@@ -139,7 +139,8 @@ services:
             - ${ENV_FILE:-.env}
         volumes:
             - ./apps/web:/usr/src/app:delegated
-            - node_modules_cache:/usr/src/app/node_modules:nocopy
+            - web_node_modules_cache:/usr/src/app/node_modules
+            - web_next_cache:/usr/src/app/.next
             - yalc_store:/root/.yalc
         restart: unless-stopped
         healthcheck:
