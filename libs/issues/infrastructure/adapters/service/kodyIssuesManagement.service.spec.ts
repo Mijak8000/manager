@@ -6,7 +6,10 @@ import { PULL_REQUEST_MANAGER_SERVICE_TOKEN } from '@libs/code-review/domain/con
 import { PARAMETERS_SERVICE_TOKEN } from '@libs/organization/domain/parameters/contracts/parameters.service.contract';
 import { KODY_ISSUES_ANALYSIS_SERVICE_TOKEN } from '@libs/ee/codeBase/kodyIssuesAnalysis.service';
 import { CacheService } from '@libs/core/cache/cache.service';
-import { PermissionValidationService } from '@libs/ee/shared/services/permissionValidation.service';
+import {
+    PermissionValidationService,
+    ValidationErrorType,
+} from '@libs/ee/shared/services/permissionValidation.service';
 import { ParametersKey } from '@libs/core/domain/enums';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { contextToGenerateIssues } from '@libs/issues/domain/interfaces/kodyIssuesManagement.interface';
@@ -218,6 +221,63 @@ describe('KodyIssuesManagementService', () => {
             await service.processClosedPr(baseParams);
 
             // Should not even reach the parameters check
+            expect(parametersServiceMock.findByKey).not.toHaveBeenCalled();
+            expect(
+                pullRequestsServiceMock.updateSyncedWithIssuesFlag,
+            ).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('processClosedPr - managed plan with no userGitId', () => {
+        it('should pass userGitId from pullRequest to permission validation for managed plans', async () => {
+            // Before the fix, processClosedPr passed undefined as userGitId,
+            // causing managed plans to return allowed:false (NOT_ERROR).
+            // After the fix, it extracts userGitId from params.pullRequest.user.id
+            // so the permission validation can properly check the licensed user.
+            permissionValidationServiceMock.validateExecutionPermissions.mockResolvedValue(
+                {
+                    allowed: true,
+                    byokConfig: null,
+                },
+            );
+            parametersServiceMock.findByKey.mockResolvedValue(null);
+
+            await service.processClosedPr(baseParams);
+
+            // Verify userGitId is extracted from pullRequest.user.id and passed to validation
+            expect(
+                permissionValidationServiceMock.validateExecutionPermissions,
+            ).toHaveBeenCalledWith(
+                mockOrganizationAndTeamData,
+                mockPullRequest.user.id.toString(),
+                'KodyIssuesManagementService',
+            );
+
+            // Should proceed with issue processing
+            expect(parametersServiceMock.findByKey).toHaveBeenCalledWith(
+                ParametersKey.ISSUE_CREATION_CONFIG,
+                mockOrganizationAndTeamData,
+            );
+            expect(
+                pullRequestsServiceMock.updateSyncedWithIssuesFlag,
+            ).toHaveBeenCalledWith(
+                mockPullRequest.number,
+                mockRepository.id,
+                mockOrganizationAndTeamData.organizationId,
+                true,
+            );
+        });
+
+        it('should still block when permission fails for a real error (e.g. invalid license)', async () => {
+            permissionValidationServiceMock.validateExecutionPermissions.mockResolvedValue(
+                {
+                    allowed: false,
+                    errorType: ValidationErrorType.INVALID_LICENSE,
+                },
+            );
+
+            await service.processClosedPr(baseParams);
+
             expect(parametersServiceMock.findByKey).not.toHaveBeenCalled();
             expect(
                 pullRequestsServiceMock.updateSyncedWithIssuesFlag,
