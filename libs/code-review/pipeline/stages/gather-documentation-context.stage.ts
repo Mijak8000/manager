@@ -14,6 +14,7 @@ import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import path from 'path';
 import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
 
@@ -50,6 +51,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
     );
 
     constructor(
+        private readonly configService: ConfigService,
         private readonly packageDiscoveryService: DocumentationPackageDiscoveryService,
         private readonly llmPlannerService: DocumentationLLMPlannerService,
         private readonly documentationSearchService: DocumentationSearchExaService,
@@ -295,11 +297,15 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
             context.organizationAndTeamData?.teamId ||
             'unknown';
 
-        return posthog.isFeatureEnabled(
+        const isFeatureEnabled = await posthog.isFeatureEnabled(
             FEATURE_FLAGS.documentationContext,
             featureIdentifier,
             context.organizationAndTeamData,
         );
+
+        const hasAPIKey = this.configService.get<string>('API_EXA_KEY');
+
+        return !!hasAPIKey && isFeatureEnabled;
     }
 
     private async resolveCloneParams(

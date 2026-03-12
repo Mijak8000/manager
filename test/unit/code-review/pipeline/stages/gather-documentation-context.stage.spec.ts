@@ -16,6 +16,7 @@ import posthog from '@libs/common/utils/posthog';
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
 jest.mock('@libs/common/utils/posthog', () => ({
@@ -35,6 +36,7 @@ describe('GatherDocumentationContextStage', () => {
     let searchService: jest.Mocked<DocumentationSearchExaService>;
     let sandboxProvider: jest.Mocked<ISandboxProvider>;
     let codeManagementService: jest.Mocked<CodeManagementService>;
+    let configService: jest.Mocked<ConfigService>;
 
     const baseContext = {
         pullRequest: { number: 7 },
@@ -211,12 +213,22 @@ describe('GatherDocumentationContextStage', () => {
             getCloneParams: jest.fn(),
         } as unknown as jest.Mocked<CodeManagementService>;
 
+        configService = {
+            get: jest.fn((key: string) =>
+                key === 'API_EXA_KEY' ? 'test-exa-key' : undefined,
+            ),
+        } as unknown as jest.Mocked<ConfigService>;
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 GatherDocumentationContextStage,
                 {
                     provide: DocumentationPackageDiscoveryService,
                     useValue: discoveryService,
+                },
+                {
+                    provide: ConfigService,
+                    useValue: configService,
                 },
                 {
                     provide: DocumentationLLMPlannerService,
@@ -252,6 +264,34 @@ describe('GatherDocumentationContextStage', () => {
 
         expect(result).toBe(context);
         expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
+    });
+
+    it('should skip when documentation feature flag is disabled', async () => {
+        (posthog.isFeatureEnabled as jest.Mock).mockResolvedValueOnce(false);
+
+        const result = await stage.execute(baseContext);
+
+        expect(result.discoveredPackages).toEqual([]);
+        expect(result.documentationQueryPlanByFile).toEqual({});
+        expect(result.documentationByFile).toEqual({});
+        expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
+        expect(plannerService.planDocumentationByFile).not.toHaveBeenCalled();
+        expect(searchService.searchByFilePlan).not.toHaveBeenCalled();
+    });
+
+    it('should skip when API_EXA_KEY is not configured', async () => {
+        configService.get.mockImplementationOnce((key: string) =>
+            key === 'API_EXA_KEY' ? undefined : undefined,
+        );
+
+        const result = await stage.execute(baseContext);
+
+        expect(result.discoveredPackages).toEqual([]);
+        expect(result.documentationQueryPlanByFile).toEqual({});
+        expect(result.documentationByFile).toEqual({});
+        expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
+        expect(plannerService.planDocumentationByFile).not.toHaveBeenCalled();
+        expect(searchService.searchByFilePlan).not.toHaveBeenCalled();
     });
 
     it('should skip documentation gathering when there are no supported code files', async () => {
