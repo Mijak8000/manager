@@ -78,6 +78,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                 metadata: {
                     prNumber: context.pullRequest.number,
                     repository: context.repository.name,
+                    organizationAndTeamData: context.organizationAndTeamData,
                 },
             });
 
@@ -114,6 +115,12 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                         message:
                             'Failed to initialize sandbox for ripgrep manifest discovery, using fallback manifest resolution',
                         context: this.stageName,
+                        metadata: {
+                            prNumber: context.pullRequest.number,
+                            repository: context.repository.name,
+                            organizationAndTeamData:
+                                context.organizationAndTeamData,
+                        },
                         error: sandboxError,
                     });
                 }
@@ -132,6 +139,8 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                     metadata: {
                         prNumber: context.pullRequest.number,
                         repository: context.repository.name,
+                        organizationAndTeamData:
+                            context.organizationAndTeamData,
                     },
                 });
 
@@ -147,6 +156,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                     packages: discovery.packages,
                     changedFiles: codeFiles,
                     byokConfig: context.codeReviewConfig?.byokConfig,
+                    organizationAndTeamData: context.organizationAndTeamData,
                 });
 
             const hasPlannerQueries = Object.values(
@@ -162,6 +172,8 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                         prNumber: context.pullRequest.number,
                         repository: context.repository.name,
                         discoveredPackages: discovery.packages.length,
+                        organizationAndTeamData:
+                            context.organizationAndTeamData,
                     },
                 });
 
@@ -176,6 +188,11 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
             const documentationByFile =
                 await this.documentationSearchService.searchByFilePlan(
                     documentationQueryPlanByFile,
+                    {
+                        organizationAndTeamData:
+                            context.organizationAndTeamData,
+                        prNumber: context.pullRequest.number,
+                    },
                 );
 
             this.logger.log({
@@ -188,6 +205,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                     manifestFiles: discovery.manifestFiles,
                     filesWithDocumentation:
                         Object.keys(documentationByFile).length,
+                    organizationAndTeamData: context.organizationAndTeamData,
                 },
             });
 
@@ -206,6 +224,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                 metadata: {
                     prNumber: context.pullRequest.number,
                     repository: context.repository.name,
+                    organizationAndTeamData: context.organizationAndTeamData,
                 },
             });
 
@@ -219,6 +238,12 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                         message:
                             'Sandbox cleanup failed after documentation manifest discovery',
                         context: this.stageName,
+                        metadata: {
+                            prNumber: context.pullRequest.number,
+                            repository: context.repository.name,
+                            organizationAndTeamData:
+                                context.organizationAndTeamData,
+                        },
                         error: cleanupError,
                     });
                 }

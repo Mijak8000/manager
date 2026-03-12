@@ -20,6 +20,7 @@ import {
     prompt_code_review_documentation_planner_user,
 } from '@libs/common/utils/langchainCommon/prompts/codeReviewDocumentationPlanner';
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
 import { Injectable } from '@nestjs/common';
 import path from 'path';
@@ -34,8 +35,10 @@ export class DocumentationLLMPlannerService {
         packages: RepositoryPackageReference[];
         changedFiles: FileChange[];
         byokConfig?: BYOKConfig;
+        organizationAndTeamData?: OrganizationAndTeamData;
     }): Promise<Record<string, DocumentationQueryPlanByFile>> {
-        const { packages, changedFiles, byokConfig } = params;
+        const { packages, changedFiles, byokConfig, organizationAndTeamData } =
+            params;
 
         const codeFiles = changedFiles.filter((file) =>
             this.isCodeFile(file.filename),
@@ -45,8 +48,8 @@ export class DocumentationLLMPlannerService {
             return {};
         }
 
-        const provider = LLMModelProvider.GEMINI_3_1_FLASH_LITE_PREVIEW;
-        const fallbackProvider = LLMModelProvider.GEMINI_3_FLASH_PREVIEW;
+        const provider = LLMModelProvider.GEMINI_3_FLASH_PREVIEW;
+        const fallbackProvider = LLMModelProvider.GEMINI_2_5_FLASH;
         const runName = 'documentationPlanner';
 
         const promptRunner = new BYOKPromptRunnerService(
@@ -92,6 +95,20 @@ export class DocumentationLLMPlannerService {
                             role: PromptRole.USER,
                             prompt: prompt_code_review_documentation_planner_user,
                         })
+                        .addMetadata({
+                            context: DocumentationLLMPlannerService.name,
+                            runName: `${runName}:${file.filename}`,
+                            metadata: {
+                                filePath: file.filename,
+                                language:
+                                    this.getLanguageNameForFile(
+                                        file.filename,
+                                    ) || 'Unknown',
+                                packageCandidates: filePackages.length,
+                                hasByokConfig: Boolean(byokConfig),
+                                organizationAndTeamData,
+                            },
+                        })
                         .setTemperature(0)
                         .setRunName(`${runName}:${file.filename}`)
                         .execute();
@@ -129,6 +146,11 @@ export class DocumentationLLMPlannerService {
                     context: DocumentationLLMPlannerService.name,
                     metadata: {
                         fileName: codeFiles[index]?.filename,
+                        runName: `${runName}:${codeFiles[index]?.filename || 'unknown'}`,
+                        totalCodeFiles: codeFiles.length,
+                        totalDiscoveredPackages: packageSlice.length,
+                        hasByokConfig: Boolean(byokConfig),
+                        organizationAndTeamData,
                     },
                     error: settledResult.reason,
                 });
@@ -145,6 +167,12 @@ export class DocumentationLLMPlannerService {
                 message:
                     'Documentation planner LLM failed; documentation queries will be empty',
                 context: DocumentationLLMPlannerService.name,
+                metadata: {
+                    totalCodeFiles: codeFiles.length,
+                    totalDiscoveredPackages: packageSlice.length,
+                    hasByokConfig: Boolean(byokConfig),
+                    organizationAndTeamData,
+                },
                 error,
             });
 

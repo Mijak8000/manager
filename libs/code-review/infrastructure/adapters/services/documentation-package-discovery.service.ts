@@ -63,6 +63,7 @@ export class DocumentationPackageDiscoveryService {
         const manifestCandidatesFromRipgrep =
             await this.discoverManifestCandidatesWithRipgrep(
                 options?.remoteCommands,
+                context,
             );
 
         for (const candidate of manifestCandidatesFromRipgrep) {
@@ -130,6 +131,8 @@ export class DocumentationPackageDiscoveryService {
                     context: DocumentationPackageDiscoveryService.name,
                     error,
                     metadata: {
+                        organizationAndTeamData:
+                            context.organizationAndTeamData,
                         prNumber: context.pullRequest?.number,
                         repository: context.repository?.name,
                     },
@@ -164,6 +167,10 @@ export class DocumentationPackageDiscoveryService {
 
     private async discoverManifestCandidatesWithRipgrep(
         remoteCommands?: RemoteCommands,
+        context?: Pick<
+            CodeReviewPipelineContext,
+            'organizationAndTeamData' | 'pullRequest' | 'repository'
+        >,
     ): Promise<string[]> {
         if (!remoteCommands) {
             return [];
@@ -201,6 +208,11 @@ export class DocumentationPackageDiscoveryService {
                 message:
                     'Ripgrep manifest discovery failed in sandbox, falling back to path-based candidates',
                 context: DocumentationPackageDiscoveryService.name,
+                metadata: {
+                    organizationAndTeamData: context?.organizationAndTeamData,
+                    prNumber: context?.pullRequest?.number,
+                    repository: context?.repository?.name,
+                },
                 error,
             });
             return [];
