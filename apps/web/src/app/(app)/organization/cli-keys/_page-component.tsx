@@ -45,7 +45,7 @@ import {
 } from "@services/cliKeys/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
     CopyIcon,
     KeyRoundIcon,
@@ -56,6 +56,17 @@ import {
 } from "lucide-react";
 import { useAllTeams } from "src/core/providers/all-teams-context";
 import { ClipboardHelpers } from "src/core/utils/clipboard";
+
+const createdAtFormatter = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+});
 
 export const CliKeysPage = ({
     teamId,
@@ -272,6 +283,9 @@ export const CliKeysPage = ({
         return formatDistanceToNow(new Date(value), { addSuffix: true });
     };
 
+    const formatCreatedAt = (value: string) =>
+        `${createdAtFormatter.format(new Date(value))} UTC`;
+
     const thisKeyHasRepoManageCapability = (cliKey: CLIKey) =>
         cliKey.config?.capabilities?.includes(
             CLI_KEY_CAPABILITIES.CONFIG_REPO_MANAGE,
@@ -413,11 +427,8 @@ export const CliKeysPage = ({
                                                     )}
                                                 </TableCell>
                                                 <TableCell className="tabular-nums">
-                                                    {format(
-                                                        new Date(
-                                                            cliKey.createdAt,
-                                                        ),
-                                                        "PPpp",
+                                                    {formatCreatedAt(
+                                                        cliKey.createdAt,
                                                     )}
                                                 </TableCell>
                                                 <TableCell>

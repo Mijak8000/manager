@@ -5,6 +5,8 @@ import {
     Get,
     Headers,
     Inject,
+    Param,
+    Patch,
     Post,
     Body,
     UnauthorizedException,
@@ -30,6 +32,8 @@ import {
 import { IntegrationConfigKey } from '@libs/core/domain/enums/Integration-config-key.enum';
 import { CreateRepositoriesUseCase } from '@libs/platform/application/use-cases/codeManagement/create-repositories';
 import { UpdateCodeReviewParameterRepositoriesUseCase } from '@libs/code-review/application/use-cases/configuration/update-code-review-parameter-repositories-use-case';
+import { GetCliRepositorySettingsUseCase } from '@libs/code-review/application/use-cases/configuration/get-cli-repository-settings.use-case';
+import { UpdateCliRepositorySettingsUseCase } from '@libs/code-review/application/use-cases/configuration/update-cli-repository-settings.use-case';
 import { UpdateOrCreateCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/update-or-create-code-review-parameter-use-case';
 import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
 import { ApiStandardResponses } from '../../docs/api-standard-responses.decorator';
@@ -52,6 +56,8 @@ export class CliConfigController {
         private readonly createRepositoriesUseCase: CreateRepositoriesUseCase,
         private readonly updateCodeReviewParameterRepositoriesUseCase: UpdateCodeReviewParameterRepositoriesUseCase,
         private readonly updateOrCreateCodeReviewParameterUseCase: UpdateOrCreateCodeReviewParameterUseCase,
+        private readonly getCliRepositorySettingsUseCase: GetCliRepositorySettingsUseCase,
+        private readonly updateCliRepositorySettingsUseCase: UpdateCliRepositorySettingsUseCase,
     ) {}
 
     @Get('/repositories/available')
@@ -222,6 +228,72 @@ export class CliConfigController {
             alreadyAddedRepositoryIds,
             totalSelected: mergedRepositories.length,
         };
+    }
+
+    @Get('/repositories/:repositoryId/settings')
+    @ApiOperation({
+        summary: 'Get repository settings for CLI configuration',
+    })
+    @ApiHeader({
+        name: 'x-team-key',
+        required: false,
+        description: 'Team CLI key (alternative to Authorization: Bearer)',
+    })
+    async getRepositorySettings(
+        @Param('repositoryId') repositoryId: string,
+        @Headers('x-team-key') teamKey?: string,
+        @Headers('authorization') authHeader?: string,
+    ) {
+        const authContext = await this.resolveCliContext(teamKey, authHeader);
+        this.ensureRepositoryConfigCapability(authContext);
+        const context = this.toOrganizationAndTeamData(authContext);
+
+        const settings = await this.getCliRepositorySettingsUseCase.execute({
+            repositoryId,
+            organizationAndTeamData: context,
+        });
+
+        if (!settings) {
+            throw new BadRequestException(
+                'Repository settings are not available for this repository',
+            );
+        }
+
+        return settings;
+    }
+
+    @Patch('/repositories/:repositoryId/settings')
+    @ApiOperation({
+        summary: 'Update repository settings for CLI configuration',
+    })
+    @ApiHeader({
+        name: 'x-team-key',
+        required: false,
+        description: 'Team CLI key (alternative to Authorization: Bearer)',
+    })
+    async updateRepositorySettings(
+        @Param('repositoryId') repositoryId: string,
+        @Body()
+        body: {
+            reviewEnabled: boolean;
+            autoApproveEnabled: boolean;
+            requestChangesMinSeverity: 'low' | 'medium' | 'high' | 'critical';
+            ignoredFilePatterns: string[];
+            baseBranchPatterns: string[];
+            ignoredTitlePatterns: string[];
+        },
+        @Headers('x-team-key') teamKey?: string,
+        @Headers('authorization') authHeader?: string,
+    ) {
+        const authContext = await this.resolveCliContext(teamKey, authHeader);
+        this.ensureRepositoryConfigCapability(authContext);
+        const context = this.toOrganizationAndTeamData(authContext);
+
+        return this.updateCliRepositorySettingsUseCase.execute({
+            repositoryId,
+            organizationAndTeamData: context,
+            settings: body,
+        });
     }
 
     private async resolveCliContext(teamKey?: string, authHeader?: string) {

@@ -1736,4 +1736,56 @@ __new hunk__
             );
         });
     });
+
+    describe('filterActiveReviewSuggestions', () => {
+        it('should only keep active GitHub review thread suggestions from the current iteration', async () => {
+            const suggestions = [
+                {
+                    id: 'old-suggestion',
+                    comment: { id: 101, pullRequestReviewId: 1001 },
+                },
+                {
+                    id: 'current-suggestion',
+                    comment: { id: 202, pullRequestReviewId: 1002 },
+                },
+            ];
+
+            mockCodeManagementService.getPullRequestReviewThreads.mockResolvedValue(
+                [
+                    {
+                        fullDatabaseId: '101',
+                        threadId: 'thread-1',
+                        body: 'old',
+                        isResolved: true,
+                        isOutdated: true,
+                    },
+                    {
+                        fullDatabaseId: '202',
+                        threadId: 'thread-2',
+                        body: 'current',
+                        isResolved: false,
+                        isOutdated: false,
+                    },
+                ],
+            );
+
+            const result = await service.filterActiveReviewSuggestions({
+                organizationAndTeamData:
+                    mockOrganizationAndTeamData as any,
+                repository: { id: 'repo-1', name: 'test-repo' },
+                prNumber: 42,
+                platformType: PlatformType.GITHUB,
+                suggestions,
+            });
+
+            expect(result).toEqual([suggestions[1]]);
+            expect(
+                mockCodeManagementService.getPullRequestReviewThreads,
+            ).toHaveBeenCalledWith({
+                organizationAndTeamData: mockOrganizationAndTeamData,
+                repository: { id: 'repo-1', name: 'test-repo' },
+                prNumber: 42,
+            }, PlatformType.GITHUB);
+        });
+    });
 });

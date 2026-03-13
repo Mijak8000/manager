@@ -20,19 +20,14 @@ import {
 import { cn } from "src/core/utils/components";
 
 import { useCodeReviewRouteParams } from "../../_hooks";
-import { countConfigOverrides } from "../../_utils/count-overrides";
-import {
-    FormattedConfigLevel,
-    type CodeReviewRepositoryConfig,
-    type FormattedCodeReviewConfig,
-} from "../../code-review/_types";
+import { type CodeReviewRepositoryConfig } from "../../code-review/_types";
 import { SidebarRepositoryOrDirectoryDropdown } from "./options-dropdown";
 
 export const PerDirectory = ({
     routes,
     directory,
     repository,
-    configs,
+    overrideCount,
 }: {
     repository: Pick<CodeReviewRepositoryConfig, "id" | "name" | "isSelected">;
     directory: Pick<
@@ -40,15 +35,12 @@ export const PerDirectory = ({
         "id" | "name" | "path"
     >;
     routes: Array<{ label: string; href: string }>;
-    configs?: FormattedCodeReviewConfig;
+    overrideCount?: number;
 }) => {
     const searchParams = useSearchParams();
     const { repositoryId, pageName, directoryId } = useCodeReviewRouteParams();
     const [open, setOpen] = useState(directoryId === directory.id);
-
-    const overrideCount = configs
-        ? countConfigOverrides(configs, FormattedConfigLevel.DIRECTORY)
-        : 0;
+    const resolvedOverrideCount = overrideCount ?? 0;
 
     return (
         <Collapsible
@@ -72,11 +64,11 @@ export const PerDirectory = ({
                                     />
                                 }
                                 rightIcon={
-                                    overrideCount > 0 && (
+                                    resolvedOverrideCount > 0 && (
                                         <Badge
                                             variant="primary-dark"
                                             className="h-5 min-w-5 rounded-full px-1.5 text-[10px] font-medium">
-                                            {overrideCount}
+                                            {resolvedOverrideCount}
                                         </Badge>
                                     )
                                 }>
@@ -89,10 +81,10 @@ export const PerDirectory = ({
 
                     <TooltipContent side="right" className="text-sm">
                         {directory.path}
-                        {overrideCount > 0 && (
+                        {resolvedOverrideCount > 0 && (
                             <div className="text-text-tertiary mt-1 text-xs">
-                                {overrideCount} config
-                                {overrideCount !== 1 ? "s" : ""} overridden
+                                {resolvedOverrideCount} config
+                                {resolvedOverrideCount !== 1 ? "s" : ""} overridden
                             </div>
                         )}
                     </TooltipContent>

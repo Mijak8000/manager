@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { redirect, usePathname } from "next/navigation";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
@@ -12,6 +12,7 @@ import {
 } from "@components/ui/collapsible";
 import { Link } from "@components/ui/link";
 import { Page } from "@components/ui/page";
+import { Skeleton } from "@components/ui/skeleton";
 import {
     Sidebar,
     SidebarContent,
@@ -22,29 +23,38 @@ import {
     SidebarMenuSub,
     SidebarMenuSubItem,
 } from "@components/ui/sidebar";
-import { getMCPPlugins } from "@services/mcp-manager/fetch";
-import { MCPServiceUnavailableError } from "@services/mcp-manager/utils";
+import { useMCPAvailability } from "@services/mcp-manager/hooks";
+import type { CustomMessageConfig } from "@services/pull-request-messages/types";
 import {
+    useCodeReviewSettingsShell,
     useSuspenseGetDefaultCodeReviewParameter,
-    useSuspenseGetFormattedCodeReviewParameter,
     useSuspenseGetParameterPlatformConfigs,
 } from "@services/parameters/hooks";
+import {
+    ParametersConfigKey,
+    type PlatformConfigValue,
+} from "@services/parameters/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
-import { useQuery } from "@tanstack/react-query";
 import { FEATURE_FLAGS } from "src/core/config/feature-flags";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { safeArray } from "src/core/utils/safe-array";
 
 import { useCodeReviewRouteParams } from "../_hooks";
 import { countConfigOverrides } from "../_utils/count-overrides";
+import type {
+    CodeReviewGlobalConfig,
+    FormattedGlobalCodeReviewConfig,
+} from "../code-review/_types";
 import { FormattedConfigLevel } from "../code-review/_types";
 import {
     AutomationCodeReviewConfigProvider,
     DefaultCodeReviewConfigProvider,
     PlatformConfigProvider,
+    ScopedCodeReviewConfigProvider,
     useFeatureFlags,
 } from "./context";
+import { resolveCodeReviewConfigForScope } from "./code-review-config-scope";
 import { PerRepository } from "./per-repository/repository";
 
 const routes = [
@@ -66,19 +76,108 @@ const routes = [
     featureFlag?: keyof typeof FEATURE_FLAGS;
 }>;
 
-export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
-    const pathname = usePathname();
+type InitialPlatformConfig = {
+    uuid: string;
+    configKey: ParametersConfigKey.PLATFORM_CONFIGS;
+    configValue: PlatformConfigValue;
+};
+
+type InitialDefaultConfig = CodeReviewGlobalConfig & {
+    customMessages: CustomMessageConfig;
+};
+
+type SettingsLayoutProps = React.PropsWithChildren<{
+    initialTeamId: string;
+    initialConfigValue: FormattedGlobalCodeReviewConfig;
+    initialDefaultConfig: InitialDefaultConfig;
+    initialPlatformConfig: InitialPlatformConfig;
+}>;
+
+export const SettingsLayout = ({
+    children,
+    initialTeamId,
+    initialConfigValue,
+    initialDefaultConfig,
+    initialPlatformConfig,
+}: SettingsLayoutProps) => {
     const { teamId } = useSelectedTeamId();
-    const { configValue } = useSuspenseGetFormattedCodeReviewParameter(teamId);
-    const defaultConfig = useSuspenseGetDefaultCodeReviewParameter();
-    const platformConfig = useSuspenseGetParameterPlatformConfigs(teamId);
+    const effectiveTeamId = teamId ?? initialTeamId;
+    const defaultConfig = useSuspenseGetDefaultCodeReviewParameter({
+        initialData: initialDefaultConfig,
+    });
+    const platformConfig = useSuspenseGetParameterPlatformConfigs(
+        effectiveTeamId,
+        {
+            initialData:
+                effectiveTeamId === initialTeamId
+                    ? initialPlatformConfig
+                    : undefined,
+        },
+    );
+    const canReadPlugins = usePermission(
+        Action.Read,
+        ResourceType.PluginSettings,
+    );
+    const { data: isMCPAvailable = true } = useMCPAvailability(canReadPlugins);
+
+    const initialShellQueryData = useMemo<{
+        uuid: string;
+        configKey: ParametersConfigKey.CODE_REVIEW_CONFIG;
+        configValue: FormattedGlobalCodeReviewConfig;
+    }>(
+        () => ({
+            uuid: "",
+            configKey: ParametersConfigKey.CODE_REVIEW_CONFIG,
+            configValue: initialConfigValue,
+        }),
+        [initialConfigValue],
+    );
+
+    const { data: liveShellQuery } = useCodeReviewSettingsShell(
+        effectiveTeamId,
+        {
+            initialData:
+                effectiveTeamId === initialTeamId
+                    ? initialShellQueryData
+                    : undefined,
+        },
+    );
+
+    return (
+        <SettingsLayoutShell
+            teamId={effectiveTeamId}
+            configValue={liveShellQuery?.configValue ?? initialConfigValue}
+            defaultConfig={defaultConfig ?? initialDefaultConfig}
+            platformConfig={platformConfig ?? initialPlatformConfig}
+            isMCPAvailable={isMCPAvailable}>
+            {children}
+        </SettingsLayoutShell>
+    );
+};
+
+function SettingsLayoutShell({
+    children,
+    teamId,
+    configValue,
+    defaultConfig,
+    platformConfig,
+    isMCPAvailable,
+}: React.PropsWithChildren<{
+    teamId: string;
+    configValue: FormattedGlobalCodeReviewConfig | undefined;
+    defaultConfig: InitialDefaultConfig;
+    platformConfig: InitialPlatformConfig;
+    isMCPAvailable: boolean;
+}>) {
+    const pathname = usePathname();
     const { repositoryId, pageName, directoryId } = useCodeReviewRouteParams();
     const featureFlags = useFeatureFlags();
-
-    const globalOverrideCount = countConfigOverrides(
-        configValue.configs,
-        FormattedConfigLevel.GLOBAL,
-    );
+    const globalOverrideCount = configValue
+        ? countConfigOverrides(
+              configValue.configs,
+              FormattedConfigLevel.GLOBAL,
+          )
+        : 0;
 
     const canReadGitSettings = usePermission(
         Action.Read,
@@ -90,50 +189,29 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
         ResourceType.PluginSettings,
     );
 
-    const { data: isMCPAvailable = true } = useQuery({
-        queryKey: ["mcp-availability"],
-        queryFn: async () => {
-            try {
-                await getMCPPlugins();
-                return true;
-            } catch (error) {
-                if (error instanceof MCPServiceUnavailableError) return false;
-                console.error("Failed to check MCP availability:", error);
-                return true;
-            }
-        },
-        enabled: canReadPlugins,
-    });
-
-    // Avoid hydration mismatch with Radix Collapsible IDs
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-
     const mainRoutes = useMemo(() => {
-        const routes: Array<{
+        const nextRoutes: Array<{
             label: string;
             href: string;
             badge?: React.ReactNode;
         }> = [];
 
         if (canReadGitSettings) {
-            routes.push({
+            nextRoutes.push({
                 label: "Git Settings",
                 href: "/settings/git",
             });
         }
 
         if (canReadBilling) {
-            routes.push({
+            nextRoutes.push({
                 label: "Subscription",
                 href: "/settings/subscription",
             });
         }
 
         if (canReadPlugins && isMCPAvailable) {
-            routes.push({
+            nextRoutes.push({
                 label: "Plugins",
                 href: "/settings/plugins",
                 badge: (
@@ -146,7 +224,7 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
             });
         }
 
-        return routes;
+        return nextRoutes;
     }, [canReadGitSettings, canReadBilling, canReadPlugins, isMCPAvailable]);
 
     const settingsRoutes = useMemo(
@@ -159,9 +237,23 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
         [featureFlags],
     );
 
-    if (repositoryId && repositoryId !== "global") {
+    const isShellLoading = !configValue;
+
+    const scopedConfig = useMemo(
+        () =>
+            configValue
+                ? resolveCodeReviewConfigForScope(
+                      configValue,
+                      repositoryId,
+                      directoryId,
+                  )
+                : undefined,
+        [configValue, directoryId, repositoryId],
+    );
+
+    if (!isShellLoading && repositoryId && repositoryId !== "global") {
         const repository = safeArray(configValue?.repositories).find(
-            (r) => r.id === repositoryId,
+            (repositoryItem) => repositoryItem.id === repositoryId,
         );
 
         if (!repository) {
@@ -170,7 +262,7 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
 
         if (!repository?.isSelected) {
             const directory = safeArray(repository?.directories).find(
-                (d) => d.id === directoryId,
+                (directoryItem) => directoryItem.id === directoryId,
             );
 
             if (!directory) {
@@ -216,8 +308,7 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
                     <SidebarGroup>
                         <SidebarGroupContent>
                             <SidebarMenu className="gap-6">
-                                {/* Render Collapsible only after mount to avoid hydration mismatch */}
-                                {mounted ? (
+                                {!isShellLoading ? (
                                     <Collapsible
                                         defaultOpen={
                                             repositoryId === "global" ||
@@ -285,19 +376,20 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
                                         </CollapsibleContent>
                                     </Collapsible>
                                 ) : (
-                                    <Button
-                                        size="md"
-                                        variant="helper"
-                                        className="h-fit w-full justify-start py-2">
-                                        Global
-                                    </Button>
+                                    <SettingsGlobalSidebarSkeleton
+                                        settingsRoutes={settingsRoutes}
+                                    />
                                 )}
 
-                                <PerRepository
-                                    routes={settingsRoutes}
-                                    configValue={configValue}
-                                    platformConfig={platformConfig}
-                                />
+                                {configValue ? (
+                                    <PerRepository
+                                        routes={settingsRoutes}
+                                        configValue={configValue}
+                                        platformConfig={platformConfig}
+                                    />
+                                ) : (
+                                    <SettingsPerRepositorySkeleton />
+                                )}
                             </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
@@ -305,15 +397,81 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
             </Sidebar>
 
             <Page.WithSidebar>
-                <DefaultCodeReviewConfigProvider config={defaultConfig}>
-                    <AutomationCodeReviewConfigProvider config={configValue}>
-                        <PlatformConfigProvider
-                            config={platformConfig.configValue}>
-                            {children}
-                        </PlatformConfigProvider>
-                    </AutomationCodeReviewConfigProvider>
-                </DefaultCodeReviewConfigProvider>
+                {configValue ? (
+                    <DefaultCodeReviewConfigProvider config={defaultConfig}>
+                        <AutomationCodeReviewConfigProvider config={configValue}>
+                            <ScopedCodeReviewConfigProvider config={scopedConfig}>
+                                <PlatformConfigProvider
+                                    config={platformConfig.configValue}>
+                                    {children}
+                                </PlatformConfigProvider>
+                            </ScopedCodeReviewConfigProvider>
+                        </AutomationCodeReviewConfigProvider>
+                    </DefaultCodeReviewConfigProvider>
+                ) : (
+                    <SettingsShellContentSkeleton />
+                )}
             </Page.WithSidebar>
         </div>
     );
-};
+}
+
+function SettingsGlobalSidebarSkeleton({
+    settingsRoutes,
+}: {
+    settingsRoutes: Array<{ label: string; href: string }>;
+}) {
+    return (
+        <div className="flex flex-col gap-2">
+            <Button
+                size="md"
+                variant="helper"
+                disabled
+                className="h-fit w-full justify-start py-2">
+                Global
+            </Button>
+
+            <div className="space-y-2 pl-6">
+                {settingsRoutes.slice(0, 4).map((route) => (
+                    <Skeleton
+                        key={route.href}
+                        className="h-8 w-full rounded-md"
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function SettingsPerRepositorySkeleton() {
+    return (
+        <div className="pl-2">
+            <div className="mb-4 flex flex-col gap-2">
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+            </div>
+
+            <div className="space-y-2">
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-full rounded-md" />
+            </div>
+        </div>
+    );
+}
+
+function SettingsShellContentSkeleton() {
+    return (
+        <Page.Root>
+            <Page.Header>
+                <Skeleton className="h-6 w-48" />
+            </Page.Header>
+
+            <Page.Content>
+                <Skeleton className="h-12 w-64" />
+                <Skeleton className="h-56 w-full rounded-xl" />
+                <Skeleton className="h-56 w-full rounded-xl" />
+            </Page.Content>
+        </Page.Root>
+    );
+}

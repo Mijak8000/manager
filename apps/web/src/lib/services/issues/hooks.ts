@@ -1,5 +1,7 @@
-import { PARAMETERS_PATHS } from "@services/parameters";
-import { ParametersConfigKey } from "@services/parameters/types";
+import {
+    ParametersConfigKey,
+} from "@services/parameters/types";
+import { useOptionalParameterQuery } from "@services/parameters/hooks";
 import { pathToApiUrl } from "src/core/utils/helpers";
 import { useFetch, useSuspenseFetch } from "src/core/utils/reactQuery";
 import { useOrganizationContext } from "src/features/organization/_providers/organization-context";
@@ -43,22 +45,18 @@ export const useIssue = (
 };
 
 export const useSuspenseIssuesCount = () =>
-    useSuspenseFetch<number>(pathToApiUrl("/issues/count"));
+    useSuspenseFetch<number>(pathToApiUrl("/issues/count"), undefined, {
+        staleTime: 30_000,
+    });
 
 export const useIssueCreationConfig = (teamId: string | undefined) => {
-    return useFetch<IssueCreationConfigResponse>(
-        PARAMETERS_PATHS.GET_BY_KEY,
-        teamId
-            ? {
-                  params: {
-                      key: ParametersConfigKey.ISSUE_CREATION_CONFIG,
-                      teamId,
-                  },
-              }
-            : undefined,
-        Boolean(teamId),
+    return useOptionalParameterQuery<IssueCreationConfigResponse["configValue"]>(
+        ParametersConfigKey.ISSUE_CREATION_CONFIG,
+        teamId,
         {
-            retry: false,
+            uuid: "",
+            configKey: ParametersConfigKey.ISSUE_CREATION_CONFIG,
+            configValue: true,
         },
     );
 };

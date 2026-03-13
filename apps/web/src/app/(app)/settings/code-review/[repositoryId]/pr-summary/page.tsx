@@ -13,24 +13,21 @@ import { Page } from "@components/ui/page";
 import { Switch } from "@components/ui/switch";
 import { Textarea } from "@components/ui/textarea";
 import { toast } from "@components/ui/toaster/use-toast";
-import { useReactQueryInvalidateQueries } from "@hooks/use-invalidate-queries";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
-import { PARAMETERS_PATHS } from "@services/parameters";
-import { createOrUpdateCodeReviewParameter } from "@services/parameters/fetch";
 import {
     KodyLearningStatus,
-    ParametersConfigKey,
 } from "@services/parameters/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
-import { EyeIcon, Save } from "lucide-react";
+import { EyeIcon, RotateCcwIcon, Save } from "lucide-react";
 import { Controller, useFormContext } from "react-hook-form";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
-import { unformatConfig } from "src/core/utils/helpers";
 
+import { useCodeReviewSettingsMutation } from "../../_hooks/use-code-review-settings-mutation";
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
 import GeneratingConfig from "../../_components/generating-config";
 import { OverrideIndicatorForm } from "../../_components/override";
+import { CodeReviewSaveButton } from "../../_components/save-button";
 import { PRSummaryPreviewModal } from "../../_components/pr-summary-preview-modal/modal";
 import {
     BehaviourForNewCommits,
@@ -102,44 +99,16 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
     const generatePRSummary = form.watch("summary.generatePRSummary.value");
     const [isExternalReferencesProcessing, setIsExternalReferencesProcessing] =
         useState(false);
-
-    const { resetQueries, generateQueryKey } = useReactQueryInvalidateQueries();
+    const { saveSettings } = useCodeReviewSettingsMutation({
+        teamId,
+        repositoryId,
+        directoryId,
+        form,
+    });
 
     const handleSubmit = form.handleSubmit(async (formData) => {
-        const { language, ...config } = formData;
-
-        const unformattedConfig = unformatConfig(config);
-
         try {
-            await createOrUpdateCodeReviewParameter(
-                unformattedConfig,
-                teamId,
-                repositoryId,
-                directoryId,
-            );
-
-            await Promise.all([
-                resetQueries({
-                    queryKey: generateQueryKey(PARAMETERS_PATHS.GET_BY_KEY, {
-                        params: {
-                            key: ParametersConfigKey.CODE_REVIEW_CONFIG,
-                            teamId,
-                        },
-                    }),
-                }),
-                resetQueries({
-                    queryKey: generateQueryKey(
-                        PARAMETERS_PATHS.GET_CODE_REVIEW_PARAMETER,
-                        {
-                            params: {
-                                teamId,
-                            },
-                        },
-                    ),
-                }),
-            ]);
-
-            form.reset(config);
+            await saveSettings(formData);
 
             toast({
                 description: "Settings saved",
@@ -180,7 +149,18 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
                 <Page.Title>PR summary</Page.Title>
 
                 <Page.HeaderActions>
-                    <Button
+                    {formIsDirty && (
+                        <Button
+                            size="md"
+                            variant="cancel"
+                            leftIcon={<RotateCcwIcon />}
+                            onClick={() => form.reset()}
+                            disabled={formIsSubmitting}>
+                            Reset
+                        </Button>
+                    )}
+
+                    <CodeReviewSaveButton
                         size="md"
                         variant="primary"
                         leftIcon={<Save />}
@@ -188,46 +168,49 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
                         disabled={!formIsDirty || !formIsValid}
                         loading={formIsSubmitting}>
                         Save settings
-                    </Button>
+                    </CodeReviewSaveButton>
                 </Page.HeaderActions>
             </Page.Header>
 
             <Page.Content className="gap-8">
-                <Controller
-                    name="summary.generatePRSummary.value"
-                    control={form.control}
-                    render={({ field }) => (
-                        <Button
-                            size="sm"
-                            variant="helper"
-                            disabled={field.disabled}
-                            onClick={() => field.onChange(!field.value)}
-                            className="w-full">
-                            <CardHeader className="flex flex-row items-center justify-between">
-                                <div className="flex flex-col gap-1">
-                                    <div className="mb-2 flex flex-row items-center gap-2">
-                                        <FormControl.Label className="mb-0">
-                                            Enable Automatic Summary Generation
-                                        </FormControl.Label>
+                <div data-field-name="summary.generatePRSummary.value">
+                    <Controller
+                        name="summary.generatePRSummary.value"
+                        control={form.control}
+                        render={({ field }) => (
+                            <Button
+                                size="sm"
+                                variant="helper"
+                                disabled={field.disabled}
+                                onClick={() => field.onChange(!field.value)}
+                                className="w-full">
+                                <CardHeader className="flex flex-row items-center justify-between">
+                                    <div className="flex flex-col gap-1">
+                                        <div className="mb-2 flex flex-row items-center gap-2">
+                                            <FormControl.Label className="mb-0">
+                                                Enable Automatic Summary Generation
+                                            </FormControl.Label>
 
-                                        <OverrideIndicatorForm fieldName="summary.generatePRSummary" />
+                                            <OverrideIndicatorForm fieldName="summary.generatePRSummary" />
+                                        </div>
                                     </div>
-                                </div>
 
-                                <Switch
-                                    size="md"
-                                    decorative
-                                    checked={field.value}
-                                />
-                            </CardHeader>
-                        </Button>
-                    )}
-                />
-                <Controller
-                    name="summary.behaviourForNewCommits.value"
-                    control={form.control}
-                    render={({ field }) => (
-                        <FormControl.Root>
+                                    <Switch
+                                        size="md"
+                                        decorative
+                                        checked={field.value}
+                                    />
+                                </CardHeader>
+                            </Button>
+                        )}
+                    />
+                </div>
+                <div data-field-name="summary.behaviourForNewCommits.value">
+                    <Controller
+                        name="summary.behaviourForNewCommits.value"
+                        control={form.control}
+                        render={({ field }) => (
+                            <FormControl.Root>
                             <div className="mb-2 flex flex-row items-center gap-2">
                                 <FormControl.Label className="mb-0">
                                     Behavior for commits after PR is opened
@@ -299,15 +282,17 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
                                     )}
                                 </ToggleGroup.Root>
                             </FormControl.Input>
-                        </FormControl.Root>
-                    )}
-                />
+                            </FormControl.Root>
+                        )}
+                    />
+                </div>
 
-                <Controller
-                    name="summary.behaviourForExistingDescription.value"
-                    control={form.control}
-                    render={({ field }) => (
-                        <FormControl.Root>
+                <div data-field-name="summary.behaviourForExistingDescription.value">
+                    <Controller
+                        name="summary.behaviourForExistingDescription.value"
+                        control={form.control}
+                        render={({ field }) => (
+                            <FormControl.Root>
                             <div className="mb-2 flex flex-row items-center gap-2">
                                 <FormControl.Label className="mb-0">
                                     Behavior for Existing Description
@@ -377,15 +362,17 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
                                     ))}
                                 </ToggleGroup.Root>
                             </FormControl.Input>
-                        </FormControl.Root>
-                    )}
-                />
+                            </FormControl.Root>
+                        )}
+                    />
+                </div>
 
-                <Controller
-                    name="summary.customInstructions.value"
-                    control={form.control}
-                    render={({ field }) => (
-                        <FormControl.Root>
+                <div data-field-name="summary.customInstructions.value">
+                    <Controller
+                        name="summary.customInstructions.value"
+                        control={form.control}
+                        render={({ field }) => (
+                            <FormControl.Root>
                             <div className="mb-2 flex flex-row items-center gap-2">
                                 <FormControl.Label
                                     className="mb-0"
@@ -460,9 +447,10 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
                                     compact
                                 />
                             </FormControl.Input>
-                        </FormControl.Root>
-                    )}
-                />
+                            </FormControl.Root>
+                        )}
+                    />
+                </div>
 
                 <div className="-mt-3 flex justify-end">
                     <Button
