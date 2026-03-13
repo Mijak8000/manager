@@ -249,7 +249,10 @@ export class TriggerBusinessValidationUseCase implements IUseCase {
 
         const pullRequests = await this.codeManagementService.getPullRequests({
             organizationAndTeamData,
-            repository,
+            repository: {
+                id: repository.id,
+                name: repository.name,
+            },
             filters: { number: requestedPrNumber },
         });
 
