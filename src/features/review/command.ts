@@ -26,6 +26,12 @@ import {
 } from '../../utils/input-validation.js';
 import { applyFieldMask } from '../../utils/field-mask.js';
 import { formatReviewOutput } from '../../utils/review-output.js';
+import { resolveReviewDiff } from './diff.js';
+import {
+    formatTrialCompletionMessage,
+    shouldFailReview,
+    shouldUseInteractiveReview,
+} from './result.js';
 import type { GlobalOptions } from '../../types/cli.js';
 import type { ReviewResult, TrialReviewResult } from '../../types/review.js';
 
@@ -247,11 +253,12 @@ async function reviewAction(
         }
 
         const selectedResult = fields ? applyFieldMask(result, fields) : result;
-        const shouldUseInteractive =
-            (!ctx.isAgent && options.interactive) ||
-            (!ctx.isAgent &&
-                !globalOpts.output &&
-                globalOpts.format === 'terminal');
+        const shouldUseInteractive = shouldUseInteractiveReview({
+            isAgent: ctx.isAgent,
+            interactive: options.interactive,
+            output: globalOpts.output,
+            format: globalOpts.format,
+        });
 
         if (shouldUseInteractive) {
             await interactiveUI.run(result);
@@ -281,20 +288,8 @@ async function reviewAction(
             }
         }
 
-        if (options.failOn) {
-            const severityOrder: Record<string, number> = {
-                info: 0,
-                warning: 1,
-                error: 2,
-                critical: 3,
-            };
-            const threshold = severityOrder[options.failOn] ?? 0;
-            const hasBlockingIssues = result.issues.some(
-                (issue) => (severityOrder[issue.severity] ?? 0) >= threshold,
-            );
-            if (hasBlockingIssues) {
-                exitWithCode(1);
-            }
+        if (shouldFailReview(result, options.failOn)) {
+            exitWithCode(1);
         }
     } catch (error) {
         const normalized = normalizeCommandError(error);
@@ -392,90 +387,18 @@ async function getDiff(
     options: Pick<ReviewCommandOptions, 'staged' | 'commit' | 'branch'>,
     verbose?: boolean,
 ): Promise<string> {
-    let diff: string;
+    const result = await resolveReviewDiff({
+        files,
+        options,
+        verbose,
+        git: gitService,
+    });
 
-    gitService.setVerbose(!!verbose);
+    result.verboseMessages.forEach((message) => {
+        cliDebug(chalk.dim(message));
+    });
 
-    if (files.length > 0) {
-        if (verbose) {
-            cliDebug(
-                chalk.dim(
-                    `[verbose] Getting diff for specific files: ${files.join(', ')}`,
-                ),
-            );
-        }
-        diff = await gitService.getDiffForFiles(files);
-    } else if (options.branch) {
-        if (verbose) {
-            cliDebug(
-                chalk.dim(
-                    `[verbose] Getting diff for branch: ${options.branch}`,
-                ),
-            );
-        }
-        diff = await gitService.getDiffForBranch(options.branch);
-    } else if (options.commit) {
-        if (verbose) {
-            cliDebug(
-                chalk.dim(
-                    `[verbose] Getting diff for commit: ${options.commit}`,
-                ),
-            );
-        }
-        diff = await gitService.getDiffForCommit(options.commit);
-    } else if (options.staged) {
-        if (verbose) {
-            cliDebug(chalk.dim('[verbose] Getting staged diff only'));
-        }
-        diff = await gitService.getStagedDiff();
-    } else {
-        if (verbose) {
-            cliDebug(
-                chalk.dim(
-                    '[verbose] Getting working tree diff (staged + unstaged)',
-                ),
-            );
-        }
-        diff = await gitService.getWorkingTreeDiff();
-    }
-
-    if (verbose) {
-        cliDebug(
-            chalk.dim(
-                `[verbose] Diff result: ${diff ? `${diff.length} characters` : 'empty'}`,
-            ),
-        );
-        if (!diff) {
-            cliDebug(
-                chalk.dim('[verbose] No changes detected in the requested scope'),
-            );
-        } else {
-            const preview = diff.substring(0, 500);
-            cliDebug(
-                chalk.dim(
-                    `[verbose] Diff preview:\n${preview}${diff.length > 500 ? '\n... (truncated)' : ''}`,
-                ),
-            );
-        }
-    }
-
-    return diff;
-}
-
-function formatTrialCompletionMessage(result: TrialReviewResult): string {
-    if (result.trialInfo) {
-        return `Review complete! (Trial: ${result.trialInfo.reviewsUsed}/${result.trialInfo.reviewsLimit} reviews today)`;
-    }
-
-    if (result.rateLimit) {
-        const used = Math.max(
-            0,
-            result.rateLimit.limit - result.rateLimit.remaining,
-        );
-        return `Review complete! (Trial: ${used}/${result.rateLimit.limit} reviews today)`;
-    }
-
-    return 'Review complete! (Trial mode)';
+    return result.diff;
 }
 
 export const reviewCommand = createReviewCommand();
