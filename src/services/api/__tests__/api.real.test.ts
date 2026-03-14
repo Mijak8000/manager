@@ -568,6 +568,36 @@ describe('RealApi config repository methods', () => {
         );
     });
 
+    it('explains that repository config requires team-key auth on 401', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    statusCode: 401,
+                    path: '/cli/config/repositories/available',
+                    error: 'Unauthorized',
+                    message: 'Unauthorized',
+                }),
+                {
+                    status: 401,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+
+        await expect(
+            api.config.getAvailableRepositories('eyJ.test.token'),
+        ).rejects.toEqual(
+            expect.objectContaining({
+                name: 'ApiError',
+                statusCode: 401,
+                message:
+                    'Repository configuration requires team-key auth. Run: kodus auth team-key --key <your-key>.',
+            } satisfies Partial<ApiError>),
+        );
+    });
+
     it('sends X-Team-Key when getting repository settings', async () => {
         fetchMock.mockResolvedValue(
             new Response(

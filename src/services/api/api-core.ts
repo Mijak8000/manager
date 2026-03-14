@@ -125,6 +125,9 @@ function getDefaultApiErrorMessage(
     }
 
     if (statusCode === 401) {
+        if (endpointPath.startsWith('/cli/config/repositories')) {
+            return 'Repository configuration requires team-key auth. Run: kodus auth team-key --key <your-key>.';
+        }
         if (endpointPath === '/pull-requests/suggestions') {
             return 'Authentication failed while fetching pull request suggestions. Run: kodus auth login or configure a valid team key.';
         }
