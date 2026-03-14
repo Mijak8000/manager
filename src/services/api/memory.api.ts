@@ -1,7 +1,7 @@
 import type {
     MemoryCaptureApiRequest,
     MemoryCaptureApiResponse,
-} from '../../types/index.js';
+} from '../../types/memory.js';
 import type { IMemoryApi } from './api.interface.js';
 import { request } from './api-core.js';
 

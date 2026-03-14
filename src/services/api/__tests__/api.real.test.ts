@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '../../../types/index.js';
+import { ApiError } from '../../../types/errors.js';
 
 const deviceMocks = vi.hoisted(() => ({
     getDeviceIdentity: vi.fn(),

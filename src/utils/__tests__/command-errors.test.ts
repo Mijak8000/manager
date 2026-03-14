@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, AuthError } from '../../types/index.js';
+import { ApiError, AuthError } from '../../types/errors.js';
 import { CommandError, normalizeCommandError } from '../command-errors.js';
 
 describe('command errors', () => {

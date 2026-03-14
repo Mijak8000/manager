@@ -3,7 +3,7 @@ import { reviewService } from '../review.service.js';
 import { api } from '../api/index.js';
 import * as rateLimit from '../../utils/rate-limit.js';
 import { setCliOutputMode } from '../../utils/logger.js';
-import type { PullRequestSuggestionsResponse } from '../../types/index.js';
+import type { PullRequestSuggestionsResponse } from '../../types/review.js';
 
 describe('normalizeSeverity', () => {
     it('maps critical to critical', () => {

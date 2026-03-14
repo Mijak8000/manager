@@ -1,4 +1,4 @@
-import type { TrialStatus } from '../../types/index.js';
+import type { TrialStatus } from '../../types/trial.js';
 import type { ITrialApi } from './api.interface.js';
 import { requestWithRetry } from './api-core.js';
 

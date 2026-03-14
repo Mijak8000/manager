@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '../../types/index.js';
+import { ApiError } from '../../types/errors.js';
 
 vi.mock('../api/index.js', () => ({
     api: {

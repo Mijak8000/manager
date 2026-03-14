@@ -1,6 +1,6 @@
 import { select, confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
-import type { ReviewResult, ReviewIssue } from '../types/index.js';
+import type { ReviewIssue, ReviewResult } from '../types/review.js';
 import { fixService } from '../services/fix.service.js';
 import { copyTextToClipboard } from '../utils/clipboard.js';
 
