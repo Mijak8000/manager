@@ -42,21 +42,18 @@ export const PerDirectory = ({
     >;
     routes: Array<{ label: string; href: string }>;
     configs?: FormattedCodeReviewConfig;
-    customMessagesOverrideCount: number;
+    customMessagesOverrideCount?: number;
 }) => {
     const searchParams = useSearchParams();
     const { repositoryId, pageName, directoryId } = useCodeReviewRouteParams();
     const [open, setOpen] = useState(directoryId === directory.id);
-
-    const configOverrideCount = configs
-        ? countConfigOverridesForRoutes(
-              configs,
-              routes.map((route) => route.href),
-              FormattedConfigLevel.DIRECTORY,
-          )
-        : 0;
-
-    const overrideCount = configOverrideCount + customMessagesOverrideCount;
+    const configOverrideCount = countConfigOverridesForRoutes(
+        configs,
+        routes.map((route) => route.href),
+        FormattedConfigLevel.DIRECTORY,
+    );
+    const resolvedOverrideCount =
+        configOverrideCount + (customMessagesOverrideCount ?? 0);
 
     return (
         <Collapsible
@@ -80,11 +77,11 @@ export const PerDirectory = ({
                                     />
                                 }
                                 rightIcon={
-                                    overrideCount > 0 && (
+                                    resolvedOverrideCount > 0 && (
                                         <Badge
                                             variant="primary-dark"
                                             className="h-5 min-w-5 rounded-full px-1.5 text-[10px] font-medium">
-                                            {overrideCount}
+                                            {resolvedOverrideCount}
                                         </Badge>
                                     )
                                 }>
@@ -97,10 +94,11 @@ export const PerDirectory = ({
 
                     <TooltipContent side="right" className="text-sm">
                         {directory.path}
-                        {overrideCount > 0 && (
+                        {resolvedOverrideCount > 0 && (
                             <div className="text-text-tertiary mt-1 text-xs">
-                                {overrideCount} config
-                                {overrideCount !== 1 ? "s" : ""} overridden
+                                {resolvedOverrideCount} config
+                                {resolvedOverrideCount !== 1 ? "s" : ""}{" "}
+                                overridden
                             </div>
                         )}
                     </TooltipContent>
@@ -130,7 +128,7 @@ export const PerDirectory = ({
                                     level={FormattedConfigLevel.DIRECTORY}
                                     config={configs}
                                     customMessagesOverrideCount={
-                                        customMessagesOverrideCount
+                                        customMessagesOverrideCount ?? 0
                                     }
                                 />
                             </SidebarMenuSubItem>

@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
 import {
@@ -26,7 +25,6 @@ import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import { useCustomMessagesOverrideCountsByRepository } from "@services/pull-request-messages/hooks";
 import { Plus } from "lucide-react";
-import { safeArray } from "src/core/utils/safe-array";
 
 import { useCodeReviewRouteParams } from "../../_hooks";
 import { countConfigOverridesForRoutes } from "../../_utils/count-overrides";
@@ -45,21 +43,20 @@ const RepositoryCollapsibleItem = ({
     directoryId,
     pageName,
     routes,
-    configValue,
 }: {
     repository: FormattedGlobalCodeReviewConfig["repositories"][number];
     repositoryId: string;
     directoryId?: string;
     pageName: string;
     routes: Array<{ label: string; href: string }>;
-    configValue: FormattedGlobalCodeReviewConfig;
 }) => {
     const hasRepositoryConfig = repository.isSelected;
+    const routeHrefs = routes.map((route) => route.href);
 
     const repositoryConfigOverrideCount = hasRepositoryConfig
         ? countConfigOverridesForRoutes(
               repository.configs,
-              routes.map((route) => route.href),
+              routeHrefs,
               FormattedConfigLevel.REPOSITORY,
           )
         : 0;
@@ -83,8 +80,27 @@ const RepositoryCollapsibleItem = ({
         ),
     );
 
+    const nestedDirectoryOverrideCount = (repository.directories ?? []).reduce(
+        (total, directory) => {
+            const directoryConfigOverrideCount = countConfigOverridesForRoutes(
+                directory.configs,
+                routeHrefs,
+                FormattedConfigLevel.DIRECTORY,
+            );
+
+            return (
+                total +
+                directoryConfigOverrideCount +
+                (directoryCustomMessageCounts.get(directory.id) ?? 0)
+            );
+        },
+        0,
+    );
+
     const overrideCount =
-        repositoryConfigOverrideCount + repositoryCustomMessagesOverrideCount;
+        repositoryConfigOverrideCount +
+        repositoryCustomMessagesOverrideCount +
+        nestedDirectoryOverrideCount;
 
     return (
         <Collapsible
@@ -162,17 +178,13 @@ const RepositoryCollapsibleItem = ({
                         })}
 
                     {repository.directories?.map((d) => {
-                        const directoryWithConfigs = configValue.repositories
-                            .find((repo) => repo.id === repository.id)
-                            ?.directories?.find((dir) => dir.id === d.id);
-
                         return (
                             <PerDirectory
                                 key={d.id}
                                 directory={d}
                                 repository={repository}
                                 routes={routes}
-                                configs={directoryWithConfigs?.configs}
+                                configs={d.configs}
                                 customMessagesOverrideCount={
                                     directoryCustomMessageCounts.get(d.id) ?? 0
                                 }
@@ -199,12 +211,6 @@ export const PerRepository = ({
         Action.Create,
         ResourceType.CodeReviewSettings,
     );
-
-    // Avoid hydration mismatch with Radix Collapsible/Tooltip IDs
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     return (
         <SidebarMenuItem>
@@ -239,25 +245,22 @@ export const PerRepository = ({
             </div>
 
             <div className="flex flex-col gap-1">
-                {/* Render Collapsible only after mount to avoid hydration mismatch */}
-                {mounted &&
-                    safeArray(configValue?.repositories)
-                        .filter(
-                            (r) =>
-                                r.isSelected ||
-                                safeArray(r.directories).length > 0,
-                        )
-                        .map((repository) => (
-                            <RepositoryCollapsibleItem
-                                key={repository.id}
-                                repository={repository}
-                                repositoryId={repositoryId}
-                                directoryId={directoryId}
-                                pageName={pageName}
-                                routes={routes}
-                                configValue={configValue}
-                            />
-                        ))}
+                {configValue.repositories
+                    .filter(
+                        (repository) =>
+                            repository.isSelected ||
+                            (repository.directories?.length ?? 0) > 0,
+                    )
+                    .map((repository) => (
+                        <RepositoryCollapsibleItem
+                            key={repository.id}
+                            repository={repository}
+                            repositoryId={repositoryId}
+                            directoryId={directoryId}
+                            pageName={pageName}
+                            routes={routes}
+                        />
+                    ))}
             </div>
         </SidebarMenuItem>
     );
