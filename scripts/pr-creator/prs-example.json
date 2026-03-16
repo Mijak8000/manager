@@ -1,0 +1,15 @@
+{
+    "prs": [
+        {
+            "repo": "ai-code-review-benchmark/grafana-codex",
+            "head": "advanced-sql-analytics",
+            "base": "main",
+            "title": "feat: advanced SQL analytics"
+        },
+        {
+            "repo": "ai-code-review-benchmark/posthog-coderabbit",
+            "head": "01-06-fix_logs_remove_limit_1000_from_sparkline_query",
+            "base": "master"
+        }
+    ]
+}
