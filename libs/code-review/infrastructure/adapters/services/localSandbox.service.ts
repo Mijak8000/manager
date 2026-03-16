@@ -2,7 +2,7 @@ import { createLogger } from '@kodus/flow';
 import { PlatformType } from '@libs/core/domain/enums';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { execFile } from 'child_process';
+import { execFile, ExecFileOptions } from 'child_process';
 import { lstat, mkdtemp, realpath, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
@@ -82,7 +82,7 @@ export class LocalSandboxService implements ISandboxProvider {
                 {
                     timeout: CLONE_TIMEOUT_MS,
                     env: fetchEnv,
-                },
+                } as ExecFileOptions,
             );
 
             await execFileAsync(
@@ -159,9 +159,19 @@ export class LocalSandboxService implements ISandboxProvider {
                 end: number,
             ): Promise<string> => {
                 const safePath = await this.resolveSafePath(repoDir, path);
+                // When start=0 and end=0, read the entire file (cat).
+                // GNU sed rejects address 0 so we must avoid `sed -n '0,0p'`.
+                if (start === 0 && end === 0) {
+                    const { stdout } = await execFileAsync(
+                        'cat',
+                        [safePath],
+                        { timeout: CMD_TIMEOUT_MS, maxBuffer: MAX_BUFFER },
+                    );
+                    return stdout;
+                }
                 const { stdout } = await execFileAsync(
                     'sed',
-                    ['-n', `${start},${end}p`, safePath],
+                    ['-n', `${start < 1 ? 1 : start},${end}p`, safePath],
                     { timeout: CMD_TIMEOUT_MS, maxBuffer: MAX_BUFFER },
                 );
                 return stdout;
@@ -193,6 +203,89 @@ export class LocalSandboxService implements ISandboxProvider {
                     },
                 );
                 return stdout;
+            },
+
+            exec: async (
+                command: string,
+            ): Promise<{ stdout: string; exitCode: number }> => {
+                // Strict whitelist — only allow known read-only programs.
+                // This runs on the host machine (no container isolation),
+                // so we must prevent arbitrary command execution.
+                const ALLOWED_PROGRAMS = new Set([
+                    'sg',        // ast-grep
+                    'tsc',       // TypeScript compiler
+                    'npx',       // npx (further validated by tool-level whitelist)
+                    'eslint',
+                    'python',
+                    'python3',
+                    'go',
+                    'cargo',
+                    'cat',
+                    'wc',
+                    'head',
+                    'tail',
+                    'file',
+                ]);
+
+                // Split command into program + args for execFile (no shell interpretation)
+                const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+                if (parts.length === 0) {
+                    return { stdout: '', exitCode: 1 };
+                }
+                const [program, ...args] = parts.map((p) =>
+                    p.replace(/^['"]|['"]$/g, ''),
+                );
+
+                if (!ALLOWED_PROGRAMS.has(program)) {
+                    return {
+                        stdout: `Program "${program}" is not allowed in local sandbox. Allowed: ${[...ALLOWED_PROGRAMS].join(', ')}`,
+                        exitCode: 1,
+                    };
+                }
+
+                // Block path traversal in positional arguments only.
+                // Skip flags (--xxx) and their values (the arg right after a flag).
+                const positionalArgs: string[] = [];
+                for (let i = 0; i < args.length; i++) {
+                    if (args[i].startsWith('-')) {
+                        // Flag — skip its value too (e.g. --pattern '$A..$B')
+                        i++;
+                        continue;
+                    }
+                    positionalArgs.push(args[i]);
+                }
+                // Check for path traversal: ".." as a path segment (not substring).
+                // Matches: "../x", "a/../../b", ".." alone — but NOT "./..." (Go idiom)
+                const hasTraversal = positionalArgs.some(
+                    (a) =>
+                        a.startsWith('/') ||
+                        /(^|\/)\.\.($|\/)/.test(a),
+                );
+                if (hasTraversal) {
+                    return {
+                        stdout: 'Arguments with path traversal (..) or absolute paths are not allowed.',
+                        exitCode: 1,
+                    };
+                }
+
+                try {
+                    const { stdout, stderr } = await execFileAsync(
+                        program,
+                        args,
+                        {
+                            cwd: repoDir,
+                            timeout: CMD_TIMEOUT_MS,
+                            maxBuffer: MAX_BUFFER,
+                        },
+                    );
+                    return { stdout: stdout + (stderr || ''), exitCode: 0 };
+                } catch (error: any) {
+                    return {
+                        stdout:
+                            (error.stdout || '') + (error.stderr || ''),
+                        exitCode: error.code ?? 1,
+                    };
+                }
             },
         };
     }

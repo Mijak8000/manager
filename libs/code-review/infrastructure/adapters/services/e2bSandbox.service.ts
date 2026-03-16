@@ -326,6 +326,19 @@ export class E2BSandboxService implements ISandboxProvider {
                 );
                 return result.stdout;
             },
+
+            exec: async (
+                command: string,
+            ): Promise<{ stdout: string; exitCode: number }> => {
+                const result = await sandbox.commands.run(
+                    `cd ${REPO_DIR} && ${command}`,
+                    { timeoutMs: 30_000 },
+                );
+                return {
+                    stdout: result.stdout + (result.stderr || ''),
+                    exitCode: result.exitCode,
+                };
+            },
         };
     }
 

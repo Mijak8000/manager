@@ -441,13 +441,16 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
 
                 // Language Support Check
                 if (!filePath || !this.isLanguageSupported(filePath)) {
-                    this.logDiscard(
-                        suggestion.id,
-                        'Unsupported language',
-                        { filePath },
-                        context,
-                    );
-                    return null;
+                    // Unsupported language — can't validate, post as normal comment
+                    this.logger.log({
+                        message: `Suggestion ${suggestion.id} has unsupported language (${filePath}), posting as normal comment`,
+                        context: this.stageName,
+                    });
+                    return {
+                        ...suggestion,
+                        isCommittable: false,
+                        validatedData: undefined,
+                    };
                 }
 
                 // Threshold Check
@@ -455,13 +458,16 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
                     chars >= this.MAX_CHARS_THRESHOLD ||
                     lines >= this.MAX_LINES_THRESHOLD
                 ) {
-                    this.logDiscard(
-                        suggestion.id,
-                        'Threshold exceeded',
-                        { lines, chars },
-                        context,
-                    );
-                    return null;
+                    // Code too large to validate — post as normal comment
+                    this.logger.log({
+                        message: `Suggestion ${suggestion.id} exceeds threshold (${lines} lines, ${chars} chars), posting as normal comment`,
+                        context: this.stageName,
+                    });
+                    return {
+                        ...suggestion,
+                        isCommittable: false,
+                        validatedData: undefined,
+                    };
                 }
 
                 // AST Simplicity Check
@@ -475,24 +481,30 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
 
                     if (isSimple) return suggestion;
 
-                    this.logDiscard(
-                        suggestion.id,
-                        'Complex suggestion',
-                        { reason },
-                        context,
-                    );
-                    return null;
+                    // Morph/committable failed — fall back to non-committable suggestion
+                    // instead of discarding entirely. The suggestion is still valid,
+                    // it just won't have the "Apply" button on GitHub.
+                    this.logger.log({
+                        message: `Suggestion ${suggestion.id} is not committable (${reason}), posting as normal comment`,
+                        context: this.stageName,
+                    });
+                    return {
+                        ...suggestion,
+                        isCommittable: false,
+                        validatedData: undefined,
+                    };
                 } catch (error) {
-                    this.logDiscard(
-                        suggestion.id,
-                        'Error during simplicity check',
-                        {
-                            error,
-                        },
-                        context,
-                    );
+                    this.logger.warn({
+                        message: `Error during simplicity check for ${suggestion.id}, posting as normal comment`,
+                        context: this.stageName,
+                        error,
+                    });
 
-                    return null;
+                    return {
+                        ...suggestion,
+                        isCommittable: false,
+                        validatedData: undefined,
+                    };
                 }
             }),
         );
