@@ -1,3 +1,4 @@
+import { createLogger } from '@kodus/flow';
 import { Inject, Injectable, forwardRef } from '@nestjs/common';
 
 import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
@@ -36,6 +37,8 @@ import { RepositoryFile } from '@libs/platform/domain/platformIntegrations/types
 
 @Injectable()
 export class CodeManagementService implements ICodeManagementService {
+    private readonly logger = createLogger(CodeManagementService.name);
+
     constructor(
         @Inject(forwardRef(() => INTEGRATION_SERVICE_TOKEN))
         private readonly integrationService: IIntegrationService,
@@ -59,7 +62,16 @@ export class CodeManagementService implements ICodeManagementService {
 
             return integration.platform;
         } catch (error) {
-            console.log(error);
+            this.logger.error({
+                message: 'Failed to resolve integration type',
+                context: CodeManagementService.name,
+                error,
+                metadata: {
+                    organizationId: organizationAndTeamData.organizationId,
+                    teamId: organizationAndTeamData.teamId,
+                },
+            });
+            return null;
         }
     }
 
@@ -564,6 +576,10 @@ export class CodeManagementService implements ICodeManagementService {
             );
         }
 
+        if (!type) {
+            return [];
+        }
+
         const codeManagementService =
             this.platformIntegrationFactory.getCodeManagementService(type);
 
@@ -655,6 +671,10 @@ export class CodeManagementService implements ICodeManagementService {
             type = await this.getTypeIntegration(
                 extractOrganizationAndTeamData(params),
             );
+        }
+
+        if (!type) {
+            return [];
         }
 
         const codeManagementService =
