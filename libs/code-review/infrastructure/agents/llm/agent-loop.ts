@@ -6,7 +6,7 @@ import { buildAgentTools } from './agent-tools.factory';
  * 2. Parse JSON from response text — zero cost if model cooperates
  * 3. If JSON parse fails — `generateText` with `Output.object` (cheap model) to structure the text
  */
-import { generateText, stepCountIs, Output, type LanguageModel } from 'ai';
+import { generateText, stepCountIs, Output, jsonSchema, type LanguageModel } from 'ai';
 import { z } from 'zod';
 import { createLogger } from '@kodus/flow';
 import { EnhancedJSONParser } from '@kodus/flow';
@@ -412,7 +412,33 @@ async function structureWithFallbackModel(
 
         const result: any = await generateText({
             model: internalModel as any,
-            output: Output.object({ schema: findingsSchema }) as any,
+            output: Output.object({
+                schema: jsonSchema({
+                    type: 'object',
+                    properties: {
+                        reasoning: { type: 'string' },
+                        suggestions: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    relevantFile: { type: 'string' },
+                                    language: { type: 'string' },
+                                    suggestionContent: { type: 'string' },
+                                    existingCode: { type: 'string' },
+                                    improvedCode: { type: 'string' },
+                                    oneSentenceSummary: { type: 'string' },
+                                    relevantLinesStart: { type: 'number' },
+                                    relevantLinesEnd: { type: 'number' },
+                                    severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+                                },
+                                required: ['relevantFile', 'suggestionContent', 'existingCode', 'improvedCode'],
+                            },
+                        },
+                    },
+                    required: ['reasoning', 'suggestions'],
+                }),
+            }) as any,
             system: `You are a JSON extraction assistant. You receive code review text and extract structured findings.
 
 Rules:

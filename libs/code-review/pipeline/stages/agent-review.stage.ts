@@ -1,6 +1,5 @@
 import { createLogger } from '@kodus/flow';
-import { generateText, Output } from 'ai';
-import { z } from 'zod';
+import { generateText, Output, jsonSchema } from 'ai';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { getInternalModel } from '@libs/code-review/infrastructure/agents/llm/byok-to-vercel';
 
@@ -369,7 +368,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
 
             // Use LLM to find duplicates
             try {
-                const model = getInternalModel(byokConfig);
+                // Use internal model (GPT 5.4 mini) for dedup, NOT the BYOK model.
+                // BYOK models (e.g., Kimi) return unreliable structured output for dedup.
+                const model = getInternalModel();
 
                 if (!model) {
                     result.push(...fileSuggestions);
@@ -383,18 +384,23 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     )
                     .join('\n');
 
-                const dedupSchema = z.object({
-                    keep: z
-                        .array(z.number())
-                        .describe(
-                            'Indices of suggestions to keep',
-                        ),
-                });
-
                 const dedupResult: any = await generateText({
                     model: model as any,
-                    output: Output.object({ schema: dedupSchema }) as any,
-                    prompt: `These suggestions are for the same file "${filename}". Remove duplicates and return the indices to KEEP.
+                    output: Output.object({
+                        schema: jsonSchema({
+                            type: 'object',
+                            properties: {
+                                keep: {
+                                    type: 'array',
+                                    items: { type: 'number' },
+                                    description: 'Indices of suggestions to keep',
+                                },
+                            },
+                            required: ['keep'],
+                            additionalProperties: false,
+                        }),
+                    }) as any,
+                    prompt: `You have ${fileSuggestions.length} code review suggestions for file "${filename}". Remove duplicates and return the indices to KEEP. You MUST keep at least 1 suggestion.
 
 Two suggestions are DUPLICATES if they have the same ROOT CAUSE — even if described from different angles (e.g., one says "key collision" and another says "DoS via key collision" — same root cause, keep only the more detailed one).
 
@@ -405,7 +411,24 @@ ${summaries}`,
 
                 const dedupOutput =
                     (dedupResult as any).object ?? (dedupResult as any).output;
+
+                this.logger.log({
+                    message: `[DEDUP-DEBUG] PR#${prNumber} ${filename}: input=${fileSuggestions.length} summaries, LLM returned keep=${JSON.stringify(dedupOutput?.keep)}, raw=${JSON.stringify(dedupOutput)}`,
+                    context: this.stageName,
+                });
+
                 const keepIndices = new Set(dedupOutput?.keep || []);
+
+                // Safety: if LLM returns empty keep list, keep all (never discard everything)
+                if (keepIndices.size === 0) {
+                    this.logger.warn({
+                        message: `[DEDUP] PR#${prNumber} ${filename}: LLM returned empty keep list, keeping all ${fileSuggestions.length} suggestions`,
+                        context: this.stageName,
+                    });
+                    result.push(...fileSuggestions);
+                    continue;
+                }
+
                 const kept = fileSuggestions.filter((_, i) =>
                     keepIndices.has(i),
                 );
