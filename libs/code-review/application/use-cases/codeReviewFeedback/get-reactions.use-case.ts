@@ -67,12 +67,34 @@ export class GetReactionsUseCase implements IUseCase {
                         },
                     );
 
+                const reactionCommentIdToSuggestion = new Map();
                 const commentsLinkedToSuggestions = comments.filter(
                     (comment) => {
-                        const commentId = comment?.threadId
-                            ? comment.threadId
-                            : comment?.notes?.[0]?.id || comment?.id;
-                        return suggestionsByCommentId.has(commentId);
+                        const threadId =
+                            comment?.threadId ??
+                            comment?.notes?.[0]?.id ??
+                            comment?.id;
+                        const suggestion =
+                            suggestionsByCommentId.get(threadId);
+
+                        if (!suggestion) {
+                            return false;
+                        }
+
+                        if (comment.notes?.length > 0) {
+                            comment.notes.forEach((note) =>
+                                reactionCommentIdToSuggestion.set(
+                                    note.id,
+                                    suggestion,
+                                ),
+                            );
+                        } else {
+                            reactionCommentIdToSuggestion.set(
+                                comment.id,
+                                suggestion,
+                            );
+                        }
+                        return true;
                     },
                 );
 
@@ -96,9 +118,10 @@ export class GetReactionsUseCase implements IUseCase {
 
                 return reactionsInComments
                     .map((reaction) => {
-                        const suggestion = suggestionsByCommentId.get(
-                            reaction.comment.id,
-                        );
+                        const suggestion =
+                            reactionCommentIdToSuggestion.get(
+                                reaction.comment.id,
+                            );
                         if (!suggestion) {
                             return null;
                         }

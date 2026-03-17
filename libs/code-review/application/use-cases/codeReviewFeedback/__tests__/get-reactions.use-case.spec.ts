@@ -128,7 +128,8 @@ describe('GetReactionsUseCase', () => {
             [pr],
         );
 
-        // Comment has threadId matching the suggestion's comment.id
+        // Comment has threadId=500 matching suggestion's comment.id=500
+        // but the comment's own id is 999 (platform-specific)
         const comment = createSampleComment({
             id: 999,
             threadId: 500,
@@ -137,22 +138,22 @@ describe('GetReactionsUseCase', () => {
             comment,
         ]);
 
-        // countReactions returns reaction with the suggestion's comment.id
-        // (the threadId resolved back to the suggestion key)
+        // countReactions returns reaction with comment.id=999 (the platform comment ID)
+        // The new mapping resolves 999 → suggestion via reactionCommentIdToSuggestion
         const reaction = createSampleReactionResult({
-            comment: { id: 500 },
+            comment: { id: 999 },
         });
         codeManagementService.countReactions.mockResolvedValue([reaction]);
 
         const result = await useCase.execute(orgAndTeam, [42]);
 
-        // Comment with threadId=500 matches suggestion with comment.id=500
         expect(codeManagementService.countReactions).toHaveBeenCalledWith(
             expect.objectContaining({
                 comments: [expect.objectContaining({ threadId: 500 })],
             }),
         );
         expect(result).toHaveLength(1);
+        expect(result[0].suggestionId).toBe('suggestion-001');
     });
 
     it('should match comments by notes[0].id (GitLab notes pattern)', async () => {
@@ -169,18 +170,18 @@ describe('GetReactionsUseCase', () => {
             [pr],
         );
 
-        // Comment has notes[0].id matching the suggestion's comment.id
+        // Comment thread with notes[0].id=700 matching suggestion's comment.id=700
         const comment = {
             id: 888,
-            notes: [{ id: 700 }],
+            notes: [{ id: 700 }, { id: 701 }],
             reactions: { thumbsUp: 0, thumbsDown: 0 },
         };
         codeManagementService.getPullRequestReviewComment.mockResolvedValue([
             comment,
         ]);
 
-        // countReactions returns reaction with the suggestion's comment.id
-        // (the notes[0].id resolved back to the suggestion key)
+        // countReactions returns reaction with noteId=700
+        // The new mapping registers both note IDs (700, 701) → suggestion
         const reaction = createSampleReactionResult({
             comment: { id: 700 },
         });
@@ -190,6 +191,7 @@ describe('GetReactionsUseCase', () => {
 
         expect(codeManagementService.countReactions).toHaveBeenCalled();
         expect(result).toHaveLength(1);
+        expect(result[0].suggestionId).toBe('suggestion-001');
     });
 
     it('should filter out comments not linked to suggestions', async () => {
