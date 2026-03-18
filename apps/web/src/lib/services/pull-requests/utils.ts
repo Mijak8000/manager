@@ -30,24 +30,32 @@ export const buildPullRequestUrl = (pr: PullRequestExecution): string => {
             break;
 
         case "GITLAB":
-            // GitLab API URL: https://gitlab.com/api/v4/projects/{id}/merge_requests/{number}
-            if (url && url.includes("gitlab.com")) {
-                // Tenta extrair o project ID da URL da API
-                const projectMatch = url.match(
-                    /gitlab\.com\/api\/v4\/projects\/([^\/]+)/,
+            if (url) {
+                const gitlabApiMatch = url.match(
+                    /^(?:https?:\/\/)?([^\/]+)\/api\/v4\/projects\/([^\/]+)/,
                 );
-                if (projectMatch) {
-                    // Para GitLab, geralmente precisamos do namespace/project, não apenas o ID
-                    // Por enquanto, construímos uma URL genérica com o repositoryName se disponível
+                if (gitlabApiMatch) {
+                    const [, host, projectId] = gitlabApiMatch;
+                    const hostname = host.startsWith("api.")
+                        ? host.replace("api.", "")
+                        : host;
                     if (pr.repositoryName) {
-                        // Assume que o repositoryName pode conter o namespace
-                        return `https://gitlab.com/${pr.repositoryName}/-/merge_requests/${prNumber}`;
+                        return `https://${hostname}/${pr.repositoryName}/-/merge_requests/${prNumber}`;
                     }
+                    return `https://${hostname}/projects/${projectId}/-/merge_requests/${prNumber}`;
                 }
-            }
-            // Se a URL já é do GitLab (não API), usa ela
-            if (url && url.includes("gitlab.com") && !url.includes("/api/")) {
-                return url;
+                try {
+                    const parsedUrl = new URL(url);
+                    if (
+                        !url.includes("/api/") &&
+                        (parsedUrl.hostname === "gitlab.com" ||
+                            parsedUrl.hostname.endsWith(".gitlab.com"))
+                    ) {
+                        return url;
+                    }
+                } catch {
+                    // ignore parse errors
+                }
             }
             break;
 

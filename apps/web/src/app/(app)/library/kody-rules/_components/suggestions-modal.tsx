@@ -76,11 +76,14 @@ const buildExternalPullRequestUrl = ({
             }
         }
 
-        // GitLab: gitlab.com only
-        if (hostname === "gitlab.com") {
+        // GitLab: gitlab.com or self-hosted
+        if (
+            hostname === "gitlab.com" ||
+            hostname.endsWith(".gitlab.com")
+        ) {
             if (url.pathname.includes("/api/v4/projects/")) {
                 if (repositoryFullName) {
-                    return `https://gitlab.com/${repositoryFullName}/-/merge_requests/${prNumber}`;
+                    return `https://${hostname}/${repositoryFullName}/-/merge_requests/${prNumber}`;
                 }
             } else {
                 return prUrl;
