@@ -61,7 +61,6 @@ const gitlabProvider = GitlabProvider({
     id: AuthProviders.GITLAB,
     clientId: process.env.WEB_OAUTH_GITLAB_CLIENT_ID!,
     clientSecret: process.env.WEB_OAUTH_GITLAB_CLIENT_SECRET!,
-    baseUrl: configService.get('WEB_GITLAB_BASE_URL'),
 });
 
 const ssoProvider = CredentialsProvider({
