@@ -288,7 +288,7 @@ export class AutomationExecutionRepository implements IAutomationExecutionReposi
 
             if (repositoryName) {
                 queryBuilder.andWhere(
-                    "automation_execution.dataExecution->'repository'->>'name' = :repositoryName",
+                    '"automation_execution"."dataExecution"->\'repository\'->>\'name\' = :repositoryName',
                     { repositoryName },
                 );
             }
@@ -454,7 +454,8 @@ export class AutomationExecutionRepository implements IAutomationExecutionReposi
             const successPullRequestExpr = '"success"."pullRequestNumber"';
 
             const inProgressRepositoryExpr = '"in_progress"."repositoryId"';
-            const inProgressPullRequestExpr = '"in_progress"."pullRequestNumber"';
+            const inProgressPullRequestExpr =
+                '"in_progress"."pullRequestNumber"';
 
             const inProgressSubquery = queryBuilder
                 .subQuery()
@@ -512,6 +513,184 @@ export class AutomationExecutionRepository implements IAutomationExecutionReposi
                 context: AutomationExecutionRepository.name,
                 error,
                 metadata: { startDate, endDate, teamAutomationId },
+            });
+            return [];
+        }
+    }
+
+    async countDistinctPullRequestsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<number> {
+        const {
+            organizationId,
+            startDate,
+            endDate,
+            pullRequestNumber,
+            repositoryId,
+        } = params;
+
+        try {
+            const queryBuilder =
+                this.automationExecutionRepository.createQueryBuilder(
+                    'automation_execution',
+                );
+
+            queryBuilder
+                .innerJoin(
+                    'automation_execution.teamAutomation',
+                    'teamAutomation',
+                )
+                .innerJoin('teamAutomation.team', 'team')
+                .innerJoin('team.organization', 'organization')
+                .where('organization.uuid = :organizationId', {
+                    organizationId,
+                })
+                .andWhere('automation_execution.createdAt >= :startDate', {
+                    startDate,
+                })
+                .andWhere('automation_execution.createdAt <= :endDate', {
+                    endDate,
+                })
+                .andWhere('automation_execution.pullRequestNumber IS NOT NULL')
+                .andWhere('automation_execution.repositoryId IS NOT NULL');
+
+            if (pullRequestNumber !== undefined) {
+                queryBuilder.andWhere(
+                    'automation_execution.pullRequestNumber = :pullRequestNumber',
+                    { pullRequestNumber },
+                );
+            }
+
+            if (repositoryId) {
+                queryBuilder.andWhere(
+                    `("automation_execution"."dataExecution"->>'repositoryId' = :repositoryId OR "automation_execution"."repositoryId" = :repositoryId)`,
+                    { repositoryId },
+                );
+            }
+
+            const result = await queryBuilder
+                .select(
+                    "COUNT(DISTINCT CONCAT(automation_execution.repositoryId, '::', automation_execution.pullRequestNumber::text))",
+                    'count',
+                )
+                .getRawOne<{ count: string }>();
+
+            return Number(result?.count ?? 0);
+        } catch (error) {
+            this.logger.error({
+                message:
+                    'Failed to count distinct pull requests by organization and period',
+                context: AutomationExecutionRepository.name,
+                error,
+                metadata: { params },
+            });
+            return 0;
+        }
+    }
+
+    async findDistinctPullRequestRefsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<
+        Array<{
+            pullRequestNumber: number;
+            repositoryId: string;
+        }>
+    > {
+        const {
+            organizationId,
+            startDate,
+            endDate,
+            pullRequestNumber,
+            repositoryId,
+        } = params;
+
+        try {
+            const queryBuilder =
+                this.automationExecutionRepository.createQueryBuilder(
+                    'automation_execution',
+                );
+
+            queryBuilder
+                .innerJoin(
+                    'automation_execution.teamAutomation',
+                    'teamAutomation',
+                )
+                .innerJoin('teamAutomation.team', 'team')
+                .innerJoin('team.organization', 'organization')
+                .where('organization.uuid = :organizationId', {
+                    organizationId,
+                })
+                .andWhere('automation_execution.createdAt >= :startDate', {
+                    startDate,
+                })
+                .andWhere('automation_execution.createdAt <= :endDate', {
+                    endDate,
+                })
+                .andWhere('automation_execution.pullRequestNumber IS NOT NULL')
+                .andWhere('automation_execution.repositoryId IS NOT NULL');
+
+            if (pullRequestNumber !== undefined) {
+                queryBuilder.andWhere(
+                    'automation_execution.pullRequestNumber = :pullRequestNumber',
+                    { pullRequestNumber },
+                );
+            }
+
+            if (repositoryId) {
+                queryBuilder.andWhere(
+                    `("automation_execution"."dataExecution"->>'repositoryId' = :repositoryId OR "automation_execution"."repositoryId" = :repositoryId)`,
+                    { repositoryId },
+                );
+            }
+
+            const refs = await queryBuilder
+                .select(
+                    'automation_execution.pullRequestNumber',
+                    'pullRequestNumber',
+                )
+                .addSelect(
+                    `COALESCE("automation_execution"."dataExecution"->>'repositoryId', "automation_execution"."repositoryId")`,
+                    'repositoryId',
+                )
+                .groupBy('automation_execution.pullRequestNumber')
+                .addGroupBy(
+                    `COALESCE("automation_execution"."dataExecution"->>'repositoryId', "automation_execution"."repositoryId")`,
+                )
+                .orderBy(
+                    `COALESCE("automation_execution"."dataExecution"->>'repositoryId', "automation_execution"."repositoryId")`,
+                    'ASC',
+                )
+                .addOrderBy('automation_execution.pullRequestNumber', 'ASC')
+                .getRawMany<{
+                    pullRequestNumber: string;
+                    repositoryId: string;
+                }>();
+
+            return (refs ?? [])
+                .map((item) => ({
+                    pullRequestNumber: Number(item.pullRequestNumber),
+                    repositoryId: item.repositoryId,
+                }))
+                .filter(
+                    (item) =>
+                        Number.isInteger(item.pullRequestNumber) &&
+                        !!item.repositoryId,
+                );
+        } catch (error) {
+            this.logger.error({
+                message:
+                    'Failed to find distinct pull request refs by organization and period',
+                context: AutomationExecutionRepository.name,
+                error,
+                metadata: { params },
             });
             return [];
         }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@components/ui/card";
+import { useGetSelectedRepositories } from "@services/codeManagement/hooks";
 import { BaseUsageContract, ModelPricingInfo } from "@services/usage/types";
 import { DateRangePicker } from "src/features/ee/cockpit/_components/date-range-picker";
 
@@ -44,17 +45,38 @@ const calculateCost = (
 export const TokenUsagePageClient = ({
     data,
     cookieValue,
+    teamId,
     models,
     pricing,
 }: {
     data: BaseUsageContract[];
     cookieValue: string | undefined;
+    teamId: string;
     models: string[];
     pricing: Record<string, ModelPricingInfo>;
 }) => {
     const [isMounted, setIsMounted] = useState(false);
+    const { data: selectedRepositories = [] } =
+        useGetSelectedRepositories(teamId);
 
-    const filters = useTokenUsageFilters(models);
+    const repositories = useMemo(() => {
+        return selectedRepositories.map((repo) => ({
+            id: repo.id,
+            name: repo.full_name || repo.name,
+        }));
+    }, [selectedRepositories]);
+
+    const repositoryNamesById = useMemo(() => {
+        return selectedRepositories.reduce<Record<string, string>>(
+            (acc, repo) => {
+                acc[repo.id] = repo.full_name || repo.name;
+                return acc;
+            },
+            {},
+        );
+    }, [selectedRepositories]);
+
+    const filters = useTokenUsageFilters(models, repositories);
     const { selectedModels, currentFilter } = filters;
 
     useEffect(() => {
@@ -163,8 +185,28 @@ export const TokenUsagePageClient = ({
     const averageCost = useMemo(() => {
         if (!filteredData || filteredData.length === 0) return 0;
 
+        if (currentFilter === "by-pr") {
+            const prCountFromExecutions = filteredData.reduce(
+                (max, item) =>
+                    Math.max(
+                        max,
+                        (item as BaseUsageContract & { prCount?: number })
+                            .prCount ?? 0,
+                    ),
+                0,
+            );
+
+            if (prCountFromExecutions > 0) {
+                return totalUsage.totalCost / prCountFromExecutions;
+            }
+        }
+
         const uniqueItems = new Set(
-            filteredData.map((d) => d[xAccessor as keyof BaseUsageContract]),
+            filteredData.map((d) =>
+                currentFilter === "by-pr"
+                    ? `${(d as BaseUsageContract & { repositoryId?: string; prNumber?: number }).repositoryId ?? "unknown"}#${(d as BaseUsageContract & { prNumber?: number }).prNumber ?? "unknown"}`
+                    : d[xAccessor as keyof BaseUsageContract],
+            ),
         );
         const numberOfUniqueItems = uniqueItems.size;
 
@@ -193,7 +235,10 @@ export const TokenUsagePageClient = ({
             {/* Filters Row */}
             <div className="flex items-center justify-between gap-4">
                 <Filters models={models} filters={filters} />
-                <DateRangePicker cookieValue={cookieValue} />
+                <DateRangePicker
+                    cookieValue={cookieValue}
+                    triggerClassName="min-w-0 w-auto max-w-[35%] shrink-0 justify-start"
+                />
             </div>
 
             {/* Token Summary */}
@@ -208,9 +253,13 @@ export const TokenUsagePageClient = ({
             />
 
             {/* Chart */}
-            <Card className="h-[420px] p-5">
+            <Card className="h-105 p-5">
                 {filteredData && filteredData.length > 0 ? (
-                    <Chart data={filteredData} filterType={currentFilter} />
+                    <Chart
+                        data={filteredData}
+                        filterType={currentFilter}
+                        repositoryNamesById={repositoryNamesById}
+                    />
                 ) : (
                     <NoData />
                 )}

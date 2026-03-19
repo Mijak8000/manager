@@ -11,9 +11,9 @@ import {
     UsageSummaryContract,
 } from '@libs/analytics/domain/token-usage/types/tokenUsage.types';
 
-import { ObservabilityTelemetryModel } from './schemas/observabilityTelemetry.model';
-import { CodeAstAnalysisService } from '@libs/ee/kodyAST/codeASTAnalysis.service';
 import { LLMAnalysisService } from '@libs/code-review/infrastructure/adapters/services/llmAnalysis.service';
+import { CodeAstAnalysisService } from '@libs/ee/kodyAST/codeASTAnalysis.service';
+import { ObservabilityTelemetryModel } from './schemas/observabilityTelemetry.model';
 
 @Injectable()
 export class TokenUsageRepository implements ITokenUsageRepository {

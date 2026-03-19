@@ -181,6 +181,35 @@ export class AutomationExecutionService implements IAutomationExecutionService {
         );
     }
 
+    countDistinctPullRequestsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<number> {
+        return this.automationExecutionRepository.countDistinctPullRequestsByOrganizationAndPeriod(
+            params,
+        );
+    }
+
+    findDistinctPullRequestRefsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<
+        Array<{
+            pullRequestNumber: number;
+            repositoryId: string;
+        }>
+    > {
+        return this.automationExecutionRepository.findDistinctPullRequestRefsByOrganizationAndPeriod(
+            params,
+        );
+    }
+
     async createCodeReview(
         automationExecution: Omit<IAutomationExecution, 'uuid'>,
         message: string,

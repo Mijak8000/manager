@@ -1,9 +1,9 @@
 import { CodeReviewExecutionEntity } from '@libs/automation/domain/codeReviewExecutions/entities/codeReviewExecution.entity';
-import { IAutomationExecutionRepository } from './automation-execution.repository';
+import { AutomationStatus } from '../../automation/enum/automation-status';
+import { CodeReviewExecution } from '../../codeReviewExecutions/interfaces/codeReviewExecution.interface';
 import { AutomationExecutionEntity } from '../entities/automation-execution.entity';
 import { IAutomationExecution } from '../interfaces/automation-execution.interface';
-import { CodeReviewExecution } from '../../codeReviewExecutions/interfaces/codeReviewExecution.interface';
-import { AutomationStatus } from '../../automation/enum/automation-status';
+import { IAutomationExecutionRepository } from './automation-execution.repository';
 
 export const AUTOMATION_EXECUTION_SERVICE_TOKEN = Symbol(
     'AutomationExecutionService',
@@ -64,4 +64,25 @@ export interface IAutomationExecutionService extends IAutomationExecutionReposit
         stageNames: string[],
         statuses: AutomationStatus[],
     ): Promise<boolean>;
+
+    countDistinctPullRequestsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<number>;
+
+    findDistinctPullRequestRefsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<
+        Array<{
+            pullRequestNumber: number;
+            repositoryId: string;
+        }>
+    >;
 }

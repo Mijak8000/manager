@@ -1,3 +1,4 @@
+import { AutomationModule } from '@libs/automation/modules/automation.module';
 import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
@@ -7,15 +8,16 @@ import { TOKEN_USAGE_SERVICE_TOKEN } from '../domain/token-usage/contracts/token
 import { TokenUsageRepository } from '../infrastructure/adapters/repositories/tokenUsage.repository';
 import { TokenUsageService } from '../infrastructure/adapters/services/tokenUsage.service';
 
+import { PullRequestsModule } from '@libs/code-review/modules/pull-requests.module';
 import { TrackUseCase } from '../application/use-cases/segment/track.use-case';
+import { CostEstimateUseCase } from '../application/use-cases/usage/cost-estimate.use-case';
 import { TokenPricingUseCase } from '../application/use-cases/usage/token-pricing.use-case';
 import { TokensByDeveloperUseCase } from '../application/use-cases/usage/tokens-developer.use-case';
-import { CostEstimateUseCase } from '../application/use-cases/usage/cost-estimate.use-case';
+import { TokensByPrUseCase } from '../application/use-cases/usage/tokens-pr.use-case';
 import {
     ObservabilityTelemetryModel,
     ObservabilityTelemetryModelSchema,
 } from '../infrastructure/adapters/repositories/schemas/observabilityTelemetry.model';
-import { PullRequestsModule } from '@libs/code-review/modules/pull-requests.module';
 
 @Module({
     imports: [
@@ -25,6 +27,7 @@ import { PullRequestsModule } from '@libs/code-review/modules/pull-requests.modu
                 schema: ObservabilityTelemetryModelSchema,
             },
         ]),
+        forwardRef(() => AutomationModule),
         forwardRef(() => PullRequestsModule),
     ],
     providers: [
@@ -35,6 +38,7 @@ import { PullRequestsModule } from '@libs/code-review/modules/pull-requests.modu
         { provide: TOKEN_USAGE_SERVICE_TOKEN, useClass: TokenUsageService },
         TrackUseCase,
         TokenPricingUseCase,
+        TokensByPrUseCase,
         TokensByDeveloperUseCase,
         CostEstimateUseCase,
     ],
@@ -42,6 +46,7 @@ import { PullRequestsModule } from '@libs/code-review/modules/pull-requests.modu
         TOKEN_USAGE_SERVICE_TOKEN,
         TrackUseCase,
         TokenPricingUseCase,
+        TokensByPrUseCase,
         TokensByDeveloperUseCase,
         CostEstimateUseCase,
     ],

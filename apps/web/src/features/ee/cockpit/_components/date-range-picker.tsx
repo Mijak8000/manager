@@ -19,6 +19,7 @@ import { setCockpitDateRangeCookie } from "../_actions/set-cockpit-date-range";
 
 type Props = Omit<PropsRange, "mode"> & {
     cookieValue: string | undefined;
+    triggerClassName?: string;
 };
 
 type DateRangeString = { from: string; to: string };
@@ -66,7 +67,11 @@ const ranges = [
 
 const defaultItem = ranges[0];
 
-export const DateRangePicker = ({ cookieValue, ...props }: Props) => {
+export const DateRangePicker = ({
+    cookieValue,
+    triggerClassName = "-mt-4 w-68 justify-start",
+    ...props
+}: Props) => {
     const [loading, startTransition] = useTransition();
     const [open, setOpen] = useState(false);
 
@@ -129,28 +134,21 @@ export const DateRangePicker = ({ cookieValue, ...props }: Props) => {
                         size="md"
                         variant="helper"
                         leftIcon={<CalendarIcon />}
-                        className="-mt-4 w-68 justify-start">
+                        className={triggerClassName}>
                         {label ? (
-                            label
+                            <span className="block truncate">{label}</span>
                         ) : (
-                            <span className="flex items-center gap-1 font-semibold">
-                                {selectedRange?.from ? (
-                                    selectedRange.to ? (
-                                        <>
-                                            {from}
-                                            <span className="text-text-secondary">
-                                                -
-                                            </span>
-                                            {to}
-                                        </>
-                                    ) : (
-                                        from
-                                    )
-                                ) : (
-                                    <span className="text-text-secondary">
-                                        Select a range
-                                    </span>
-                                )}
+                            <span
+                                className={`block truncate font-semibold ${
+                                    selectedRange?.from
+                                        ? ""
+                                        : "text-text-secondary"
+                                }`}>
+                                {selectedRange?.from
+                                    ? selectedRange.to
+                                        ? `${from} - ${to}`
+                                        : from
+                                    : "Select a range"}
                             </span>
                         )}
                     </Button>

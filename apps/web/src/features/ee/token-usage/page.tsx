@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { Page } from "@components/ui/page";
 import {
     getDailyTokenUsage,
@@ -91,6 +91,10 @@ export default async function TokenUsagePage({
         startDate: selectedDateRange.startDate,
         endDate: selectedDateRange.endDate,
         prNumber: params.prNumber ? Number(params.prNumber) : undefined,
+        repositoryId:
+            typeof params.repositoryId === "string"
+                ? params.repositoryId
+                : undefined,
         developer: params.developer,
         byok: isBYOK,
     };
@@ -202,6 +206,7 @@ export default async function TokenUsagePage({
                 <TokenUsagePageClient
                     data={data}
                     cookieValue={dateRangeCookieValue}
+                    teamId={teamId}
                     models={uniqueModels}
                     pricing={pricing}
                 />

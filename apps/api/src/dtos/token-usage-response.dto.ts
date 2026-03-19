@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ApiResponseBaseDto } from './api-response.dto';
 
 export class TokenUsageBaseDto {
@@ -36,6 +36,12 @@ export class DailyUsageResponseDto extends ApiResponseBaseDto {
 export class UsageByPrDto extends TokenUsageBaseDto {
     @ApiProperty()
     prNumber: number;
+
+    @ApiPropertyOptional()
+    repositoryId?: string;
+
+    @ApiPropertyOptional()
+    prCount?: number;
 }
 
 export class UsageByPrResponseDto extends ApiResponseBaseDto {

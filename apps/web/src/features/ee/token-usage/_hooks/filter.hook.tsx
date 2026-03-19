@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useDebounce } from "@hooks/use-debounce";
 
-export const useTokenUsageFilters = (models: string[]) => {
+type RepositoryOption = { id: string; name: string };
+
+export const useTokenUsageFilters = (
+    models: string[],
+    repositories: RepositoryOption[] = [],
+) => {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -17,6 +22,11 @@ export const useTokenUsageFilters = (models: string[]) => {
     );
     const debouncedPrNumber = useDebounce(prNumber, 500);
 
+    const [repositoryId, setRepositoryId] = useState(
+        searchParams.get("repositoryId") ?? "",
+    );
+    const debouncedRepositoryId = useDebounce(repositoryId, 500);
+
     const [developer, setDeveloper] = useState(
         searchParams.get("developer") ?? "",
     );
@@ -27,6 +37,7 @@ export const useTokenUsageFilters = (models: string[]) => {
         params.set("filter", value);
         if (value !== "by-pr") {
             params.delete("prNumber");
+            params.delete("repositoryId");
         }
         if (value !== "by-developer") {
             params.delete("developer");
@@ -57,6 +68,18 @@ export const useTokenUsageFilters = (models: string[]) => {
     useEffect(() => {
         const params = new URLSearchParams(searchParams.toString());
 
+        if (debouncedRepositoryId) {
+            params.set("repositoryId", debouncedRepositoryId);
+        } else {
+            params.delete("repositoryId");
+        }
+
+        router.replace(`${pathname}?${params.toString()}`);
+    }, [debouncedRepositoryId, router, pathname, searchParams]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(searchParams.toString());
+
         if (debouncedDeveloper) {
             params.set("developer", debouncedDeveloper);
         } else {
@@ -72,6 +95,10 @@ export const useTokenUsageFilters = (models: string[]) => {
 
     const handleDeveloperChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setDeveloper(e.target.value);
+    };
+
+    const handleRepositoryChange = (value: string) => {
+        setRepositoryId(value);
     };
 
     const getModelSelectionText = () => {
@@ -90,12 +117,15 @@ export const useTokenUsageFilters = (models: string[]) => {
     return {
         currentFilter,
         selectedModels,
+        repositories,
         prNumber,
+        repositoryId,
         developer,
         handleFilterChange,
         handleModelChange,
         handlePrNumberChange,
         handleDeveloperChange,
+        handleRepositoryChange,
         getModelSelectionText,
         setSelectedModels,
     };

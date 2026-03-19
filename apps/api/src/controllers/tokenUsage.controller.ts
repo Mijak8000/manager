@@ -2,6 +2,7 @@ import { createLogger } from '@kodus/flow';
 import { CostEstimateUseCase } from '@libs/analytics/application/use-cases/usage/cost-estimate.use-case';
 import { TokenPricingUseCase } from '@libs/analytics/application/use-cases/usage/token-pricing.use-case';
 import { TokensByDeveloperUseCase } from '@libs/analytics/application/use-cases/usage/tokens-developer.use-case';
+import { TokensByPrUseCase } from '@libs/analytics/application/use-cases/usage/tokens-pr.use-case';
 import {
     ITokenUsageService,
     TOKEN_USAGE_SERVICE_TOKEN,
@@ -33,10 +34,6 @@ import {
     ApiTags,
 } from '@nestjs/swagger';
 import { ApiStandardResponses } from '../docs/api-standard-responses.decorator';
-import {
-    TokenPricingQueryDto,
-    TokenUsageQueryDto,
-} from '../dtos/token-usage.dto';
 import { ApiObjectResponseDto } from '../dtos/api-response.dto';
 import {
     CostEstimateResponseDto,
@@ -47,6 +44,10 @@ import {
     UsageByPrResponseDto,
     UsageSummaryResponseDto,
 } from '../dtos/token-usage-response.dto';
+import {
+    TokenPricingQueryDto,
+    TokenUsageQueryDto,
+} from '../dtos/token-usage.dto';
 
 @ApiTags('Token Usage')
 @ApiBearerAuth('jwt')
@@ -62,6 +63,7 @@ export class TokenUsageController {
         @Inject(REQUEST)
         private readonly request: UserRequest,
 
+        private readonly tokensByPrUseCase: TokensByPrUseCase,
         private readonly tokensByDeveloperUseCase: TokensByDeveloperUseCase,
         private readonly tokenPricingUseCase: TokenPricingUseCase,
         private readonly costEstimateUseCase: CostEstimateUseCase,
@@ -148,7 +150,7 @@ export class TokenUsageController {
             }
 
             const mapped = this.mapDtoToContract(query, organizationId);
-            return await this.tokenUsageService.getUsageByPr(mapped);
+            return await this.tokensByPrUseCase.execute(mapped, false);
         } catch (error) {
             this.logger.error({
                 message: 'Error fetching token usage by PR',
@@ -179,7 +181,7 @@ export class TokenUsageController {
             }
 
             const mapped = this.mapDtoToContract(query, organizationId);
-            return await this.tokenUsageService.getDailyUsageByPr(mapped);
+            return await this.tokensByPrUseCase.execute(mapped, true);
         } catch (error) {
             this.logger.error({
                 message: 'Error fetching daily token usage by PR',
@@ -360,6 +362,7 @@ export class TokenUsageController {
             end,
             timezone: query.timezone || 'UTC',
             developer: query.developer,
+            repositoryId: query.repositoryId,
             models: query.models,
             byok: byokBoolean,
         };

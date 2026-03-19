@@ -1,5 +1,5 @@
-import { IsISO8601, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsISO8601, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class TokenUsageQueryDto {
     @IsISO8601()
@@ -29,6 +29,11 @@ export class TokenUsageQueryDto {
     @IsString()
     @ApiPropertyOptional()
     developer?: string;
+
+    @IsOptional()
+    @IsString()
+    @ApiPropertyOptional()
+    repositoryId?: string;
 
     @IsString()
     @ApiProperty()

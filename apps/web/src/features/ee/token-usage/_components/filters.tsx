@@ -31,11 +31,14 @@ export const Filters = ({
     const {
         currentFilter,
         selectedModels,
+        repositories,
         prNumber,
+        repositoryId,
         developer,
         handleFilterChange,
         handleModelChange,
         handlePrNumberChange,
+        handleRepositoryChange,
         handleDeveloperChange,
         setSelectedModels,
         getModelSelectionText,
@@ -48,12 +51,12 @@ export const Filters = ({
                     <Button
                         size="md"
                         variant="helper"
-                        className="w-[200px] justify-between">
+                        className="w-50 justify-between">
                         <span>{getModelSelectionText()}</span>
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    className="w-[200px]"
+                    className="w-50"
                     onCloseAutoFocus={(e) => e.preventDefault()}>
                     <DropdownMenuLabel>Models</DropdownMenuLabel>
                     <DropdownMenuSeparator />
@@ -97,7 +100,7 @@ export const Filters = ({
             <Select
                 onValueChange={handleFilterChange}
                 defaultValue={currentFilter}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-50">
                     <SelectValue placeholder="Filter by" />
                 </SelectTrigger>
                 <SelectContent>
@@ -107,13 +110,36 @@ export const Filters = ({
                 </SelectContent>
             </Select>
             {currentFilter === "by-pr" && (
-                <Input
-                    type="number"
-                    placeholder="PR Number"
-                    value={prNumber}
-                    onChange={handlePrNumberChange}
-                    className="w-[150px]"
-                />
+                <>
+                    <Input
+                        type="number"
+                        placeholder="PR Number"
+                        value={prNumber}
+                        onChange={handlePrNumberChange}
+                        className="w-37.5"
+                    />
+                    <Select
+                        value={repositoryId || "all"}
+                        onValueChange={(value) =>
+                            handleRepositoryChange(value === "all" ? "" : value)
+                        }>
+                        <SelectTrigger className="w-50">
+                            <SelectValue placeholder="Repository" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">
+                                All repositories
+                            </SelectItem>
+                            {repositories.map((repository) => (
+                                <SelectItem
+                                    key={repository.id}
+                                    value={repository.id}>
+                                    {repository.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </>
             )}
             {currentFilter === "by-developer" && (
                 <Input
@@ -121,7 +147,7 @@ export const Filters = ({
                     placeholder="Developer"
                     value={developer}
                     onChange={handleDeveloperChange}
-                    className="w-[150px]"
+                    className="w-37.5"
                 />
             )}
         </div>

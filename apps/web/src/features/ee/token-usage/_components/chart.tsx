@@ -30,15 +30,18 @@ const legendData = [
 export const Chart = ({
     data,
     filterType,
+    repositoryNamesById,
 }: {
     data: Array<
         BaseUsageContract & {
             prNumber?: number;
+            repositoryId?: string;
             developer?: string;
             date?: string;
         }
     >;
     filterType: string;
+    repositoryNamesById?: Record<string, string>;
 }) => {
     const [graphRef, boundingRect] = useResizeObserver();
     const { isExpanded } = use(ExpandableContext);
@@ -68,13 +71,18 @@ export const Chart = ({
         data.forEach((d) => {
             const key =
                 filterType === "by-pr"
-                    ? `#${d[xAccessor]}`
+                    ? `${d.repositoryId ?? "unknown"}#${d.prNumber}`
                     : String(d[xAccessor]);
+
+            const byPrLabel =
+                filterType === "by-pr"
+                    ? `${repositoryNamesById?.[d.repositoryId ?? ""] ?? d.repositoryId ?? "Unknown repository"} #${d.prNumber}`
+                    : undefined;
 
             if (!merged[key]) {
                 merged[key] = {
                     ...d,
-                    [xAccessor]: key,
+                    [xAccessor]: byPrLabel ?? key,
                     input: d.input || 0,
                     output: d.output || 0,
                     outputReasoning: d.outputReasoning || 0,
@@ -87,7 +95,7 @@ export const Chart = ({
         });
 
         return Object.values(merged);
-    }, [data, filterType, xAccessor]);
+    }, [data, filterType, repositoryNamesById, xAccessor]);
 
     const { maxDomain, chartData } = useMemo(() => {
         const totals = transformedData.map(

@@ -4,6 +4,7 @@ export type TokenUsageQueryContract = {
     end: Date;
     models?: string;
     prNumber?: number;
+    repositoryId?: string;
     timezone?: string; // for day bucketing
     developer?: string;
     byok: boolean;
@@ -25,6 +26,8 @@ export interface DailyUsageResultContract extends BaseUsageContract {
 
 export interface UsageByPrResultContract extends BaseUsageContract {
     prNumber: number;
+    repositoryId?: string;
+    prCount?: number;
 }
 
 export interface DailyUsageByPrResultContract extends UsageByPrResultContract {

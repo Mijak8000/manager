@@ -52,4 +52,25 @@ export interface IAutomationExecutionRepository {
         endDate: Date,
         teamAutomationId: string,
     ): Promise<Array<{ repositoryId: string; pullRequestNumber: number }>>;
+
+    countDistinctPullRequestsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<number>;
+
+    findDistinctPullRequestRefsByOrganizationAndPeriod(params: {
+        organizationId: string;
+        startDate: Date;
+        endDate: Date;
+        pullRequestNumber?: number;
+        repositoryId?: string;
+    }): Promise<
+        Array<{
+            pullRequestNumber: number;
+            repositoryId: string;
+        }>
+    >;
 }
