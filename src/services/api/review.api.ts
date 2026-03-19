@@ -21,39 +21,7 @@ export class RealReviewApi implements IReviewApi {
         accessToken: string,
         config?: ReviewConfig,
     ): Promise<ReviewResult> {
-        const isTeamKey = accessToken.startsWith('kodus_');
-
-        if (isTeamKey) {
-            return this.requester<ReviewResult>('/cli/review', {
-                method: 'POST',
-                headers: {
-                    'X-Team-Key': accessToken,
-                },
-                body: JSON.stringify({ diff, config }),
-            });
-        }
-
-        let teamId: string | undefined;
-        try {
-            const payload = JSON.parse(
-                Buffer.from(accessToken.split('.')[1], 'base64').toString(),
-            );
-            teamId = payload.organizationId;
-        } catch {
-            // Ignore if cannot decode
-        }
-
-        const endpoint = teamId
-            ? `/cli/review?teamId=${encodeURIComponent(teamId)}`
-            : '/cli/review';
-
-        return this.requester<ReviewResult>(endpoint, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({ diff, config }),
-        });
+        return this.analyzeWithMetrics(diff, accessToken, config);
     }
 
     async analyzeWithMetrics(
@@ -64,21 +32,33 @@ export class RealReviewApi implements IReviewApi {
     ): Promise<ReviewResult> {
         const isTeamKey = accessToken.startsWith('kodus_');
 
-        if (isTeamKey) {
-            return this.requester<ReviewResult>('/cli/review', {
-                method: 'POST',
-                headers: {
-                    'X-Team-Key': accessToken,
-                },
-                body: JSON.stringify({
-                    diff,
-                    config,
-                    ...metrics,
-                }),
-            });
+        const headers: Record<string, string> = isTeamKey
+            ? { 'X-Team-Key': accessToken }
+            : { Authorization: `Bearer ${accessToken}` };
+
+        let endpoint = '/cli/review';
+        if (!isTeamKey) {
+            try {
+                const payload = JSON.parse(
+                    Buffer.from(accessToken.split('.')[1], 'base64').toString(),
+                );
+                if (payload.organizationId) {
+                    endpoint = `/cli/review?teamId=${encodeURIComponent(payload.organizationId)}`;
+                }
+            } catch {
+                // Ignore if cannot decode
+            }
         }
 
-        return this.analyze(diff, accessToken, config);
+        return this.requester<ReviewResult>(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                diff,
+                config,
+                ...metrics,
+            }),
+        });
     }
 
     async getPullRequestSuggestions(

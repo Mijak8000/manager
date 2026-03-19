@@ -185,8 +185,6 @@ class InteractiveUI {
                 console.log('');
             }
 
-            // Show menu again
-            await this.reviewFileIssues(file, issues, fixedIssues);
             return;
         }
 
