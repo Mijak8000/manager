@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createAppAuth } from '@octokit/auth-app';
 import { graphql } from '@octokit/graphql';
+import { enterpriseServer313 } from '@octokit/plugin-enterprise-server';
 import { retry } from '@octokit/plugin-retry';
 import { throttling } from '@octokit/plugin-throttling';
 import { Octokit, RestEndpointMethodTypes } from '@octokit/rest';
@@ -138,6 +139,14 @@ export class GithubService
 
     private readonly logger = createLogger(GithubService.name);
 
+    private readonly enterpriseOctokit = Octokit.plugin(
+        enterpriseServer313,
+        retry,
+        throttling,
+    );
+
+    private readonly standardUserOctokit = Octokit.plugin(retry, throttling);
+
     constructor(
         @Inject(INTEGRATION_SERVICE_TOKEN)
         private readonly integrationService: IIntegrationService,
@@ -167,6 +176,108 @@ export class GithubService
                 authDetails,
             });
         }
+    }
+
+    private normalizeGithubHost(host?: string): string | undefined {
+        if (!host?.trim()) {
+            return undefined;
+        }
+
+        const normalized = host.trim().replace(/\/+$/, '');
+        const withProtocol = /^https?:\/\//i.test(normalized)
+            ? normalized
+            : `https://${normalized}`;
+
+        return withProtocol.replace(/\/+$/, '');
+    }
+
+    private getGithubApiBaseUrl(host?: string): string | undefined {
+        const normalizedHost = this.normalizeGithubHost(host);
+
+        if (!normalizedHost) {
+            return undefined;
+        }
+
+        return `${normalizedHost}/api/v3`;
+    }
+
+    private getGithubGraphqlBaseUrl(host?: string): string | undefined {
+        const normalizedHost = this.normalizeGithubHost(host);
+
+        if (!normalizedHost) {
+            return undefined;
+        }
+
+        return `${normalizedHost}/api/graphql`;
+    }
+
+    private getGithubWebBaseUrl(host?: string): string {
+        const normalizedHost = this.normalizeGithubHost(host);
+
+        if (!normalizedHost) {
+            return 'https://github.com';
+        }
+
+        return normalizedHost;
+    }
+
+    private createUserOctokitClient(params: {
+        auth: string;
+        host?: string;
+        retries?: number;
+        retry?: {
+            doNotRetry: number[];
+        };
+        throttle?: {
+            onRateLimit: (
+                retryAfter: number,
+                options: { method: string; url: string },
+                octokit: Octokit,
+            ) => boolean;
+            onSecondaryRateLimit: (
+                retryAfter: number,
+                options: { method: string; url: string },
+                octokit: Octokit,
+            ) => boolean;
+        };
+    }): Octokit {
+        const baseUrl = this.getGithubApiBaseUrl(params.host);
+        const throttleConfig =
+            params.throttle ??
+            ({
+                onRateLimit: () => false,
+                onSecondaryRateLimit: () => false,
+            } as {
+                onRateLimit: (
+                    retryAfter: number,
+                    options: { method: string; url: string },
+                    octokit: Octokit,
+                ) => boolean;
+                onSecondaryRateLimit: (
+                    retryAfter: number,
+                    options: { method: string; url: string },
+                    octokit: Octokit,
+                ) => boolean;
+            });
+
+        // Use the enterprise plugin only for GHES hosts to avoid changing
+        // endpoint behavior for github.com PAT integrations.
+        if (!baseUrl) {
+            return new this.standardUserOctokit({
+                auth: params.auth,
+                request: { retries: params.retries ?? 0 },
+                ...(params.retry && { retry: params.retry }),
+                throttle: throttleConfig,
+            }) as unknown as Octokit;
+        }
+
+        return new this.enterpriseOctokit({
+            auth: params.auth,
+            ...(baseUrl && { baseUrl }),
+            request: { retries: params.retries ?? 0 },
+            ...(params.retry && { retry: params.retry }),
+            throttle: throttleConfig,
+        }) as unknown as Octokit;
     }
 
     // Helper functions
@@ -246,19 +357,54 @@ export class GithubService
                 return;
             }
 
-            await this.integrationConfigService.createOrUpdateConfig(
+            const githubAuthDetail = await this.getGithubAuthDetails(
+                params.organizationAndTeamData,
+            );
+
+            const shouldRefreshTokenWebhooks =
+                githubAuthDetail?.authMode === AuthMode.TOKEN &&
+                params.configKey === IntegrationConfigKey.REPOSITORIES;
+
+            const previousRepositories = shouldRefreshTokenWebhooks
+                ? ((await this.findOneByOrganizationAndTeamDataAndConfigKey(
+                      params.organizationAndTeamData,
+                      IntegrationConfigKey.REPOSITORIES,
+                  )) ?? [])
+                : [];
+
+            const updatedConfig =
+                await this.integrationConfigService.createOrUpdateConfig(
                 params.configKey,
                 params.configValue,
                 integration?.uuid,
                 params.organizationAndTeamData,
                 params.type,
-            );
+                );
 
-            const githubAuthDetail = await this.getGithubAuthDetails(
-                params.organizationAndTeamData,
-            );
+            if (shouldRefreshTokenWebhooks) {
+                const nextRepositories = <Repositories[]>(
+                    updatedConfig?.configValue ??
+                        params.configValue ??
+                        []
+                );
+                const removedRepositories = previousRepositories.filter(
+                    (previousRepository) =>
+                        !nextRepositories.some(
+                            (nextRepository) =>
+                                nextRepository.id?.toString() ===
+                                    previousRepository.id?.toString() ||
+                                nextRepository.name === previousRepository.name,
+                        ),
+                );
 
-            if (githubAuthDetail?.authMode === AuthMode.TOKEN) {
+                if (removedRepositories.length > 0) {
+                    await this.deleteWebhook({
+                        organizationAndTeamData:
+                            params.organizationAndTeamData,
+                        repositories: removedRepositories,
+                    });
+                }
+
                 await this.createPullRequestWebhook({
                     organizationAndTeamData: params.organizationAndTeamData,
                 });
@@ -389,7 +535,11 @@ export class GithubService
     ): Promise<{ success: boolean; status?: CreateAuthIntegrationStatus }> {
         try {
             const { token } = params;
-            const userOctokit = new Octokit({ auth: token });
+            const normalizedHost = this.normalizeGithubHost(params.host);
+            const userOctokit = this.createUserOctokitClient({
+                auth: token,
+                host: normalizedHost,
+            });
 
             const user = await userOctokit.rest.users.getAuthenticated();
 
@@ -406,6 +556,7 @@ export class GithubService
                 authToken: encryptedPAT,
                 org: accountLogin,
                 authMode: params.authMode || AuthMode.TOKEN,
+                host: normalizedHost,
                 accountType: accountType as 'organization' | 'user',
             };
 
@@ -1262,7 +1413,6 @@ export class GithubService
 
             if (
                 pathParts.length >= 4 &&
-                urlObj.hostname === 'github.com' &&
                 (pathParts[2] === 'pull' || pathParts[2] === 'pulls')
             ) {
                 const owner = pathParts[0];
@@ -1962,11 +2112,10 @@ export class GithubService
                 // Decrypt the PAT before using it
                 const decryptedPAT = decrypt(githubAuthDetail?.authToken);
 
-                const MyOctokit = Octokit.plugin(retry, throttling);
-
-                const octokit = new MyOctokit({
+                const octokit = this.createUserOctokitClient({
                     auth: decryptedPAT,
-                    request: { retries: 2 },
+                    host: githubAuthDetail.host,
+                    retries: 2,
                     retry: {
                         doNotRetry: [400, 401, 403, 404, 422, 451],
                     },
@@ -1980,7 +2129,6 @@ export class GithubService
                                 `Request quota exhausted for request ${options.method} ${options.url}`,
                             );
 
-                            // If you decide to retry when the rate limit is reached, return true.
                             return true;
                         },
                         onSecondaryRateLimit: (
@@ -1992,7 +2140,6 @@ export class GithubService
                                 `Secondary rate limit hit for request ${options.method} ${options.url}`,
                             );
 
-                            // Similar logic can be added here for the secondary rate limit
                             return true;
                         },
                     },
@@ -2062,8 +2209,12 @@ export class GithubService
             ) {
                 // Decrypt the PAT before using it
                 const decryptedPAT = decrypt(githubAuthDetail?.authToken);
+                const graphQlBaseUrl = this.getGithubGraphqlBaseUrl(
+                    githubAuthDetail.host,
+                );
 
                 const graphqlClient = graphql.defaults({
+                    ...(graphQlBaseUrl && { baseUrl: graphQlBaseUrl }),
                     headers: {
                         authorization: `token ${decryptedPAT}`,
                     },
@@ -4009,9 +4160,11 @@ This is an experimental feature that generates committable changes. Review the d
             )
         );
 
-        const webhookUrl = this.configService.get<string>(
-            'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
-        );
+        const webhookUrl = this.getGithubWebhookUrl();
+
+        if (!webhookUrl || !repositories?.length) {
+            return;
+        }
 
         // Usar método centralizado para determinar o owner correto
         const owner = await this.getCorrectOwner(githubAuthDetail, octokit);
@@ -4023,7 +4176,6 @@ This is an experimental feature that generates committable changes. Review the d
                     repo: repo.name,
                 });
 
-                // Verificação segura do config para evitar erro "Parameter config does not exist"
                 const webhookToDelete = webhooks.find(
                     (webhook) =>
                         webhook.config && webhook.config.url === webhookUrl,
@@ -4079,6 +4231,12 @@ This is an experimental feature that generates committable changes. Review the d
             });
             throw error;
         }
+    }
+
+    private getGithubWebhookUrl(): string | undefined {
+        return this.configService.get<string>(
+            'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
+        );
     }
 
     async countReactions(params: any) {
@@ -4679,7 +4837,7 @@ This is an experimental feature that generates committable changes. Review the d
                     );
             }
 
-            const fullGithubUrl = `https://github.com/${params?.repository?.fullName}`;
+            const fullGithubUrl = `${this.getGithubWebBaseUrl(githubAuthDetail.host)}/${params?.repository?.fullName}`;
 
             return {
                 organizationId: params?.organizationAndTeamData?.organizationId,
@@ -4732,6 +4890,7 @@ This is an experimental feature that generates committable changes. Review the d
                 orgName: githubAuthDetail.org,
                 repository,
                 prNumber,
+                githubHost: githubAuthDetail.host,
             });
 
             const requestChangeBodyTitle =
@@ -4771,8 +4930,10 @@ This is an experimental feature that generates committable changes. Review the d
         orgName: string;
         repository: Partial<IRepository>;
         prNumber: number;
+        githubHost?: string;
     }): string {
-        const { criticalComments, orgName, prNumber, repository } = params;
+        const { criticalComments, orgName, prNumber, repository, githubHost } =
+            params;
 
         const criticalIssuesSummaryArray =
             this.getCriticalIssuesSummaryArray(criticalComments);
@@ -4785,7 +4946,7 @@ This is an experimental feature that generates committable changes. Review the d
                 const link =
                     !orgName || !repository?.name || !prNumber || !commentId
                         ? ''
-                        : `https://github.com/${orgName}/${repository.name}/pull/${prNumber}#discussion_r${commentId}`;
+                        : `${this.getGithubWebBaseUrl(githubHost)}/${orgName}/${repository.name}/pull/${prNumber}#discussion_r${commentId}`;
 
                 const formattedItem = commentId
                     ? `- [${summary}](${link})`
@@ -4906,7 +5067,10 @@ This is an experimental feature that generates committable changes. Review the d
             }
 
             const token = decrypt(githubAuthDetail.authToken);
-            const userOctokit = new Octokit({ auth: token });
+            const userOctokit = this.createUserOctokitClient({
+                auth: token,
+                host: githubAuthDetail.host,
+            });
             const { data } = await userOctokit.rest.users.getAuthenticated();
 
             return data || null;
@@ -5173,10 +5337,9 @@ This is an experimental feature that generates committable changes. Review the d
                 repo: repository.name,
             });
 
-            const webhookUrl =
-                this.configService.get<string>(
-                    'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
-                ) ?? process.env.API_GITHUB_CODE_MANAGEMENT_WEBHOOK;
+            const webhookUrl = this.configService.get<string>(
+                'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
+            );
 
             if (!webhookUrl) {
                 return false;
@@ -5203,6 +5366,7 @@ This is an experimental feature that generates committable changes. Review the d
 
     async deleteWebhook(params: {
         organizationAndTeamData: OrganizationAndTeamData;
+        repositories?: Repositories[];
     }): Promise<void> {
         const integration = await this.integrationService.findOne({
             organization: {
@@ -5250,10 +5414,11 @@ This is an experimental feature that generates committable changes. Review the d
                 );
 
                 const repositories =
-                    await this.findOneByOrganizationAndTeamDataAndConfigKey(
+                    params.repositories ??
+                    (await this.findOneByOrganizationAndTeamDataAndConfigKey(
                         params.organizationAndTeamData,
                         IntegrationConfigKey.REPOSITORIES,
-                    );
+                    ));
 
                 if (repositories) {
                     // Usar método centralizado para determinar o owner correto
