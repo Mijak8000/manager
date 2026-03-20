@@ -357,6 +357,20 @@ export class GithubService
                 return;
             }
 
+            const githubAuthDetail = await this.getGithubAuthDetails(
+                params.organizationAndTeamData,
+            );
+
+            const shouldRefreshTokenWebhooks =
+                githubAuthDetail?.authMode === AuthMode.TOKEN &&
+                params.configKey === IntegrationConfigKey.REPOSITORIES;
+
+            if (shouldRefreshTokenWebhooks) {
+                await this.deleteWebhook({
+                    organizationAndTeamData: params.organizationAndTeamData,
+                });
+            }
+
             await this.integrationConfigService.createOrUpdateConfig(
                 params.configKey,
                 params.configValue,
@@ -365,11 +379,7 @@ export class GithubService
                 params.type,
             );
 
-            const githubAuthDetail = await this.getGithubAuthDetails(
-                params.organizationAndTeamData,
-            );
-
-            if (githubAuthDetail?.authMode === AuthMode.TOKEN) {
+            if (shouldRefreshTokenWebhooks) {
                 await this.createPullRequestWebhook({
                     organizationAndTeamData: params.organizationAndTeamData,
                 });
@@ -4125,9 +4135,11 @@ This is an experimental feature that generates committable changes. Review the d
             )
         );
 
-        const webhookUrl = this.configService.get<string>(
-            'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
-        );
+        const webhookUrl = this.getGithubWebhookUrl();
+
+        if (!webhookUrl || !repositories?.length) {
+            return;
+        }
 
         // Usar método centralizado para determinar o owner correto
         const owner = await this.getCorrectOwner(githubAuthDetail, octokit);
@@ -4139,7 +4151,6 @@ This is an experimental feature that generates committable changes. Review the d
                     repo: repo.name,
                 });
 
-                // Verificação segura do config para evitar erro "Parameter config does not exist"
                 const webhookToDelete = webhooks.find(
                     (webhook) =>
                         webhook.config && webhook.config.url === webhookUrl,
@@ -4195,6 +4206,14 @@ This is an experimental feature that generates committable changes. Review the d
             });
             throw error;
         }
+    }
+
+    private getGithubWebhookUrl(): string | undefined {
+        return (
+            this.configService.get<string>(
+                'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
+            ) ?? process.env.API_GITHUB_CODE_MANAGEMENT_WEBHOOK
+        );
     }
 
     async countReactions(params: any) {
