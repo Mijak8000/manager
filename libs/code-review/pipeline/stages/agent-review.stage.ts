@@ -804,13 +804,52 @@ ${summaries}`,
             : { pullRequestNumber: prNumber, repositoryId };
 
         try {
-            await this.automationExecutionService.updateCodeReview(
-                filter,
-                { status },
-                label,
-                stageName,
-                metadata,
-            );
+            // First event → create entry. Subsequent events → update existing.
+            if (event.status === 'started') {
+                await this.automationExecutionService.updateCodeReview(
+                    filter,
+                    { status },
+                    label,
+                    stageName,
+                    metadata,
+                );
+            } else {
+                // Find existing entry and update it (don't create duplicates)
+                const existing =
+                    executionUuid
+                        ? await this.automationExecutionService.findLatestStageLog(
+                              executionUuid,
+                              stageName,
+                          )
+                        : null;
+
+                if (existing) {
+                    const updateData: any = {
+                        status,
+                        message: label,
+                        metadata: { ...existing.metadata, ...metadata },
+                    };
+                    if (
+                        status === AutomationStatus.SUCCESS ||
+                        status === AutomationStatus.ERROR
+                    ) {
+                        updateData.finishedAt = new Date();
+                    }
+                    await this.automationExecutionService.updateStageLog(
+                        existing.uuid,
+                        updateData,
+                    );
+                } else {
+                    // Fallback: create if not found
+                    await this.automationExecutionService.updateCodeReview(
+                        filter,
+                        { status },
+                        label,
+                        stageName,
+                        metadata,
+                    );
+                }
+            }
         } catch {
             // Best effort
         }
