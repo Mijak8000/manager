@@ -449,7 +449,20 @@ async function closeAndCreatePR(pr, token) {
 async function runTargeted(targetedPRs) {
     const limit = CONFIG.totalPRs;
     if (limit && limit < targetedPRs.length) {
-        targetedPRs = targetedPRs.slice(0, limit);
+        // Distribute evenly across repos instead of taking the first N
+        const byRepo = {};
+        for (const pr of targetedPRs) {
+            const repo = pr.repo;
+            if (!byRepo[repo]) byRepo[repo] = [];
+            byRepo[repo].push(pr);
+        }
+        const repos = Object.keys(byRepo);
+        const perRepo = Math.ceil(limit / repos.length);
+        const selected = [];
+        for (const repo of repos) {
+            selected.push(...byRepo[repo].slice(0, perRepo));
+        }
+        targetedPRs = selected.slice(0, limit);
     }
     console.log(`🎯 Targeted mode: ${targetedPRs.length} PR(s) to create${limit ? ` (limit: ${limit})` : ''}\n`);
 
