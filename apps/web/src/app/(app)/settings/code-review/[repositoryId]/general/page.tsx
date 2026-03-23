@@ -38,6 +38,7 @@ import { IgnoredTitleKeywords } from "./_components/ignored-title-keywords";
 import { IsRequestChangesActive } from "./_components/is-request-changes-active";
 import { KodusConfigFileOverridesWebPreferences } from "./_components/kodus-config-file-overrides-web-preferences";
 import { LanguageSelector } from "./_components/language-selector";
+import { MinimumLevelFilter } from "../suggestion-control/_components/minimum-level-filter";
 import { PullRequestApprovalActive } from "./_components/pull-request-approval-active";
 import { RunOnDraft } from "./_components/run-on-draft";
 import { ShowStatusFeedback } from "./_components/show-status-feedback";
@@ -221,6 +222,9 @@ export default function General() {
                         <IsRequestChangesActive />
                     </div>
                 </AsyncBoundary>
+                <div data-field-name="suggestionControl.severityLevelFilter">
+                    <MinimumLevelFilter />
+                </div>
                 <div data-field-name="runOnDraft">
                     <RunOnDraft />
                 </div>

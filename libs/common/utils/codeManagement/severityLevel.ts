@@ -28,15 +28,17 @@ const getSeverityLevelShield = (severityLevel: SeverityLevel) => {
 };
 
 /**
- * V3 level shield: issue (red) or warning (amber).
+ * V3 level shield: critical (red), issue (red), or warning (amber).
  * Used when codeReviewVersion is v3-agent.
  */
-const getLevelShield = (level?: 'issue' | 'warning') => {
+const getLevelShield = (level?: 'critical' | 'issue' | 'warning') => {
     if (!level) return '';
     const labelTitle = 'level';
     const shield = `![${level}](https://img.shields.io/badge/${labelTitle}-${level}-`;
 
     switch (level) {
+        case 'critical':
+            return `${shield}${ShieldColor.CRITICAL_RED})`;
         case 'issue':
             return `${shield}${ShieldColor.ISSUE_RED})`;
         case 'warning':

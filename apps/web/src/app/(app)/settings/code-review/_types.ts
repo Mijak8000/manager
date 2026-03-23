@@ -111,6 +111,7 @@ export type CodeReviewGlobalConfig = {
             };
         };
         level?: {
+            critical?: string;
             issue?: string;
             warning?: string;
         };

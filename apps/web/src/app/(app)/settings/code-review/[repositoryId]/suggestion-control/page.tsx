@@ -27,7 +27,7 @@ import { LimitationTypeField } from "./_components/limitation-type";
 import { MaxSuggestions } from "./_components/max-suggestions";
 import { MinimumLevelFilter } from "./_components/minimum-level-filter";
 import { MinimumSeverityLevel } from "./_components/minimum-severity-level";
-import { SuggestionGroupingMode } from "./_components/suggestion-grouping-mode";
+// SuggestionGroupingMode removed — V3 agents always post individual inline comments
 import { SuggestionsPerSeverityLevel } from "./_components/suggestions-per-severity-level";
 
 export default function SuggestionControl(
@@ -123,10 +123,6 @@ export default function SuggestionControl(
             </Page.Header>
 
             <Page.Content className="mt-10 flex-none">
-                <div data-field-name="suggestionControl.suggestionGroupingMode">
-                    <SuggestionGroupingMode />
-                </div>
-
                 {codeReviewVersion === "v3-agent" ? (
                     <div className="mt-10 flex flex-col gap-8">
                         <MinimumLevelFilter />

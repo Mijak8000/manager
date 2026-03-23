@@ -21,7 +21,6 @@ const CODE_REVIEW_ROUTE_OVERRIDE_PATH_PREFIXES: Record<string, string[]> = {
     ],
     "review-categories": ["reviewOptions", "codeReviewVersion"],
     "custom-prompts": ["v2PromptOverrides"],
-    "suggestion-control": ["suggestionControl"],
     "pr-summary": ["summary"],
     "kody-rules": [
         "llmGeneratedMemoriesRequireApproval",

@@ -14,13 +14,18 @@ const levelOptions = [
     {
         value: "low",
         name: "All findings",
-        description: "Issues + Warnings",
+        description: "Critical + Issues + Warnings",
         default: true,
     },
     {
         value: "high",
-        name: "Issues only",
-        description: "Hide warnings and nits",
+        name: "Critical + Issues",
+        description: "Hide warnings — only show findings that need action",
+    },
+    {
+        value: "critical",
+        name: "Critical only",
+        description: "Only findings that block merge",
     },
 ] satisfies Array<{
     value: string;
@@ -30,10 +35,11 @@ const levelOptions = [
 }>;
 
 /**
- * V3 agent level filter: binary issue/warning instead of 4-level severity.
+ * V3 level filter: critical / issue / warning.
  * Maps to the existing severityLevelFilter field for backwards compatibility:
- * - "low" = show all findings (issues + warnings)
- * - "high" = show only issues (hide warnings)
+ * - "low" = show all findings (critical + issues + warnings)
+ * - "high" = show critical + issues (hide warnings)
+ * - "critical" = show only critical findings
  */
 export const MinimumLevelFilter = () => {
     const form = useFormContext<CodeReviewFormType>();
@@ -53,10 +59,11 @@ export const MinimumLevelFilter = () => {
                     control={form.control}
                     render={({ field }) => {
                         const currentValue =
-                            field.value === "high" ||
                             field.value === "critical"
-                                ? "high"
-                                : "low";
+                                ? "critical"
+                                : field.value === "high"
+                                  ? "high"
+                                  : "low";
 
                         return (
                             <FormControl.Root className="flex-1">

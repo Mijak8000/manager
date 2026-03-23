@@ -536,7 +536,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         suggestions: Partial<CodeSuggestion>[],
         prNumber: number,
         prContext?: string,
-        levelOverrides?: { issue?: string; warning?: string },
+        levelOverrides?: { critical?: string; issue?: string; warning?: string },
     ): Promise<Partial<CodeSuggestion>[]> {
         if (suggestions.length === 0) return suggestions;
 
@@ -586,7 +586,11 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                                         index: { type: 'number' },
                                         level: {
                                             type: 'string',
-                                            enum: ['issue', 'warning'],
+                                            enum: [
+                                                'critical',
+                                                'issue',
+                                                'warning',
+                                            ],
                                         },
                                     },
                                     required: ['index', 'level'],
@@ -601,24 +605,26 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 prompt: `<LevelClassifier>
   <Context>Each finding was confirmed by an expert code review agent. Classify only — do not question validity.</Context>${prContext ? `\n  <PRContext>${prContext}</PRContext>` : ''}
   <Definitions>
-    <Level name="issue">${levelOverrides?.issue || 'The code produces WRONG results, crashes, loses data, or silently fails to perform its intended function in at least one scenario.'}</Level>
-    <Level name="warning">${levelOverrides?.warning || 'The code produces CORRECT results and performs its intended function in ALL scenarios but is suboptimal in style, performance, or maintainability.'}</Level>
+    <Level name="critical">${levelOverrides?.critical || 'The code WILL crash, lose/corrupt data, or open a severe security breach in production. Immediate fix required before merge. Examples: null pointer dereference on every request, SQL injection, unhandled exception that kills the process, data written to wrong table/column, authentication bypass.'}</Level>
+    <Level name="issue">${levelOverrides?.issue || 'The code produces WRONG results or fails to perform its intended function in at least one scenario, but does not cause catastrophic failure. Should be fixed but can be evaluated. Examples: race condition under concurrent load, missing error handling that returns wrong status code, edge case that produces incorrect output, missing await that may lose data.'}</Level>
+    <Level name="warning">${levelOverrides?.warning || 'The code produces CORRECT results and performs its intended function in ALL scenarios but is suboptimal. Examples: N+1 query, missing caching, verbose code, unnecessary allocation, style issues.'}</Level>
   </Definitions>
   <DecisionRule>
-    Ask: "Does the code produce WRONG output, lose data, crash, or fail to perform what it was meant to do — in at least one scenario?"
-    YES → issue. NO → warning.
+    Step 1: "Will this crash, lose data, or open a security breach on EVERY or MOST requests that hit this code path?"
+    YES → critical.
 
-    "Runs without error" does NOT mean "correct". Code that executes silently but produces the wrong data, targets the wrong destination, or simply does nothing when it should do something — is issue.
+    Step 2: "Does the code produce WRONG output, fail silently, or break in at least one realistic scenario?"
+    YES → issue.
 
-    issue = the output, data, or behavior is WRONG or MISSING in some scenario.
-    warning = the output is always CORRECT, but the code is slow, verbose, or hard to maintain.
+    Step 3: Everything else → warning.
 
-    If the code performs an action but the result does not reach its intended destination — written to the wrong variable, logged without required fields, returned to the wrong caller, or discarded entirely — the system's observable state is incorrect. That is issue.
+    critical = guaranteed production incident. The bug hits most/all users on this code path.
+    issue = real bug but requires specific conditions (edge case, race condition, specific input).
+    warning = code works correctly but could be better.
 
-    If a security flaw allows an attacker to reconstruct secrets or bypass authentication through observable side-channels (timing, error messages, response size), that is issue — not hardening.
+    "Runs without error" does NOT mean "correct". Code that executes silently but produces the wrong data or does nothing when it should — is issue (or critical if it affects most requests).
 
-    When in doubt: if the intended result does not reach its correct destination, or a mechanism that exists for a purpose never fulfills that purpose, that is issue.
-    Missing hardening (rate limits, input caps, entropy) where every request still produces the correct answer is warning.
+    Security: authentication bypass, injection, data exposure → critical. Missing rate limits, weak entropy → warning. Side-channel leaks → issue.
   </DecisionRule>
   <Findings>
 ${summaries}
@@ -654,7 +660,7 @@ ${summaries}
                 (classifyResult as any).output;
             const classifications = output?.classifications || [];
 
-            const levelMap = new Map<number, 'issue' | 'warning'>();
+            const levelMap = new Map<number, 'critical' | 'issue' | 'warning'>();
             for (const c of classifications) {
                 if (c.index != null && c.level) {
                     levelMap.set(c.index, c.level);
@@ -666,6 +672,9 @@ ${summaries}
                 level: levelMap.get(i) || ('issue' as const),
             }));
 
+            const criticalCount = result.filter(
+                (s) => s.level === 'critical',
+            ).length;
             const issueCount = result.filter(
                 (s) => s.level === 'issue',
             ).length;
@@ -674,7 +683,7 @@ ${summaries}
             ).length;
 
             this.logger.log({
-                message: `[CLASSIFY] PR#${prNumber}: ${issueCount} issues, ${warningCount} warnings (${suggestions.length} total)`,
+                message: `[CLASSIFY] PR#${prNumber}: ${criticalCount} critical, ${issueCount} issues, ${warningCount} warnings (${suggestions.length} total)`,
                 context: this.stageName,
             });
 

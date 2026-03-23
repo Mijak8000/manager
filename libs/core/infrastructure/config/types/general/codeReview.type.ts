@@ -193,7 +193,7 @@ export type CodeSuggestion = {
     label: string;
     llmPrompt?: string;
     severity?: string;
-    level?: 'issue' | 'warning'; // V3: binary classification (issue = must fix, warning = evaluate)
+    level?: 'critical' | 'issue' | 'warning'; // V3: critical = blocks merge, issue = should fix, warning = evaluate
     crossFileEvidence?: boolean;
     rankScore?: number;
     priorityStatus?: PriorityStatus;
@@ -413,9 +413,10 @@ export type CodeReviewConfig = {
         /**
          * Custom definitions for issue/warning level classification.
          * Used by the level classifier to understand what the team considers
-         * an "issue" vs a "warning". Overrides the default definitions.
+         * "critical", "issue", or "warning". Overrides the default definitions.
          */
         level?: {
+            critical?: string;
             issue?: string;
             warning?: string;
         };

@@ -232,6 +232,10 @@ class V2PromptOverridesGenerationDto {
 class V2PromptOverridesLevelDto {
     @IsOptional()
     @IsString()
+    critical?: string;
+
+    @IsOptional()
+    @IsString()
     issue?: string;
 
     @IsOptional()
