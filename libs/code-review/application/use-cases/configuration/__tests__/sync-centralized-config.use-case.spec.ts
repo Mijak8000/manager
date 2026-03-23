@@ -44,7 +44,7 @@ describe('SyncCentralizedConfigUseCase', () => {
         };
 
         const codeManagementService = {
-            getRepositoryTreeByDirectory: jest.fn().mockResolvedValue([
+            getRepositoryTree: jest.fn().mockResolvedValue([
                 { type: 'file', path: 'kodus-config.yml' },
                 { type: 'file', path: 'repo1/kodus-config.yml' },
                 { type: 'file', path: 'repo1/dir1/kodus-config.yml' },
@@ -200,7 +200,7 @@ describe('SyncCentralizedConfigUseCase', () => {
         };
 
         const codeManagementService = {
-            getRepositoryTreeByDirectory: jest
+            getRepositoryTree: jest
                 .fn()
                 .mockResolvedValue([
                     { type: 'file', path: 'repo1/kodus-config.yml' },
@@ -280,7 +280,7 @@ describe('SyncCentralizedConfigUseCase', () => {
                 findIntegrationConfigFormatted: jest.fn(),
             } as any,
             {
-                getRepositoryTreeByDirectory: jest.fn(),
+                getRepositoryTree: jest.fn(),
             } as any,
             updateOrCreateCodeReviewParameterUseCase as any,
             {
@@ -365,7 +365,7 @@ describe('SyncCentralizedConfigUseCase', () => {
         };
 
         const codeManagementService = {
-            getRepositoryTreeByDirectory: jest
+            getRepositoryTree: jest
                 .fn()
                 .mockResolvedValue([
                     { type: 'file', path: 'repo1/kodus-config.yml' },
@@ -500,7 +500,7 @@ describe('SyncCentralizedConfigUseCase', () => {
         };
 
         const codeManagementService = {
-            getRepositoryTreeByDirectory: jest
+            getRepositoryTree: jest
                 .fn()
                 .mockResolvedValue([
                     { type: 'file', path: 'repo1/dir1/kodus-config.yml' },
