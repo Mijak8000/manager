@@ -176,9 +176,8 @@ export const CentralizedConfigModal = ({
                 <DialogHeader>
                     <DialogTitle>Centralized Config</DialogTitle>
                     <DialogDescription>
-                        Configure whether the <code>kodus</code> repository on
-                        branch <code>main</code> is the authority for code
-                        review settings.
+                        Configure whether the <code>kodus</code> repository is
+                        the authority for code review settings.
                     </DialogDescription>
                 </DialogHeader>
 
