@@ -2,6 +2,7 @@ import './instrument';
 import 'source-map-support/register';
 import { environment } from '@libs/ee/configs/environment';
 import { initPyroscope } from '@libs/core/infrastructure/config/profiling/pyroscope';
+import { reportExceptionToSentry } from '@libs/core/infrastructure/config/log/otel';
 
 // Initialize profiling early (before NestJS bootstrap)
 initPyroscope({ appName: 'kodus-api' });
@@ -103,6 +104,10 @@ async function bootstrap() {
         );
 
         process.on('uncaughtException', (error) => {
+            void reportExceptionToSentry(error, {
+                context: 'GlobalExceptionHandler',
+                extra: { component: 'api', type: 'uncaughtException' },
+            });
             logger.error({
                 message: `Uncaught Exception: ${error.message}`,
                 context: 'GlobalExceptionHandler',
@@ -111,13 +116,18 @@ async function bootstrap() {
         });
 
         process.on('unhandledRejection', (reason: any) => {
+            const error =
+                reason instanceof Error
+                    ? reason
+                    : new Error(String(reason));
+            void reportExceptionToSentry(error, {
+                context: 'GlobalExceptionHandler',
+                extra: { component: 'api', type: 'unhandledRejection' },
+            });
             logger.error({
                 message: `Unhandled Rejection: ${reason?.message || reason}`,
                 context: 'GlobalExceptionHandler',
-                error:
-                    reason instanceof Error
-                        ? reason
-                        : new Error(String(reason)),
+                error,
             });
         });
 
@@ -238,6 +248,10 @@ async function bootstrap() {
 
         handleNestJSWebpackHmr(app, module);
     } catch (error) {
+        await reportExceptionToSentry(error, {
+            context: 'Bootstrap',
+            extra: { component: 'api', phase: 'bootstrap' },
+        });
         logger.error(
             `Bootstrap failed inside catch block: ${error.message}`,
             error.stack,
