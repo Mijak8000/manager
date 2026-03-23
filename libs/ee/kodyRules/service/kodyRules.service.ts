@@ -1095,10 +1095,6 @@ ${JSON.stringify(filteredLibrary)}
 
 Analyze the suggestions and recommend the most relevant rules.`;
 
-            const byokModelName = byokConfigValue?.main
-                ? `${byokConfigValue.main.provider}:${byokConfigValue.main.model}`
-                : undefined;
-
             const { result } = await this.observabilityService.runLLMInSpan({
                 spanName: `${KodyRulesService.name}::${mainRun}`,
                 runName: mainRun,
@@ -1109,7 +1105,7 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     libraryRulesCount: filteredLibrary.length,
                     type: promptRunner.executeMode,
                 },
-                modelName: byokModelName,
+                byokConfig: byokConfigValue,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()
@@ -1512,10 +1508,6 @@ Analyze the suggestions and recommend the most relevant rules.`;
             path: existingMemory.path,
         }));
 
-        const byokModelName = byokConfigValue?.main
-            ? `${byokConfigValue.main.provider}:${byokConfigValue.main.model}`
-            : undefined;
-
         const { result } = await this.observabilityService.runLLMInSpan({
             spanName: `${KodyRulesService.name}::${runName}`,
             runName,
@@ -1524,7 +1516,7 @@ Analyze the suggestions and recommend the most relevant rules.`;
                 existingMemoriesCount: existingMemories.length,
                 type: promptRunner.executeMode,
             },
-            modelName: byokModelName,
+            byokConfig: byokConfigValue,
             exec: async (callbacks) => {
                 return await promptRunner
                     .builder()

@@ -90,10 +90,6 @@ export class CommentAnalysisService {
                 byokConfig,
             );
 
-            const byokModelName = byokConfig?.main
-                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-                : undefined;
-
             const spanAttrs = {
                 type: promptRunner.executeMode,
                 commentsCount: filteredComments.length,
@@ -104,7 +100,7 @@ export class CommentAnalysisService {
                     spanName,
                     runName,
                     attrs: spanAttrs,
-                    modelName: byokModelName,
+                    byokConfig,
                     exec: async (callbacks) => {
                         return promptRunner
                             .builder()
@@ -228,10 +224,6 @@ export class CommentAnalysisService {
                 byokConfig,
             );
 
-            const byokModelName = byokConfig?.main
-                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-                : undefined;
-
             const genRun = 'generateKodyRules.generate';
             const { result: generatedRes } =
                 await this.observabilityService.runLLMInSpan({
@@ -241,7 +233,7 @@ export class CommentAnalysisService {
                         type: promptRunner.executeMode,
                         commentsCount: filteredComments.length,
                     },
-                    modelName: byokModelName,
+                    byokConfig,
                     exec: async (callbacks) => {
                         return promptRunner
                             .builder()
@@ -307,7 +299,7 @@ export class CommentAnalysisService {
                             newRulesCount: generatedWithUuids.length,
                             existingRulesCount: existingRulesAsLibrary.length,
                         },
-                        modelName: byokModelName,
+                        byokConfig,
                         exec: async (callbacks) => {
                             return promptRunner
                                 .builder()
@@ -368,7 +360,7 @@ export class CommentAnalysisService {
                         type: promptRunner.executeMode,
                         candidateRulesCount: deduplicatedRules.length,
                     },
-                    modelName: byokModelName,
+                    byokConfig,
                     exec: async (callbacks) => {
                         return promptRunner
                             .builder()
@@ -495,10 +487,6 @@ export class CommentAnalysisService {
                 byokConfig,
             );
 
-            const byokModelName = byokConfig?.main
-                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-                : undefined;
-
             const spanAttrs = {
                 type: promptRunner.executeMode,
                 commentsCount: comments.length,
@@ -509,7 +497,7 @@ export class CommentAnalysisService {
                     spanName,
                     runName,
                     attrs: spanAttrs,
-                    modelName: byokModelName,
+                    byokConfig,
                     exec: async (callbacks) => {
                         return promptRunner
                             .builder()

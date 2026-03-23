@@ -54,10 +54,6 @@ export class KodyIssuesAnalysisService {
                 fallbackProvider,
                 byokConfig,
             );
-            const byokModelName = byokConfig?.main
-                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-                : undefined;
-
             const spanName = `${KodyIssuesAnalysisService.name}::${runName}`;
             const spanAttrs = {
                 type: promptRunner.executeMode,
@@ -69,7 +65,7 @@ export class KodyIssuesAnalysisService {
                 spanName,
                 runName,
                 attrs: spanAttrs,
-                modelName: byokModelName,
+                byokConfig,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()
@@ -157,10 +153,6 @@ export class KodyIssuesAnalysisService {
                 byokConfig,
             );
 
-            const byokModelName = byokConfig?.main
-                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-                : undefined;
-
             const spanName = `${KodyIssuesAnalysisService.name}::${runName}`;
             const spanAttrs = {
                 type: promptRunner.executeMode,
@@ -171,7 +163,7 @@ export class KodyIssuesAnalysisService {
             const { result } = await this.observabilityService.runLLMInSpan({
                 spanName,
                 runName,
-                modelName: byokModelName,
+                byokConfig,
                 attrs: spanAttrs,
                 exec: async (callbacks) => {
                     return await promptRunner

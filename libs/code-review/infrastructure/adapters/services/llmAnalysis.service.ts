@@ -88,9 +88,6 @@ export class LLMAnalysisService implements IAIAnalysisService {
         );
         const spanName = `${LLMAnalysisService.name}::${runName}`;
         const byokConfigRef = context?.codeReviewConfig?.byokConfig;
-        const byokModelName = byokConfigRef?.main
-            ? `${byokConfigRef.main.provider}:${byokConfigRef.main.model}`
-            : undefined;
         const spanAttrs = {
             type: promptRunner.executeMode,
             organizationId: organizationAndTeamData?.organizationId,
@@ -103,7 +100,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
                 spanName,
                 runName,
                 attrs: spanAttrs,
-                modelName: byokModelName,
+                byokConfig: byokConfigRef,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()
@@ -204,9 +201,6 @@ export class LLMAnalysisService implements IAIAnalysisService {
             context,
         );
         const spanName = `${LLMAnalysisService.name}::${runName}`;
-        const byokModelName = byokConfig?.main
-            ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-            : undefined;
         const spanAttrs = {
             type: promptRunner.executeMode,
             organizationId: organizationAndTeamData?.organizationId,
@@ -219,7 +213,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
                 spanName,
                 runName,
                 attrs: spanAttrs,
-                modelName: byokModelName,
+                byokConfig,
                 exec: async (callbacks) => {
                     const schema = z.object({
                         codeSuggestions: z.array(
@@ -488,9 +482,6 @@ export class LLMAnalysisService implements IAIAnalysisService {
         );
 
         const spanName = `${LLMAnalysisService.name}::${runName}`;
-        const byokModelName = byokConfig?.main
-            ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-            : undefined;
         const spanAttrs = {
             type: promptRunner.executeMode,
             organizationId: organizationAndTeamData?.organizationId,
@@ -502,7 +493,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
                 spanName,
                 runName,
                 attrs: spanAttrs,
-                modelName: byokModelName,
+                byokConfig,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()

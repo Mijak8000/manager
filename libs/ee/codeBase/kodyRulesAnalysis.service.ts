@@ -316,16 +316,12 @@ export class KodyRulesAnalysisService implements IKodyRulesAnalysisService {
                 suggestionId: suggestion?.id,
             };
 
-            const byokModelName = byokConfig?.main
-                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
-                : undefined;
-
             const { result: extraction } =
                 await this.observabilityService.runLLMInSpan({
                     spanName,
                     runName,
                     attrs: spanAttrs,
-                    modelName: byokModelName,
+                    byokConfig,
                     exec: async (callbacks) => {
                         return await promptRunner
                             .builder()
@@ -613,16 +609,13 @@ export class KodyRulesAnalysisService implements IKodyRulesAnalysisService {
         };
 
         const byokConfigRef = context?.codeReviewConfig?.byokConfig;
-        const byokModelName = byokConfigRef?.main
-            ? `${byokConfigRef.main.provider}:${byokConfigRef.main.model}`
-            : undefined;
 
         try {
             const { result } = await this.observabilityService.runLLMInSpan({
                 spanName,
                 runName,
                 attrs: spanAttrs,
-                modelName: byokModelName,
+                byokConfig: byokConfigRef,
                 exec: async (callbacks) => {
                     const classifier = this.getClassifier(
                         promptRunner,

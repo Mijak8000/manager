@@ -6,7 +6,20 @@ import { ConnectionString } from 'connection-string';
 import { DatabaseConnection } from '@libs/core/infrastructure/config/types';
 
 import { createLogger } from '@kodus/flow';
-import { TokenTrackingHandler } from '@kodus/kodus-common/llm';
+import { TokenTrackingHandler, BYOKConfig } from '@kodus/kodus-common/llm';
+
+/**
+ * Resolves a raw model name (from LangChain) to include the BYOK provider prefix.
+ * Matches against main and fallback configs to pick the correct provider.
+ */
+function resolveModelName(rawModel: string, byokConfig?: BYOKConfig): string {
+    if (!byokConfig) return rawModel;
+    if (byokConfig.main?.model === rawModel)
+        return `${byokConfig.main.provider}:${rawModel}`;
+    if (byokConfig.fallback?.model === rawModel)
+        return `${byokConfig.fallback.provider}:${rawModel}`;
+    return rawModel;
+}
 
 export type TokenUsage = {
     input_tokens?: number;
@@ -278,12 +291,12 @@ export class ObservabilityService implements OnModuleInit {
             metadata,
             runName: explicitName,
             reset,
-            modelName: explicitModelName,
+            byokConfig: finalizeByokConfig,
         }: {
             metadata?: Record<string, any>;
             runName?: string;
             reset?: boolean;
-            modelName?: string;
+            byokConfig?: BYOKConfig;
         } = {}) => {
             const obs = this.getObsInstance();
             const span = obs.getCurrentSpan();
@@ -296,9 +309,13 @@ export class ObservabilityService implements OnModuleInit {
 
             const s = this.summarize(usages);
 
-            // Use explicit model name when provided (e.g. from BYOK config),
-            // falling back to model names extracted from LLM responses
-            const resolvedModel = explicitModelName || (s.modelsArr.length ? s.modelsArr.join(',') : undefined);
+            // Resolve model names with BYOK provider prefix when available
+            const resolvedModels = s.modelsArr.map((m) =>
+                resolveModelName(m, finalizeByokConfig),
+            );
+            const resolvedModel = resolvedModels.length
+                ? resolvedModels.join(',')
+                : undefined;
 
             if (span) {
                 span.setAttributes({
@@ -348,10 +365,10 @@ export class ObservabilityService implements OnModuleInit {
         spanName: string;
         runName?: string;
         attrs?: Record<string, any>;
-        modelName?: string;
+        byokConfig?: BYOKConfig;
         exec: (callbacks: any[]) => Promise<T>;
     }): Promise<{ result: T; usage: any }> {
-        const { spanName, runName, attrs, modelName, exec } = params;
+        const { spanName, runName, attrs, byokConfig: spanByokConfig, exec } = params;
         const obs = this.getObsInstance();
         const span = obs.startSpan(spanName);
 
@@ -372,7 +389,7 @@ export class ObservabilityService implements OnModuleInit {
                 const usage = await finalize({
                     metadata: attrs,
                     reset: true,
-                    modelName,
+                    byokConfig: spanByokConfig,
                 });
                 return { result, usage };
             });

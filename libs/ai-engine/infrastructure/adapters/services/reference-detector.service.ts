@@ -76,10 +76,6 @@ export class ReferenceDetectorService {
 
         const { organizationAndTeamData } = params;
 
-        const byokModelName = params.byokConfig?.main
-            ? `${params.byokConfig.main.provider}:${params.byokConfig.main.model}`
-            : undefined;
-
         const { result: raw } = await this.observabilityService.runLLMInSpan({
             spanName: `${ReferenceDetectorService.name}::${runName}`,
             runName,
@@ -89,7 +85,7 @@ export class ReferenceDetectorService {
                 fallback: false,
                 context: params.context || 'unknown',
             },
-            modelName: byokModelName,
+            byokConfig: params.byokConfig,
             exec: async (callbacks) => {
                 const isRuleMode = params.detectionMode === 'rule';
                 const systemPrompt = isRuleMode
