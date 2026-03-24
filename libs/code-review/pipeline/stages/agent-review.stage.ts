@@ -699,157 +699,207 @@ ${summaries}
     ): Promise<Partial<CodeSuggestion>[]> {
         if (suggestions.length <= 1) return suggestions;
 
-        // LLM dedup implementation below
-        // (classifyLevels is defined above this method)
+        // Use Gemini 3 Flash for dedup — excellent structured output + code understanding
+        const googleKey =
+            process.env.API_GOOGLE_AI_API_KEY ||
+            process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+        if (!googleKey) return suggestions;
 
-        // Group by file
-        const byFile = new Map<string, Partial<CodeSuggestion>[]>();
-        for (const s of suggestions) {
-            const f = s.relevantFile || '';
-            if (!byFile.has(f)) byFile.set(f, []);
-            byFile.get(f)!.push(s);
-        }
+        const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+        const model = createGoogleGenerativeAI({ apiKey: googleKey })(
+            'gemini-3-flash-preview',
+        );
 
-        const result: Partial<CodeSuggestion>[] = [];
+        try {
+            // Build summaries with file + lines for cross-file comparison
+            const summaries = suggestions
+                .map(
+                    (s, i) =>
+                        `[${i}] ${s.relevantFile || 'unknown'}:${s.relevantLinesStart}-${s.relevantLinesEnd} [${s.label || 'unknown'}/${s.level || 'warning'}]: ${s.oneSentenceSummary || s.suggestionContent?.substring(0, 200)}${s.improvedCode ? `\n    fix: ${s.improvedCode.substring(0, 100)}` : ''}`,
+                )
+                .join('\n');
 
-        for (const [filename, fileSuggestions] of byFile) {
-            if (fileSuggestions.length <= 1) {
-                result.push(...fileSuggestions);
-                continue;
-            }
-
-            // Use LLM to find duplicates
-            try {
-                // Use internal model (GPT 5.4 mini) for dedup, NOT the BYOK model.
-                // BYOK models (e.g., Kimi) return unreliable structured output for dedup.
-                const model = getInternalModel();
-
-                if (!model) {
-                    result.push(...fileSuggestions);
-                    continue;
-                }
-
-                const summaries = fileSuggestions
-                    .map(
-                        (s, i) =>
-                            `[${i}] [${s.label || 'unknown'}/${s.level || 'warning'}] lines ${s.relevantLinesStart}-${s.relevantLinesEnd}: ${s.oneSentenceSummary || s.suggestionContent?.substring(0, 200)}${s.improvedCode ? `\n    fix: ${s.improvedCode.substring(0, 100)}` : ''}`,
-                    )
-                    .join('\n');
-
-                const dedupResult: any = await tracedGenerateText({
-                    model: model as any,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: 'code-review-dedup',
-                        metadata: { prNumber, file: filename },
-                    },
-                    output: Output.object({
-                        schema: jsonSchema({
-                            type: 'object',
-                            properties: {
-                                keep: {
-                                    type: 'array',
-                                    items: { type: 'number' },
-                                    description: 'Indices of suggestions to keep',
+            const dedupResult: any = await tracedGenerateText({
+                model: model as any,
+                experimental_telemetry: {
+                    isEnabled: true,
+                    functionId: 'code-review-dedup',
+                    metadata: { prNumber },
+                },
+                output: Output.object({
+                    schema: jsonSchema({
+                        type: 'object',
+                        properties: {
+                            groups: {
+                                type: 'array',
+                                description:
+                                    'Groups of suggestions. Each group has a representative and its duplicates.',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        keep: {
+                                            type: 'number',
+                                            description:
+                                                'Index of the best suggestion to keep as representative',
+                                        },
+                                        duplicates: {
+                                            type: 'array',
+                                            items: { type: 'number' },
+                                            description:
+                                                'Indices of duplicate suggestions (same bug, same or different locations)',
+                                        },
+                                    },
+                                    required: ['keep', 'duplicates'],
+                                    additionalProperties: false,
                                 },
                             },
-                            required: ['keep'],
-                            additionalProperties: false,
-                        }),
-                    }) as any,
-                    prompt: `You have ${fileSuggestions.length} code review suggestions for file "${filename}". Remove duplicates and return the indices to KEEP. You MUST keep at least 1 suggestion.
+                            unique: {
+                                type: 'array',
+                                items: { type: 'number' },
+                                description:
+                                    'Indices of suggestions that have no duplicates',
+                            },
+                        },
+                        required: ['groups', 'unique'],
+                        additionalProperties: false,
+                    }),
+                }) as any,
+                prompt: `You have ${suggestions.length} code review suggestions across multiple files in a PR. Identify duplicates and group them.
 
-Two suggestions are DUPLICATES if:
-- They describe the same underlying problem, even if labeled differently (e.g., one says "bug: race condition" and another says "security: concurrent access bypass" — same root cause)
-- They point to the same or overlapping lines AND describe the same issue from different angles
-- They propose the same fix, even with different wording
-- **IGNORE the category label** (bug/security/performance) when deciding — two agents can find the same issue independently
+BE CONSERVATIVE — when in doubt, do NOT group. Only group when you are highly confident they describe the exact same bug.
 
-Two suggestions are NOT duplicates if:
-- They point to different lines or different code sections
-- They require different fixes (e.g., "add nil check" vs "add SQL parameterization" — different problems)
-- They describe genuinely different issues even if on nearby lines
+There are TWO types of duplicates:
 
-When keeping one of two duplicates, prefer the one with more detail or a clearer fix.
+1. **EXACT DUPLICATES** (same bug, same location): Multiple suggestions pointing to the same file and overlapping lines describing the same issue. Keep the one with the most detail, discard the rest.
+
+2. **CROSS-LOCATION DUPLICATES** (same bug pattern, different locations): Suggestions describing the EXACT SAME code pattern/bug but applied in different files (e.g., "forEach with async callback" found in 3 different files, or "missing null check on the same API call" in 2 files). These should be GROUPED — keep the best one as representative, list the others as duplicates.
+
+NOT duplicates (keep both):
+- Different bugs in the same file or nearby lines (e.g., "nil pointer" and "missing validation" in the same controller — these are DIFFERENT bugs)
+- Different root causes even if they sound similar (e.g., "add nil check" vs "fix typo" — different problems)
+- Suggestions about different code even if the description sounds similar
+
+IGNORE the category label (bug/security/performance) when deciding — two agents can independently find the same issue.
+Prefer keeping the suggestion with the most detail or clearest fix as the representative.
 
 ${summaries}`,
-                });
+            });
 
-                // Track token usage for dedup LLM call
-                try {
-                    const dedupUsage = dedupResult.usage ?? dedupResult.totalUsage;
-                    if (dedupUsage) {
-                        await this.observabilityService.runInSpan(
-                            'dedup-suggestions',
-                            async () => dedupResult,
-                            {
-                                'gen_ai.usage.input_tokens': dedupUsage.inputTokens ?? 0,
-                                'gen_ai.usage.output_tokens': dedupUsage.outputTokens ?? 0,
-                                'gen_ai.usage.total_tokens': dedupUsage.totalTokens ?? (dedupUsage.inputTokens ?? 0) + (dedupUsage.outputTokens ?? 0),
-                                'gen_ai.response.model': 'gpt-5.4-mini',
-                                'gen_ai.run.name': 'code-review-dedup',
-                                'type': 'system',
-                                'prNumber': prNumber,
-                            },
-                        );
-                    }
-                } catch {
-                    // Observability is best-effort
-                }
-
-                const dedupOutput =
-                    (dedupResult as any).object ?? (dedupResult as any).output;
-
-                this.logger.log({
-                    message: `[DEDUP-DEBUG] PR#${prNumber} ${filename}: input=${fileSuggestions.length} summaries, LLM returned keep=${JSON.stringify(dedupOutput?.keep)}, raw=${JSON.stringify(dedupOutput)}`,
-                    context: this.stageName,
-                });
-
-                const keepIndices = new Set(dedupOutput?.keep || []);
-
-                // Safety: if LLM returns empty keep list, keep all (never discard everything)
-                if (keepIndices.size === 0) {
-                    this.logger.warn({
-                        message: `[DEDUP] PR#${prNumber} ${filename}: LLM returned empty keep list, keeping all ${fileSuggestions.length} suggestions`,
-                        context: this.stageName,
-                    });
-                    result.push(...fileSuggestions);
-                    continue;
-                }
-
-                const kept = fileSuggestions.filter((_, i) =>
-                    keepIndices.has(i),
-                );
-                const removed = fileSuggestions.length - kept.length;
-
-                if (removed > 0) {
-                    const removedSuggestions = fileSuggestions.filter(
-                        (_, i) => !keepIndices.has(i),
+            // Track token usage
+            try {
+                const dedupUsage =
+                    dedupResult.usage ?? dedupResult.totalUsage;
+                if (dedupUsage) {
+                    await this.observabilityService.runInSpan(
+                        'dedup-suggestions',
+                        async () => dedupResult,
+                        {
+                            'gen_ai.usage.input_tokens':
+                                dedupUsage.inputTokens ?? 0,
+                            'gen_ai.usage.output_tokens':
+                                dedupUsage.outputTokens ?? 0,
+                            'gen_ai.usage.total_tokens':
+                                dedupUsage.totalTokens ??
+                                (dedupUsage.inputTokens ?? 0) +
+                                    (dedupUsage.outputTokens ?? 0),
+                            'gen_ai.response.model': 'internal-dedup',
+                            'gen_ai.run.name': 'code-review-dedup',
+                            type: 'system',
+                            prNumber: prNumber,
+                        },
                     );
-                    for (const s of removedSuggestions) {
-                        this.logger.log({
-                            message: `[DEDUP-REMOVED] PR#${prNumber} ${filename}:${s.relevantLinesStart}-${s.relevantLinesEnd} [${s.label}/${s.severity}] "${s.oneSentenceSummary || s.suggestionContent?.substring(0, 80)}"`,
-                            context: this.stageName,
-                        });
+                }
+            } catch {
+                // Observability is best-effort
+            }
+
+            const dedupOutput =
+                (dedupResult as any).object ?? (dedupResult as any).output;
+
+            this.logger.log({
+                message: `[DEDUP-DEBUG] PR#${prNumber}: input=${suggestions.length}, groups=${dedupOutput?.groups?.length ?? 0}, unique=${dedupOutput?.unique?.length ?? 0}`,
+                context: this.stageName,
+            });
+
+            const groups: Array<{
+                keep: number;
+                duplicates: number[];
+            }> = dedupOutput?.groups || [];
+            const unique: number[] = dedupOutput?.unique || [];
+
+            // Safety: if LLM returns nothing useful, keep all
+            if (groups.length === 0 && unique.length === 0) {
+                this.logger.warn({
+                    message: `[DEDUP] PR#${prNumber}: LLM returned empty result, keeping all ${suggestions.length} suggestions`,
+                    context: this.stageName,
+                });
+                return suggestions;
+            }
+
+            const result: Partial<CodeSuggestion>[] = [];
+
+            // Add unique suggestions as-is
+            for (const idx of unique) {
+                if (idx >= 0 && idx < suggestions.length) {
+                    result.push(suggestions[idx]);
+                }
+            }
+
+            // Process groups
+            for (const group of groups) {
+                const keepIdx = group.keep;
+                const dupIndices = group.duplicates || [];
+
+                if (keepIdx < 0 || keepIdx >= suggestions.length) continue;
+
+                const kept = { ...suggestions[keepIdx] };
+
+                // Collect locations from duplicates that are in DIFFERENT locations
+                const otherLocations: string[] = [];
+                for (const dupIdx of dupIndices) {
+                    if (dupIdx < 0 || dupIdx >= suggestions.length) continue;
+                    const dup = suggestions[dupIdx];
+                    const dupLocation = `${dup.relevantFile}:${dup.relevantLinesStart}-${dup.relevantLinesEnd}`;
+                    const keptLocation = `${kept.relevantFile}:${kept.relevantLinesStart}-${kept.relevantLinesEnd}`;
+
+                    if (dupLocation !== keptLocation) {
+                        otherLocations.push(dupLocation);
                     }
+
                     this.logger.log({
-                        message: `[DEDUP] PR#${prNumber} ${filename}: ${fileSuggestions.length} → ${kept.length} (removed ${removed} duplicates)`,
+                        message: `[DEDUP-REMOVED] PR#${prNumber} ${dup.relevantFile}:${dup.relevantLinesStart}-${dup.relevantLinesEnd} [${dup.label}/${dup.severity}] "${dup.oneSentenceSummary || dup.suggestionContent?.substring(0, 80)}"`,
                         context: this.stageName,
                     });
                 }
 
-                result.push(...kept);
-            } catch (error) {
-                this.logger.warn({
-                    message: `[DEDUP] Failed for ${filename}, keeping all`,
-                    context: this.stageName,
-                    error,
-                });
-                result.push(...fileSuggestions);
-            }
-        }
+                // Append other locations to the suggestion content
+                if (otherLocations.length > 0) {
+                    const locationsList = otherLocations
+                        .map((loc) => `- \`${loc}\``)
+                        .join('\n');
+                    kept.suggestionContent = `${kept.suggestionContent}\n\n**Also found in:**\n${locationsList}`;
+                }
 
-        return result;
+                result.push(kept);
+            }
+
+            const totalRemoved = suggestions.length - result.length;
+            if (totalRemoved > 0) {
+                this.logger.log({
+                    message: `[DEDUP] PR#${prNumber}: ${suggestions.length} → ${result.length} (removed ${totalRemoved} duplicates, ${groups.length} groups merged)`,
+                    context: this.stageName,
+                });
+            }
+
+            return result;
+        } catch (error) {
+            this.logger.warn({
+                message: `[DEDUP] PR#${prNumber}: Failed, keeping all ${suggestions.length} suggestions`,
+                context: this.stageName,
+                error,
+            });
+            return suggestions;
+        }
     }
 
     /**
