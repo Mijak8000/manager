@@ -18,6 +18,7 @@ import { AutomationStatus } from '@libs/automation/domain/automation/enum/automa
 import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
 import { resolveKodyRuleSeverityLevel, SeverityLevel } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
+import { DeliveryStatus } from '@libs/platformData/domain/pullRequests/enums/deliveryStatus.enum';
 
 /**
  * Extract valid line ranges from a unified diff patch.
@@ -358,11 +359,19 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             // Merge back: classified non-rules + kody rules with user-defined levels
             const classified = [...classifiedNonRules, ...kodyRulesWithLevel];
 
-            // Deduplicate suggestions that describe the same issue
-            let deduped = classified;
+            // Deduplicate suggestions that describe the same issue.
+            // Kody Rules skip dedup — they are user-defined rules that must always be reported.
+            const kodyRulesForDedup = classified.filter(
+                (s) => s.label === 'kody_rules',
+            );
+            const nonKodyRulesForDedup = classified.filter(
+                (s) => s.label !== 'kody_rules',
+            );
+
+            let dedupedNonRules = nonKodyRulesForDedup;
             try {
-                deduped = await this.deduplicateSuggestions(
-                    classified,
+                dedupedNonRules = await this.deduplicateSuggestions(
+                    nonKodyRulesForDedup,
                     prNumber,
                     context.codeReviewConfig?.byokConfig,
                 );
@@ -374,9 +383,45 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 });
             }
 
+            const deduped = [...dedupedNonRules, ...kodyRulesForDedup];
+
+            // Separate PR-level kody rules (no file/lines) from file-level suggestions.
+            // PR-level suggestions go to validSuggestionsByPR → CreatePrLevelCommentsStage.
+            const prLevelSuggestions = deduped.filter(
+                (s) =>
+                    s.label === 'kody_rules' &&
+                    !s.relevantFile &&
+                    !s.relevantLinesStart,
+            );
+            const fileLevelSuggestions = deduped.filter(
+                (s) =>
+                    !(
+                        s.label === 'kody_rules' &&
+                        !s.relevantFile &&
+                        !s.relevantLinesStart
+                    ),
+            );
+
+            // Sort file-level suggestions: kody_rules first, then by level (critical > issue > warning)
+            const levelOrder: Record<string, number> = {
+                critical: 0,
+                issue: 1,
+                warning: 2,
+            };
+            fileLevelSuggestions.sort((a, b) => {
+                // kody_rules always first within the same file
+                const aIsRule = a.label === 'kody_rules' ? 0 : 1;
+                const bIsRule = b.label === 'kody_rules' ? 0 : 1;
+                if (aIsRule !== bIsRule) return aIsRule - bIsRule;
+                // Then by level
+                const aLevel = levelOrder[a.level || 'warning'] ?? 2;
+                const bLevel = levelOrder[b.level || 'warning'] ?? 2;
+                return aLevel - bLevel;
+            });
+
             return this.updateContext(context, (draft) => {
                 const byFile = new Map<string, Partial<CodeSuggestion>[]>();
-                for (const s of deduped) {
+                for (const s of fileLevelSuggestions) {
                     const file = s.relevantFile || '';
                     if (!byFile.has(file)) byFile.set(file, []);
                     byFile.get(file)!.push(s);
@@ -394,6 +439,24 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             file,
                         });
                     }
+                }
+
+                // PR-level kody rules go to validSuggestionsByPR for CreatePrLevelCommentsStage
+                if (prLevelSuggestions.length > 0) {
+                    if (!draft.validSuggestionsByPR) {
+                        draft.validSuggestionsByPR = [];
+                    }
+                    draft.validSuggestionsByPR.push(
+                        ...prLevelSuggestions.map((s) => ({
+                            id: s.brokenKodyRulesIds?.[0] || crypto.randomUUID(),
+                            suggestionContent: s.suggestionContent || '',
+                            oneSentenceSummary: s.oneSentenceSummary || '',
+                            label: s.label as any || 'kody_rules',
+                            severity: s.severity as any,
+                            brokenKodyRulesIds: s.brokenKodyRulesIds,
+                            deliveryStatus: DeliveryStatus.NOT_SENT,
+                        })),
+                    );
                 }
 
                 draft.validSuggestions = deduped;
@@ -676,7 +739,7 @@ Two suggestions are DUPLICATES if:
 - They describe the same underlying problem, even if labeled differently (e.g., one says "bug: race condition" and another says "security: concurrent access bypass" — same root cause)
 - They point to the same or overlapping lines AND describe the same issue from different angles
 - They propose the same fix, even with different wording
-- **IGNORE the category label** (bug/security/performance/kody_rules) when deciding — two agents can find the same issue independently
+- **IGNORE the category label** (bug/security/performance) when deciding — two agents can find the same issue independently
 
 Two suggestions are NOT duplicates if:
 - They point to different lines or different code sections
