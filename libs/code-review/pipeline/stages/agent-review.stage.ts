@@ -2,7 +2,8 @@ import { createLogger } from '@kodus/flow';
 import { Output, jsonSchema } from 'ai';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { getInternalModel } from '@libs/code-review/infrastructure/agents/llm/byok-to-vercel';
-import { tracedGenerateText } from '@libs/code-review/infrastructure/agents/llm/agent-loop';
+import { tracedGenerateText, buildLangSmithProviderOptions } from '@libs/code-review/infrastructure/agents/llm/agent-loop';
+import type { LangSmithTelemetryMetadata } from '@libs/code-review/infrastructure/agents/llm/agent-loop';
 
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
@@ -231,6 +232,14 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 context.correlationId;
             const repositoryId = context.repository?.id;
 
+            // Shared telemetry metadata for all LangSmith-traced calls in this pipeline run
+            const telemetryMeta: LangSmithTelemetryMetadata = {
+                organizationId: context.organizationAndTeamData?.organizationId,
+                teamId: context.organizationAndTeamData?.teamId,
+                pullRequestId: prNumber,
+                repositoryId,
+            };
+
             const onAgentProgress = this.createAgentProgressCallback(
                 executionUuid,
                 prNumber,
@@ -242,6 +251,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 changedFiles,
                 remoteCommands: context.sandboxHandle.remoteCommands,
                 prNumber,
+                repositoryId,
                 repositoryFullName:
                     context.repository?.fullName ||
                     context.pullRequest?.base?.repo?.fullName ||
@@ -354,6 +364,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 prNumber,
                 prContext,
                 levelOverrides,
+                telemetryMeta,
             );
 
             // Merge back: classified non-rules + kody rules with user-defined levels
@@ -374,6 +385,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     nonKodyRulesForDedup,
                     prNumber,
                     context.codeReviewConfig?.byokConfig,
+                    telemetryMeta,
                 );
             } catch (dedupError) {
                 this.logger.warn({
@@ -523,6 +535,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         prNumber: number,
         prContext?: string,
         levelOverrides?: { critical?: string; issue?: string; warning?: string },
+        telemetryMeta?: LangSmithTelemetryMetadata,
     ): Promise<Partial<CodeSuggestion>[]> {
         if (suggestions.length === 0) return suggestions;
 
@@ -560,11 +573,8 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
 
             const classifyResult: any = await tracedGenerateText({
                 model: model as any,
-                experimental_telemetry: {
-                    isEnabled: true,
-                    functionId: 'code-review-classify-levels',
-                    metadata: { prNumber },
-                },
+                experimental_telemetry: { isEnabled: true, functionId: 'classify-suggestions' },
+                providerOptions: buildLangSmithProviderOptions('classify-suggestions', telemetryMeta),
                 output: Output.object({
                     schema: jsonSchema({
                         type: 'object',
@@ -697,6 +707,7 @@ ${summaries}
         suggestions: Partial<CodeSuggestion>[],
         prNumber: number,
         byokConfig?: any,
+        telemetryMeta?: LangSmithTelemetryMetadata,
     ): Promise<Partial<CodeSuggestion>[]> {
         if (suggestions.length <= 1) return suggestions;
 
@@ -722,11 +733,8 @@ ${summaries}
 
             const dedupResult: any = await tracedGenerateText({
                 model: model as any,
-                experimental_telemetry: {
-                    isEnabled: true,
-                    functionId: 'code-review-dedup',
-                    metadata: { prNumber },
-                },
+                experimental_telemetry: { isEnabled: true, functionId: 'dedup-suggestions' },
+                providerOptions: buildLangSmithProviderOptions('dedup-suggestions', telemetryMeta),
                 output: Output.object({
                     schema: jsonSchema({
                         type: 'object',

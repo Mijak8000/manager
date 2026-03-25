@@ -51,6 +51,7 @@ export interface ReviewAgentInput {
     changedFiles: FileChange[];
     remoteCommands: RemoteCommands;
     prNumber: number;
+    repositoryId?: string;
     repositoryFullName: string;
     languageResultPrompt: string;
     memoryRules?: Partial<IKodyRule>[];
@@ -157,6 +158,13 @@ export abstract class BaseCodeReviewAgentProvider {
                 systemPrompt,
                 userPrompt,
                 agentName: identity.name,
+                telemetryMetadata: {
+                    organizationId: input.organizationAndTeamData?.organizationId,
+                    teamId: input.organizationAndTeamData?.teamId,
+                    pullRequestId: input.prNumber,
+                    repositoryId: input.repositoryId,
+                    provider: modelName,
+                },
                 remoteCommands: input.remoteCommands,
                 documentationSearchService: input.documentationSearchService,
                 documentationSearchOptions: {
