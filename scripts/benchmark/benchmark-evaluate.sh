@@ -3,8 +3,12 @@
 # Step 2: Extract from MongoDB + Judge with Sonnet
 #
 # Usage:
-#   ./benchmark-evaluate.sh [TOTAL_PRS]                    # extract + judge
-#   ./benchmark-evaluate.sh [TOTAL_PRS] --extract-only     # just extract, skip judge
+#   ./benchmark-evaluate.sh [TOTAL_PRS] [--name <run-name>] [--extract-only]
+#
+# Examples:
+#   ./benchmark-evaluate.sh 20 --name kimi-baseline
+#   ./benchmark-evaluate.sh 20 --name sonnet-v1 --extract-only
+#   ./benchmark-evaluate.sh 20                          # saves to results/latest/
 #
 # Requires: ANTHROPIC_API_KEY for judge (or use --extract-only)
 #
@@ -12,14 +16,21 @@ set -euo pipefail
 
 TOTAL_PRS=${1:-20}
 EXTRACT_ONLY=false
-if [[ "${2:-}" == "--extract-only" ]]; then
-  EXTRACT_ONLY=true
-fi
+RUN_NAME="latest"
+
+shift || true
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --extract-only) EXTRACT_ONLY=true; shift ;;
+    --name) RUN_NAME="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OWNER="ai-code-review-benchmark"
-RESULTS_DIR="$REPO_DIR/scripts/benchmark/results"
+RESULTS_DIR="$REPO_DIR/scripts/benchmark/results/$RUN_NAME"
 mkdir -p "$RESULTS_DIR"
 
 cd "$REPO_DIR"
@@ -63,40 +74,55 @@ const mongoCmd = (query) => {
   ).trim();
 };
 
-const results = { all: [], issueOnly: [], issueCritical: [], withWarning: [] };
+const results = { issueCritical: [], withWarning: [] };
 const golden = [];
+const skippedPrs = [];
 
 for (const repo of repos) {
   const benchPrs = (byRepo[repo] || []).slice(0, perRepo);
 
   for (const bpr of benchPrs) {
-    golden.push(bpr);
-
     let prData;
     try {
-      const query = 'JSON.stringify(db.pullRequests.find({headBranchRef: \"' + bpr.head + '\"}, {number: 1, files: 1}).sort({createdAt: -1}).limit(1).toArray()[0])';
+      const query = 'JSON.stringify(db.pullRequests.find({headBranchRef: \"' + bpr.head + '\"}, {number: 1, files: 1, createdAt: 1, updatedAt: 1}).sort({updatedAt: -1}).limit(1).toArray()[0])';
       const raw = mongoCmd(query);
       prData = JSON.parse(raw);
     } catch { prData = null; }
 
-    const suggestions = { issueCritical: [], withWarning: [] };
-
+    // Check if PR was actually processed (has any suggestions in any file)
+    let totalSugg = 0;
     if (prData && prData.files) {
       for (const file of prData.files) {
-        if (!file.suggestions) continue;
-        for (const s of file.suggestions) {
-          if (!s.suggestionContent || s.suggestionContent.length < 20) continue;
-          const entry = {
-            comment: (s.suggestionContent || '').substring(0, 500),
-            location: (s.relevantFile || file.filename) + ':' + (s.relevantLinesStart || 'general'),
-            level: s.level || 'unknown',
-            severity: s.severity || 'unknown',
-            label: s.label || 'unknown',
-            deliveryStatus: s.deliveryStatus || 'unknown',
-          };
-          if (s.level === 'issue' || s.level === 'critical') suggestions.issueCritical.push(entry);
-          if (s.level === 'issue' || s.level === 'critical' || s.level === 'warning') suggestions.withWarning.push(entry);
-        }
+        if (file.suggestions) totalSugg += file.suggestions.length;
+      }
+    }
+
+    const prNum = prData ? prData.number : '?';
+
+    if (!prData || totalSugg === 0) {
+      skippedPrs.push({ repo, title: bpr.title.substring(0, 50), head: bpr.head, prNum });
+      console.log(repo.padEnd(18) + ' PR#' + String(prNum).padEnd(5) + ' ⚠ NOT PROCESSED (skipped)');
+      continue;
+    }
+
+    golden.push(bpr);
+
+    const suggestions = { issueCritical: [], withWarning: [] };
+
+    for (const file of prData.files) {
+      if (!file.suggestions) continue;
+      for (const s of file.suggestions) {
+        if (!s.suggestionContent || s.suggestionContent.length < 20) continue;
+        const entry = {
+          comment: (s.suggestionContent || '').substring(0, 500),
+          location: (s.relevantFile || file.filename) + ':' + (s.relevantLinesStart || 'general'),
+          level: s.level || 'unknown',
+          severity: s.severity || 'unknown',
+          label: s.label || 'unknown',
+          deliveryStatus: s.deliveryStatus || 'unknown',
+        };
+        if (s.level === 'issue' || s.level === 'critical') suggestions.issueCritical.push(entry);
+        if (s.level === 'issue' || s.level === 'critical' || s.level === 'warning') suggestions.withWarning.push(entry);
       }
     }
 
@@ -104,7 +130,6 @@ for (const repo of repos) {
     results.issueCritical.push({ ...prInfo, issues: suggestions.issueCritical });
     results.withWarning.push({ ...prInfo, issues: suggestions.withWarning });
 
-    const prNum = prData ? prData.number : '?';
     console.log(repo.padEnd(18) + ' PR#' + String(prNum).padEnd(5) + ' issue+critical=' + String(suggestions.issueCritical.length).padStart(2) + '  +warning=' + String(suggestions.withWarning.length).padStart(2));
   }
 }
@@ -114,9 +139,16 @@ fs.writeFileSync('$RESULTS_DIR/candidates-issue-critical.json', JSON.stringify(r
 fs.writeFileSync('$RESULTS_DIR/candidates-with-warning.json', JSON.stringify(results.withWarning, null, 2));
 
 const totalGolden = golden.reduce((s,p) => s + p.golden_comments.length, 0);
+const totalExpected = golden.length + skippedPrs.length;
 console.log('');
-console.log('Golden: ' + totalGolden + ' comments across ' + golden.length + ' PRs');
+console.log('Processed: ' + golden.length + '/' + totalExpected + ' PRs (' + skippedPrs.length + ' not processed)');
+console.log('Golden: ' + totalGolden + ' comments');
 console.log('Candidates: issue+critical=' + results.issueCritical.reduce((s,c) => s + c.issues.length, 0) + '  +warning=' + results.withWarning.reduce((s,c) => s + c.issues.length, 0));
+if (skippedPrs.length > 0) {
+  console.log('');
+  console.log('⚠ Skipped PRs (not processed by worker — not counted in score):');
+  for (const sp of skippedPrs) console.log('  - ' + sp.repo + ' PR#' + sp.prNum + ' ' + sp.title);
+}
 "
 
 echo "  ✓ Extracted to $RESULTS_DIR/"
