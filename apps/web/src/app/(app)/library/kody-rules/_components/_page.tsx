@@ -56,7 +56,12 @@ const RESULTS_PAGE_LIMIT = 48;
 const BUCKET_RULES_PREVIEW_LIMIT = 6;
 const RECOMMENDED_RULES_LIMIT = 12;
 
-const SEVERITY_OPTIONS = ["Low", "Medium", "High", "Critical"] as const;
+const SEVERITY_LEVEL_OPTIONS = ["warning", "issue", "critical"] as const;
+const SEVERITY_LEVEL_LABELS: Record<string, string> = {
+    warning: "Warning",
+    issue: "Issue",
+    critical: "Critical",
+};
 
 const MCP_OPTIONS = [
     { value: "jira", title: "Jira" },
@@ -291,7 +296,7 @@ export const KodyRulesLibrary = ({
 
     const hasUserFilters = useMemo(() => {
         if (debouncedNameFilter.trim()) return true;
-        if (filters.severity) return true;
+        if (filters.severityLevel) return true;
         if (selectedBucket) return true;
         if (filters.tags && filters.tags.length > 0) return true;
         if (filters.plug_and_play) return true;
@@ -307,7 +312,7 @@ export const KodyRulesLibrary = ({
         filters.plug_and_play,
         filters.requiredMcp,
         filters.tags,
-        filters.severity,
+        filters.severityLevel,
         selectedBucket,
     ]);
 
@@ -330,7 +335,7 @@ export const KodyRulesLibrary = ({
         Boolean(initialSelectedBucket) &&
             initialSelectedBucket === selectedBucket &&
             !debouncedNameFilter.trim() &&
-            !filters.severity &&
+            !filters.severityLevel &&
             !filters.language,
     );
 
@@ -342,7 +347,7 @@ export const KodyRulesLibrary = ({
                     page,
                     limit: RESULTS_PAGE_LIMIT,
                     name: debouncedNameFilter.trim() || undefined,
-                    severity: filters.severity,
+                    severityLevel: filters.severityLevel,
                     language: filters.language,
                     tags: filters.tags,
                     plug_and_play: filters.plug_and_play,
@@ -379,7 +384,7 @@ export const KodyRulesLibrary = ({
             filters.needMCPS,
             filters.plug_and_play,
             filters.tags,
-            filters.severity,
+            filters.severityLevel,
             selectedBucket,
         ],
     );
@@ -529,9 +534,9 @@ export const KodyRulesLibrary = ({
 
     const severityOptions = useMemo(
         () =>
-            SEVERITY_OPTIONS.map((s) => ({
+            SEVERITY_LEVEL_OPTIONS.map((s) => ({
                 value: s,
-                title: s,
+                title: SEVERITY_LEVEL_LABELS[s],
             })),
         [],
     );
@@ -725,16 +730,16 @@ export const KodyRulesLibrary = ({
                                             Severity
                                         </p>
                                         <SelectFilter
-                                            label="Severity"
-                                            placeholder="All severities"
-                                            searchPlaceholder="Search severity..."
-                                            value={filters.severity}
+                                            label="Severity Level"
+                                            placeholder="All levels"
+                                            searchPlaceholder="Search level..."
+                                            value={filters.severityLevel}
                                             options={severityOptions}
                                             onChange={(next) =>
                                                 setFilters((prev) => ({
                                                     ...prev,
-                                                    severity:
-                                                        next as FindLibraryKodyRulesFilters["severity"],
+                                                    severityLevel:
+                                                        next as FindLibraryKodyRulesFilters["severityLevel"],
                                                 }))
                                             }
                                         />

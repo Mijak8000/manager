@@ -10,6 +10,7 @@ import { AuthorizationService } from '@libs/identity/infrastructure/adapters/ser
 import {
     IKodyRule,
     KodyRulesOrigin,
+    KodyRulesType,
 } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 
 import { CreateOrUpdateKodyRulesUseCase } from './create-or-update.use-case';
@@ -52,9 +53,11 @@ export class AddLibraryKodyRulesUseCase {
                     rule: libraryKodyRules.rule,
                     path: libraryKodyRules.path,
                     severity: libraryKodyRules.severity,
+                    severityLevel: libraryKodyRules.severityLevel,
                     repositoryId: repoId,
                     examples: libraryKodyRules.examples,
                     origin: KodyRulesOrigin.LIBRARY,
+                    type: KodyRulesType.STANDARD
                 };
 
                 const result =
@@ -80,10 +83,12 @@ export class AddLibraryKodyRulesUseCase {
                         rule: libraryKodyRules.rule,
                         path: libraryKodyRules.path,
                         severity: libraryKodyRules.severity,
+                        severityLevel: libraryKodyRules.severityLevel,
                         repositoryId: directoryInfo.repositoryId,
                         directoryId: directoryInfo.directoryId,
                         examples: libraryKodyRules.examples,
                         origin: KodyRulesOrigin.LIBRARY,
+                        type: KodyRulesType.STANDARD
                     };
 
                     const result =

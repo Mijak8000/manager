@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@components/ui/button";
+import { Card, CardContent, CardHeader } from "@components/ui/card";
 import { Checkbox } from "@components/ui/checkbox";
 import { FormControl } from "@components/ui/form-control";
 import { Heading } from "@components/ui/heading";
@@ -45,15 +46,20 @@ export const MinimumLevelFilter = () => {
     const form = useFormContext<CodeReviewFormType>();
 
     return (
-        <>
-            <div>
-                <Heading variant="h2">Finding level</Heading>
-                <span className="text-text-secondary text-sm">
-                    Choose which findings Kody should post as review comments
-                </span>
-            </div>
-
-            <div className="mt-3">
+        <Card>
+            <CardHeader>
+                <div className="flex flex-col gap-1">
+                    <div className="flex flex-row items-center gap-2">
+                        <Heading variant="h3">Finding level</Heading>
+                        <OverrideIndicatorForm fieldName="suggestionControl.severityLevelFilter" />
+                    </div>
+                    <p className="text-text-secondary text-sm">
+                        Choose which findings Kody should post as review
+                        comments
+                    </p>
+                </div>
+            </CardHeader>
+            <CardContent>
                 <Controller
                     name="suggestionControl.severityLevelFilter.value"
                     control={form.control}
@@ -98,7 +104,9 @@ export const MinimumLevelFilter = () => {
                                                             )}
                                                         </div>
                                                         <small className="text-text-secondary text-left">
-                                                            {option.description}
+                                                            {
+                                                                option.description
+                                                            }
                                                         </small>
                                                     </div>
 
@@ -112,18 +120,13 @@ export const MinimumLevelFilter = () => {
                                                 </Button>
                                             </ToggleGroup.ToggleGroupItem>
                                         ))}
-
-                                        <OverrideIndicatorForm
-                                            fieldName="suggestionControl.severityLevelFilter"
-                                            className="mb-2"
-                                        />
                                     </ToggleGroup.Root>
                                 </FormControl.Input>
                             </FormControl.Root>
                         );
                     }}
                 />
-            </div>
-        </>
+            </CardContent>
+        </Card>
     );
 };

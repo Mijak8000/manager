@@ -66,7 +66,8 @@ export type LibraryRule = {
     title: string;
     rule: string;
     why_is_this_important: string;
-    severity: "Low" | "Medium" | "High" | "Critical";
+    severity?: "Low" | "Medium" | "High" | "Critical";
+    severityLevel?: KodyRuleSeverityLevel;
     bad_example?: string;
     good_example?: string;
     /**
@@ -95,7 +96,7 @@ type KodyRulesExample = {
 
 export type FindLibraryKodyRulesFilters = {
     name?: string;
-    severity?: "Low" | "Medium" | "High" | "Critical";
+    severityLevel?: KodyRuleSeverityLevel;
     tags?: string[];
     language?: keyof typeof ProgrammingLanguage;
     buckets?: string[];

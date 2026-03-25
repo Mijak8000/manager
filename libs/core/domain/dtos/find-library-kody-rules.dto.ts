@@ -55,6 +55,11 @@ export class FindLibraryKodyRulesDto
     severity?: string;
 
     @IsOptional()
+    @IsString()
+    @ApiPropertyOptional()
+    severityLevel?: string;
+
+    @IsOptional()
     @Transform(transformToArray)
     @IsArray()
     @IsString({ each: true })

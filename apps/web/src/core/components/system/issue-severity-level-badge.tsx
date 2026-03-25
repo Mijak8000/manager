@@ -3,14 +3,16 @@ import type { SeverityLevel } from "src/core/types";
 import { cn } from "src/core/utils/components";
 
 export const severityLevelClassnames = {
-    critical:
-        "bg-danger/10 text-danger ring-danger/64 [--button-foreground:var(--color-danger)]",
-    high: "bg-warning/10 text-warning ring-warning/64 [--button-foreground:var(--color-warning)]",
-    medium: "bg-alert/10 text-alert ring-alert/64 [--button-foreground:var(--color-alert)]",
-    low: "bg-info/10 text-info ring-info/64 [--button-foreground:var(--color-info)]",
+    // New severity levels
     warning:
         "bg-alert/10 text-alert ring-alert/64 [--button-foreground:var(--color-alert)]",
     issue: "bg-warning/10 text-warning ring-warning/64 [--button-foreground:var(--color-warning)]",
+    critical:
+        "bg-danger/10 text-danger ring-danger/64 [--button-foreground:var(--color-danger)]",
+    // Legacy severity levels (backward compat)
+    high: "bg-warning/10 text-warning ring-warning/64 [--button-foreground:var(--color-warning)]",
+    medium: "bg-alert/10 text-alert ring-alert/64 [--button-foreground:var(--color-alert)]",
+    low: "bg-info/10 text-info ring-info/64 [--button-foreground:var(--color-info)]",
 } as const;
 
 export const IssueSeverityLevelBadge = ({

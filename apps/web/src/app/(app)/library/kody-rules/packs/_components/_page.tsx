@@ -41,18 +41,16 @@ export const KodyRulesPacksExplorer = ({
         );
     }, [buckets, searchQuery]);
     // Get severity badge color
-    const getSeverityColor = (severity: string) => {
-        switch (severity.toLowerCase()) {
-            case "high":
-                return "bg-[rgba(255,139,64,0.1)] border-[rgba(255,139,64,0.64)] text-[#ff8b40]";
-            case "medium":
+    const getSeverityColor = (severity?: string) => {
+        switch (severity?.toLowerCase()) {
+            case "warning":
                 return "bg-[rgba(242,198,49,0.1)] border-[rgba(242,198,49,0.64)] text-[#f2c631]";
-            case "low":
-                return "bg-[rgba(34,197,94,0.1)] border-[rgba(34,197,94,0.64)] text-[#22c55e]";
+            case "issue":
+                return "bg-[rgba(255,139,64,0.1)] border-[rgba(255,139,64,0.64)] text-[#ff8b40]";
             case "critical":
                 return "bg-[rgba(239,68,68,0.1)] border-[rgba(239,68,68,0.64)] text-[#ef4444]";
             default:
-                return "bg-[rgba(242,198,49,0.1)] border-[rgba(242,198,49,0.64)] text-[#f2c631]";
+                return "bg-[rgba(255,139,64,0.1)] border-[rgba(255,139,64,0.64)] text-[#ff8b40]";
         }
     };
 
@@ -108,9 +106,9 @@ export const KodyRulesPacksExplorer = ({
                                         </p>
                                     </div>
                                     <div
-                                        className={`${getSeverityColor(rule.severity)} flex-shrink-0 rounded border px-2 py-1`}>
+                                        className={`${getSeverityColor(rule.severityLevel ?? rule.severity)} flex-shrink-0 rounded border px-2 py-1`}>
                                         <span className="text-xs font-semibold uppercase">
-                                            {rule.severity}
+                                            {rule.severityLevel ?? rule.severity}
                                         </span>
                                     </div>
                                 </div>

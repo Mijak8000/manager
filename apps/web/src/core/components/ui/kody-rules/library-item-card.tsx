@@ -119,12 +119,13 @@ export const KodyRuleLibraryItem = ({
                             {rule.title}
                         </Heading>
 
-                        {!!rule.severity && (
+                        {!!(rule.severityLevel || rule.severity) && (
                             <IssueSeverityLevelBadge
                                 severity={
-                                    rule.severity.toLowerCase() as Lowercase<
-                                        typeof rule.severity
-                                    >
+                                    rule.severityLevel ??
+                                    (rule.severity?.toLowerCase() === "critical"
+                                        ? "critical"
+                                        : "issue")
                                 }
                             />
                         )}

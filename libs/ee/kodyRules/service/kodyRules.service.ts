@@ -763,6 +763,15 @@ export class KodyRulesService implements IKodyRulesService {
                         return false;
                     }
 
+                    // Filtro por severityLevel
+                    if (
+                        filters.severityLevel &&
+                        rule.severityLevel?.toLowerCase() !==
+                            filters.severityLevel?.toLowerCase()
+                    ) {
+                        return false;
+                    }
+
                     // Filtro por tags
                     if (filters.tags && filters.tags.length > 0) {
                         const ruleTags = rule.tags || [];

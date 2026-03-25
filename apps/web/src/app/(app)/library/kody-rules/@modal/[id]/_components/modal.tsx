@@ -106,7 +106,8 @@ export const KodyRuleLibraryItemModal = ({
             const newRule: KodyRule = {
                 title: rule.title,
                 rule: rule.rule,
-                severity: rule.severity.toLowerCase() as KodyRule["severity"],
+                severity: (rule.severity?.toLowerCase() ?? "high") as KodyRule["severity"],
+                severityLevel: (rule.severityLevel?.toLowerCase() ?? (rule.severity?.toLowerCase() === "critical" ? "critical" : "issue")) as KodyRule["severityLevel"],
                 path: "",
                 examples: rule.examples,
                 origin: KodyRulesOrigin.LIBRARY,
@@ -245,9 +246,10 @@ export const KodyRuleLibraryItemModal = ({
 
                         <IssueSeverityLevelBadge
                             severity={
-                                rule.severity.toLowerCase() as Lowercase<
-                                    typeof rule.severity
-                                >
+                                rule.severityLevel ??
+                                (rule.severity?.toLowerCase() === "critical"
+                                    ? "critical"
+                                    : "issue")
                             }
                         />
                     </DialogTitle>
