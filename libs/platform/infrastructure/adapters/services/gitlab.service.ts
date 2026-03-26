@@ -1022,11 +1022,13 @@ export class GitlabService implements Omit<
         const gitlabAPI = this.instanceGitlabApi(gitlabAuthDetail);
 
         const repositories = integrationConfig.configValue;
-        const users = [];
 
-        for (const repository of repositories) {
-            users.push(...(await gitlabAPI.Projects.allUsers(repository.id)));
-        }
+        const userArrays = await Promise.all(
+            repositories.map((repository) =>
+                gitlabAPI.Projects.allUsers(repository.id),
+            ),
+        );
+        const users = userArrays.flat();
 
         // Removing duplicates based on a unique identifier, such as 'id'
         const uniqueUsersMap = new Map();
