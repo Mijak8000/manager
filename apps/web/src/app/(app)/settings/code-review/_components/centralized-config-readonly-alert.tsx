@@ -18,6 +18,7 @@ const readOnlyPages = new Set([
     "custom-prompts",
     "suggestion-control",
     "pr-summary",
+    "kody-rules",
 ]);
 
 export function CentralizedConfigReadOnlyAlert() {
