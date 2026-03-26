@@ -46,7 +46,7 @@ echo "============================================================"
 echo "Run: $RUN_NAME | PRs: $TOTAL_PRS"
 echo ""
 
-# Clean pipeline
+# Clean pipeline + MongoDB benchmark PRs
 echo "▸ Cleaning pipeline..."
 docker exec db_postgres psql -U kodusdev -d kodus_db -c \
   "DELETE FROM kodus_workflow.inbox_messages WHERE status = 'PROCESSING';" -q 2>/dev/null || true
@@ -54,7 +54,11 @@ docker exec db_postgres psql -U kodusdev -d kodus_db -c \
   "DELETE FROM kodus_workflow.outbox_messages WHERE status IN ('READY','PROCESSING','FAILED');" -q 2>/dev/null || true
 docker exec rabbitmq rabbitmqctl purge_queue -p kodus-ai workflow.jobs.code_review.queue 2>/dev/null || true
 docker exec rabbitmq rabbitmqctl purge_queue -p kodus-ai workflow.jobs.webhook.queue 2>/dev/null || true
-echo "  ✓ Pipeline cleaned"
+
+# Delete ALL PRs from MongoDB to avoid stale data matching
+DELETED=$(docker exec mongodb mongosh -u kodusdev -p 123456 --authenticationDatabase admin kodus_db --quiet --eval \
+  "var r = db.pullRequests.deleteMany({}); print(r.deletedCount)" 2>/dev/null || echo 0)
+echo "  ✓ Pipeline cleaned (removed $DELETED PRs from MongoDB)"
 
 # Restart worker
 echo "▸ Restarting worker..."

@@ -103,18 +103,18 @@ for (const entry of manifest.prs) {
   let prData = null;
 
   if (entry.prNumber) {
-    // Use exact PR number from manifest
+    // Use exact PR number + repo name from manifest
     try {
-      const query = 'JSON.stringify(db.pullRequests.findOne({number: ' + entry.prNumber + '}, {number: 1, files: 1}))';
+      const query = 'JSON.stringify(db.pullRequests.findOne({number: ' + entry.prNumber + ', \"repository.name\": \"' + entry.repo + '\"}, {number: 1, files: 1}))';
       const raw = mongoCmd(query);
       prData = JSON.parse(raw);
     } catch {}
   }
 
   if (!prData) {
-    // Fallback: find by branch (most recent with suggestions)
+    // Fallback: find by branch + repo (most recent with suggestions)
     try {
-      const query = 'var pr = db.pullRequests.find({headBranchRef: \"' + entry.head + '\", \"files.suggestions.0\": {\"\$exists\": true}}).sort({updatedAt: -1}).limit(1).toArray()[0]; pr = pr || db.pullRequests.find({headBranchRef: \"' + entry.head + '\"}).sort({updatedAt: -1}).limit(1).toArray()[0]; JSON.stringify(pr)';
+      const query = 'var pr = db.pullRequests.find({headBranchRef: \"' + entry.head + '\", \"repository.name\": \"' + entry.repo + '\", \"files.suggestions.0\": {\"\$exists\": true}}).sort({updatedAt: -1}).limit(1).toArray()[0]; pr = pr || db.pullRequests.find({headBranchRef: \"' + entry.head + '\", \"repository.name\": \"' + entry.repo + '\"}).sort({updatedAt: -1}).limit(1).toArray()[0]; JSON.stringify(pr)';
       const raw = mongoCmd(query);
       prData = JSON.parse(raw);
     } catch {}
