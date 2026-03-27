@@ -30,10 +30,7 @@ import { ParametersKey } from '@libs/core/domain/enums/parameters-key.enum';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { PullRequestState } from '@libs/core/domain/enums/pullRequestState.enum';
 import { STATUS } from '@libs/core/infrastructure/config/types/database/status.type';
-import {
-    CodeReviewConfig,
-    ReviewCadenceType,
-} from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { CodeReviewConfig } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { ConfigLevel } from '@libs/core/infrastructure/config/types/general/pullRequestMessages.type';
 import {
@@ -420,65 +417,54 @@ export class CheckIfPRCanBeApprovedCronProvider {
             prNumber: prNumber,
         };
 
-        const isAutomaticReview =
-            !codeReviewConfig?.reviewCadence ||
-            codeReviewConfig.reviewCadence.type === ReviewCadenceType.AUTOMATIC;
+        const lastExecution =
+            await this.automationExecutionService.findLatestExecutionByFilters({
+                status: AutomationStatus.SUCCESS,
+                teamAutomation: { uuid: teamAutomationId },
+                pullRequestNumber: prNumber,
+                repositoryId: repository?.id,
+            });
 
-        if (isAutomaticReview) {
-            const lastExecution =
-                await this.automationExecutionService.findLatestExecutionByFilters(
+        const lastAnalyzedCommitSha = this.getLastAnalyzedCommitSha(
+            lastExecution?.dataExecution?.lastAnalyzedCommit,
+        );
+
+        if (lastAnalyzedCommitSha) {
+            const currentPullRequest =
+                await this.codeManagementService.getPullRequest(
                     {
-                        status: AutomationStatus.SUCCESS,
-                        teamAutomation: { uuid: teamAutomationId },
-                        pullRequestNumber: prNumber,
-                        repositoryId: repository?.id,
+                        organizationAndTeamData,
+                        repository: {
+                            id: repository?.id,
+                            name: repository?.name,
+                        },
+                        prNumber: prNumber,
                     },
+                    platformType,
                 );
 
-            const lastAnalyzedCommitSha = this.getLastAnalyzedCommitSha(
-                lastExecution?.dataExecution?.lastAnalyzedCommit,
-            );
+            const currentHeadSha =
+                currentPullRequest?.head?.sha ||
+                (currentPullRequest as any)?.headSha ||
+                (currentPullRequest as any)?.head?.commit?.sha;
 
-            if (lastAnalyzedCommitSha) {
-                const currentPullRequest =
-                    await this.codeManagementService.getPullRequest(
-                        {
-                            organizationAndTeamData,
-                            repository: {
-                                id: repository?.id,
-                                name: repository?.name,
-                            },
-                            prNumber: prNumber,
+            if (currentHeadSha && currentHeadSha !== lastAnalyzedCommitSha) {
+                this.logger.log({
+                    message: `Skipping approval for PR#${prNumber} due to new commit since last reviewed commit`,
+                    context: CheckIfPRCanBeApprovedCronProvider.name,
+                    metadata: {
+                        organizationAndTeamData,
+                        repository: {
+                            id: repository?.id,
+                            name: repository?.name,
                         },
-                        platformType,
-                    );
+                        prNumber,
+                        lastAnalyzedCommitSha,
+                        currentHeadSha,
+                    },
+                });
 
-                const currentHeadSha =
-                    currentPullRequest?.head?.sha ||
-                    (currentPullRequest as any)?.headSha ||
-                    (currentPullRequest as any)?.head?.commit?.sha;
-
-                if (
-                    currentHeadSha &&
-                    currentHeadSha !== lastAnalyzedCommitSha
-                ) {
-                    this.logger.log({
-                        message: `Skipping approval for PR#${prNumber} due to new commit since last reviewed commit`,
-                        context: CheckIfPRCanBeApprovedCronProvider.name,
-                        metadata: {
-                            organizationAndTeamData,
-                            repository: {
-                                id: repository?.id,
-                                name: repository?.name,
-                            },
-                            prNumber,
-                            lastAnalyzedCommitSha,
-                            currentHeadSha,
-                        },
-                    });
-
-                    return false;
-                }
+                return false;
             }
         }
 
