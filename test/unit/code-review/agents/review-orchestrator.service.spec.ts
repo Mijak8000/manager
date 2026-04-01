@@ -41,7 +41,6 @@ describe('ReviewOrchestratorService', () => {
         prNumber: 42,
         repositoryFullName: 'org/repo',
         languageResultPrompt: 'en-US',
-        bugReplicas: 1,
     };
 
     beforeEach(() => {

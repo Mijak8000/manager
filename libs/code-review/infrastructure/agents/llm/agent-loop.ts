@@ -81,7 +81,7 @@ import {
 const logger = createLogger('AgentLoop');
 
 const MAX_STEPS = 35;
-const AGENT_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes max per agent — some models need 30+ tool calls
+const AGENT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes max per agent
 
 /** Schema for structured output */
 const suggestionSchema = z.object({
@@ -760,6 +760,26 @@ Respond with ONLY the JSON:
         coverageSummary = getCoverageSummary(coverageTargets);
     }
 
+    const synthesisRescue = await runSynthesisRescuePass({
+        input,
+        findings,
+        allToolCalls,
+        totalInputTokens,
+        totalOutputTokens,
+        totalReasoningTokens,
+    });
+
+    totalInputTokens = synthesisRescue.totalInputTokens;
+    totalOutputTokens = synthesisRescue.totalOutputTokens;
+    totalReasoningTokens = synthesisRescue.totalReasoningTokens;
+
+    if (synthesisRescue.findings) {
+        findings = mergeFindings(findings, synthesisRescue.findings);
+        if (source === 'empty' && synthesisRescue.findings.suggestions.length) {
+            source = 'json-parse';
+        }
+    }
+
     if (findings.suggestions.length > 0) {
         const verificationResult = await verifyFindingsWithTools({
             findings,
@@ -1145,6 +1165,171 @@ Instructions:
     }
 }
 
+async function runSynthesisRescuePass(params: {
+    input: AgentLoopInput;
+    findings: FindingsOutput;
+    allToolCalls: AgentLoopOutput['toolCalls'];
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalReasoningTokens: number;
+}): Promise<{
+    findings: FindingsOutput | null;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalReasoningTokens: number;
+}> {
+    const {
+        input,
+        findings,
+        allToolCalls,
+        totalInputTokens,
+        totalOutputTokens,
+        totalReasoningTokens,
+    } = params;
+
+    const currentFindingsSummary = findings.suggestions.length
+        ? findings.suggestions
+              .map((suggestion, index) =>
+                  [
+                      `${index + 1}. ${suggestion.relevantFile}`,
+                      suggestion.oneSentenceSummary ||
+                          truncateText(suggestion.suggestionContent, 220),
+                  ].join(' :: '),
+              )
+              .join('\n')
+        : 'No findings reported yet.';
+
+    const inspectedFilesSummary =
+        allToolCalls.length > 0
+            ? [...new Set(buildToolEvidenceSummary(allToolCalls).strongFiles)]
+                  .slice(0, 24)
+                  .join('\n')
+            : 'No files were read.';
+
+    const investigationSummary = allToolCalls
+        .slice(-20)
+        .map((toolCall) => {
+            const args =
+                typeof toolCall.args === 'string'
+                    ? toolCall.args
+                    : JSON.stringify(toolCall.args);
+            return `${toolCall.toolName || toolCall.tool}(${args.substring(0, 180)}) => ${truncateText(toolCall.result || '(empty)', 240)}`;
+        })
+        .join('\n');
+
+    try {
+        const synthesisResult = await generateText({
+            model: input.model,
+            experimental_telemetry: {
+                isEnabled: true,
+                functionId: `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
+            },
+            providerOptions: buildLangSmithProviderOptions(
+                `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
+                input.telemetryMetadata,
+            ),
+            system:
+                input.systemPrompt +
+                '\n\nIMPORTANT: This is a synthesis pass, not an exploration pass. Do NOT call tools. Re-evaluate the diff, call graph, inspected files, and current findings to detect at most one concrete missed bug.',
+            prompt: `${input.userPrompt}
+
+<AlreadyInspectedFiles>
+${inspectedFilesSummary}
+</AlreadyInspectedFiles>
+
+<RecentInvestigation>
+${investigationSummary || 'No tool calls captured.'}
+</RecentInvestigation>
+
+<CurrentFindings>
+${currentFindingsSummary}
+</CurrentFindings>
+
+Your task:
+- Re-think the review based on the context above.
+- Do not add variants or restatements of existing findings.
+- Do not add speculative risks.
+- If there are concrete missed bugs, return them.
+- If there is no clearly missed bug, return an empty suggestions array.
+
+Return ONLY JSON:
+\`\`\`json
+{
+  "reasoning": "why there are or aren't concrete missed bugs",
+  "suggestions": [
+    {
+      "relevantFile": "path/to/file",
+      "language": "ts",
+      "suggestionContent": "describe the missed issue concretely",
+      "existingCode": "problematic code",
+      "improvedCode": "fix",
+      "oneSentenceSummary": "brief summary",
+      "relevantLinesStart": 10,
+      "relevantLinesEnd": 12,
+      "severity": "critical|high|medium|low"
+    }
+  ]
+}
+\`\`\``,
+            stopWhen: stepCountIs(1),
+        });
+
+        const synthesisText = synthesisResult.text || '';
+        let extraFindings = tryParseFindings(synthesisText);
+
+        if (!extraFindings && synthesisText.length > 50) {
+            const fallbackResult = await structureWithFallbackModel(
+                synthesisText,
+                input.byokConfig,
+            );
+            if (fallbackResult) {
+                extraFindings = fallbackResult.findings;
+                totalInputTokens += fallbackResult.usage.inputTokens;
+                totalOutputTokens += fallbackResult.usage.outputTokens;
+                totalReasoningTokens += fallbackResult.usage.reasoningTokens;
+            }
+        }
+
+        const usage =
+            synthesisResult.usage ?? (synthesisResult as any).totalUsage;
+        totalInputTokens += usage?.inputTokens ?? 0;
+        totalOutputTokens += usage?.outputTokens ?? 0;
+        totalReasoningTokens += usage?.reasoningTokens ?? 0;
+
+        logger.log({
+            message: `[AGENT-SYNTHESIS-RESCUE] before=${findings.suggestions.length} added=${extraFindings?.suggestions.length ?? 0}`,
+            context: 'AgentLoop',
+            metadata: {
+                currentFindings: findings.suggestions.length,
+                addedFindings: extraFindings?.suggestions.length ?? 0,
+                inspectedFiles: inspectedFilesSummary
+                    .split('\n')
+                    .filter(Boolean).length,
+                textPreview: truncateText(synthesisText, 320),
+            },
+        });
+
+        return {
+            findings: extraFindings,
+            totalInputTokens,
+            totalOutputTokens,
+            totalReasoningTokens,
+        };
+    } catch (error) {
+        logger.warn({
+            message: `[AGENT-SYNTHESIS-RESCUE] Failed: ${error instanceof Error ? error.message : String(error)}`,
+            context: 'AgentLoop',
+        });
+
+        return {
+            findings: null,
+            totalInputTokens,
+            totalOutputTokens,
+            totalReasoningTokens,
+        };
+    }
+}
+
 function mergeFindings(
     base: FindingsOutput,
     extra: FindingsOutput,
@@ -1490,10 +1675,20 @@ Rules:
 - Use tools to confirm or refute the candidate finding.
 - Treat call graph hints as fast navigation hints, not as final proof.
 - You must NOT create a new finding unrelated to the candidate.
-- Drop a finding only if you found concrete evidence against it.
-- If you confirm it, or if you cannot refute it within the budget, keep it.
-- "I couldn't prove it" is NOT enough to drop.
 - Do NOT rewrite the finding text, summary, severity, or suggested fix.
+
+Drop criteria — drop the finding if ANY of these apply:
+- The finding is speculative: it describes a theoretical concern without pointing to a concrete failure path in the changed code (e.g. "lacks rate limiting", "could cause performance issues", "consider adding validation").
+- The finding describes a pre-existing pattern that is NOT made worse by this PR.
+- The finding is about code style, naming, documentation, or best practices rather than a concrete bug.
+- The root cause described is factually wrong (e.g. claims something is not imported when it is).
+
+Keep criteria — keep the finding only if ALL of these apply:
+- The finding identifies a concrete defect: wrong behavior, crash, data corruption, or security vulnerability.
+- The root cause is in lines added or modified by this PR.
+- You can trace a specific failure path from the changed code to the bad outcome.
+
+When in doubt between a speculative concern and a real bug, DROP. Precision matters more than recall at this stage — a downstream reviewer exists.
 
 Return JSON only at the end.`,
         prompt: `${evidenceBundle.bundle}

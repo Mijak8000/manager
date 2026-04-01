@@ -218,7 +218,9 @@ export class LocalSandboxService implements ISandboxProvider {
                 // This runs on the host machine (no container isolation),
                 // so we must prevent arbitrary command execution.
                 const ALLOWED_PROGRAMS = new Set([
-                    'sg', // ast-grep
+                    'sg', // ast-grep (macOS/homebrew)
+                    'ast-grep', // ast-grep (npm global)
+                    'code-review-graph', // tree-sitter call graph builder
                     'tsc', // TypeScript compiler
                     'npx', // npx (further validated by tool-level whitelist)
                     'eslint',

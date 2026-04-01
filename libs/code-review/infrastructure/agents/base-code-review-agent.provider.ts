@@ -42,6 +42,9 @@ export interface ReviewAgentIdentity {
  */
 export interface AgentProgressEvent {
     agentName: string;
+    agentCategory?: string;
+    agentReplicaIndex?: number;
+    agentReplicaTotal?: number;
     status: 'started' | 'investigating' | 'completed' | 'error';
     step?: number;
     toolCalls?: Array<{ tool: string; args: string; durationMs?: number }>;
@@ -52,6 +55,14 @@ export interface AgentProgressEvent {
     finishReason?: 'stop' | 'timeout' | 'max-steps' | 'error';
     /** How findings were obtained — 'json-parse' (normal), 'second-chance', 'generate-object' (fallback LLM), 'empty' */
     source?: string;
+    suggestionsPreview?: Array<{
+        relevantFile?: string;
+        relevantLinesStart?: number;
+        relevantLinesEnd?: number;
+        oneSentenceSummary?: string;
+        severity?: string;
+        level?: string;
+    }>;
     coverage?: CoverageSummary;
     verification?: VerificationTraceSummary | null;
     anomalies?: AgentAnomalySummary;
@@ -77,6 +88,11 @@ export interface ReviewAgentInput {
     baseBranch?: string;
     /** Pre-computed call graph for changed functions. Generated once, shared across agents. */
     callGraph?: string;
+    /** Optional runtime alias used to distinguish replicated agent runs in traces. */
+    agentRuntimeName?: string;
+    /** Optional replica metadata for replicated agent runs. */
+    agentReplicaIndex?: number;
+    agentReplicaTotal?: number;
 }
 
 /**
@@ -85,6 +101,9 @@ export interface ReviewAgentInput {
 export interface ReviewAgentOutput {
     suggestions: Partial<CodeSuggestion>[];
     agentName: string;
+    agentCategory?: string;
+    agentReplicaIndex?: number;
+    agentReplicaTotal?: number;
     turnsUsed: number;
     durationMs: number;
 }
@@ -121,7 +140,12 @@ export abstract class BaseCodeReviewAgentProvider {
      */
     async execute(input: ReviewAgentInput): Promise<ReviewAgentOutput> {
         const startTime = Date.now();
-        const identity = this.getIdentity();
+        const baseIdentity = this.getIdentity();
+        const identity: ReviewAgentIdentity = {
+            ...baseIdentity,
+            name: input.agentRuntimeName || baseIdentity.name,
+        };
+        const agentCategory = this.getCategoryLabel();
 
         this.agentLogger.log({
             message: `[AGENT] Starting ${identity.name} for PR#${input.prNumber}`,
@@ -159,6 +183,9 @@ export abstract class BaseCodeReviewAgentProvider {
         // Emit progress: agent started
         input.onAgentProgress?.({
             agentName: identity.name,
+            agentCategory,
+            agentReplicaIndex: input.agentReplicaIndex,
+            agentReplicaTotal: input.agentReplicaTotal,
             status: 'started',
         });
 
@@ -218,6 +245,9 @@ export abstract class BaseCodeReviewAgentProvider {
                     ) {
                         input.onAgentProgress?.({
                             agentName: identity.name,
+                            agentCategory,
+                            agentReplicaIndex: input.agentReplicaIndex,
+                            agentReplicaTotal: input.agentReplicaTotal,
                             status: 'investigating',
                             step: stepCount,
                             toolCalls: [...recentToolCalls],
@@ -324,6 +354,9 @@ export abstract class BaseCodeReviewAgentProvider {
 
             input.onAgentProgress?.({
                 agentName: identity.name,
+                agentCategory,
+                agentReplicaIndex: input.agentReplicaIndex,
+                agentReplicaTotal: input.agentReplicaTotal,
                 status: hitHardLimit ? 'error' : 'completed',
                 findings: suggestions.length,
                 durationMs,
@@ -339,6 +372,14 @@ export abstract class BaseCodeReviewAgentProvider {
                 coverage: agentResult.coverage,
                 verification: agentResult.verification,
                 anomalies: agentResult.anomalies,
+                suggestionsPreview: suggestions.slice(0, 10).map((s) => ({
+                    relevantFile: s.relevantFile,
+                    relevantLinesStart: s.relevantLinesStart,
+                    relevantLinesEnd: s.relevantLinesEnd,
+                    oneSentenceSummary: s.oneSentenceSummary,
+                    severity: s.severity,
+                    level: s.level,
+                })),
                 toolCalls: agentResult.toolCalls.map((tc) => ({
                     tool: tc.toolName || tc.tool,
                     args: JSON.stringify(tc.args).substring(0, 100),
@@ -371,6 +412,9 @@ export abstract class BaseCodeReviewAgentProvider {
             return {
                 suggestions,
                 agentName: identity.name,
+                agentCategory,
+                agentReplicaIndex: input.agentReplicaIndex,
+                agentReplicaTotal: input.agentReplicaTotal,
                 turnsUsed: agentResult.steps,
                 durationMs,
             };
@@ -378,6 +422,9 @@ export abstract class BaseCodeReviewAgentProvider {
             const durationMs = Date.now() - startTime;
             input.onAgentProgress?.({
                 agentName: identity.name,
+                agentCategory,
+                agentReplicaIndex: input.agentReplicaIndex,
+                agentReplicaTotal: input.agentReplicaTotal,
                 status: 'error',
                 durationMs,
             });
@@ -398,6 +445,9 @@ export abstract class BaseCodeReviewAgentProvider {
             return {
                 suggestions: [],
                 agentName: identity.name,
+                agentCategory,
+                agentReplicaIndex: input.agentReplicaIndex,
+                agentReplicaTotal: input.agentReplicaTotal,
                 turnsUsed: 0,
                 durationMs,
             };

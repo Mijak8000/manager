@@ -38,8 +38,23 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNS_DIR="$SCRIPT_DIR/runs"
 BENCHMARK_OWNER="${BENCHMARK_OWNER:-ai-code-review-benchmark}"
+BASE_ENV_FILE="${ENV_FILE:-.env}"
 mkdir -p "$RUNS_DIR"
 WORKER=$(docker ps --format '{{.Names}}' | grep worker | head -1)
+WORKER="${WORKER:-kodus_worker}"
+
+if [[ "$BASE_ENV_FILE" = /* ]]; then
+  SOURCE_ENV_FILE="$BASE_ENV_FILE"
+else
+  SOURCE_ENV_FILE="$REPO_DIR/$BASE_ENV_FILE"
+fi
+
+if [ ! -f "$SOURCE_ENV_FILE" ]; then
+  echo "Environment file '$SOURCE_ENV_FILE' not found"
+  exit 1
+fi
+
+RUNTIME_ENV_FILE="/tmp/kodus-benchmark-${RUN_NAME}.env"
 
 echo "============================================================"
 echo "Benchmark — Create PRs"
@@ -62,10 +77,12 @@ DELETED=$(docker exec mongodb mongosh -u kodusdev -p 123456 --authenticationData
   "var r = db.pullRequests.deleteMany({}); print(r.deletedCount)" 2>/dev/null || echo 0)
 echo "  ✓ Pipeline cleaned (removed $DELETED PRs from MongoDB)"
 
-# Restart worker
-echo "▸ Restarting worker..."
+# Recreate worker with benchmark-specific env overrides
+echo "▸ Recreating worker..."
+cp "$SOURCE_ENV_FILE" "$RUNTIME_ENV_FILE"
+ENV_FILE="$RUNTIME_ENV_FILE" docker compose -f "$REPO_DIR/docker-compose.dev.yml" --profile local-db up -d --force-recreate worker db_postgres db_mongodb > /dev/null
+# Clear webpack cache AFTER recreate so it persists in the volume
 docker exec $WORKER rm -rf /usr/src/app/node_modules/.cache/webpack 2>/dev/null || true
-docker restart $WORKER > /dev/null 2>&1
 
 READY=0
 for _ in $(seq 1 18); do
@@ -82,9 +99,9 @@ for _ in $(seq 1 18); do
 done
 
 if [ "$READY" -eq 1 ]; then
-  echo "  ✓ Worker restarted and is healthy"
+  echo "  ✓ Worker recreated and is healthy"
 else
-  echo "  ✗ Worker failed to become healthy after restart"
+  echo "  ✗ Worker failed to become healthy after recreate"
   docker logs --since 2m $WORKER 2>&1 | tail -n 120
   exit 1
 fi
@@ -169,6 +186,7 @@ const manifest = {
   name: '$RUN_NAME',
   created: new Date().toISOString(),
   totalPrs: $TOTAL_PRS,
+  benchmarkConfig: {},
   prs,
 };
 

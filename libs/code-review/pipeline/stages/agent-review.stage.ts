@@ -24,7 +24,12 @@ import {
     resolveKodyRuleSeverityLevel,
     SeverityLevel,
 } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
-import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
+import {
+    CodeReviewPipelineContext,
+    DedupTraceGroupSummary,
+    DedupTraceSuggestionSummary,
+    DedupTraceSummary,
+} from '../context/code-review-pipeline.context';
 import { DocumentationSearchAdapter } from '@libs/code-review/infrastructure/agents/llm/agent-tools.factory';
 import { DeliveryStatus } from '@libs/platformData/domain/pullRequests/enums/deliveryStatus.enum';
 
@@ -172,6 +177,22 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
 
     private readonly logger = createLogger(AgentReviewStage.name);
 
+    private summarizeDedupSuggestion(
+        suggestion?: Partial<CodeSuggestion>,
+    ): DedupTraceSuggestionSummary {
+        return {
+            relevantFile: suggestion?.relevantFile,
+            relevantLinesStart: suggestion?.relevantLinesStart,
+            relevantLinesEnd: suggestion?.relevantLinesEnd,
+            label: suggestion?.label,
+            severity: suggestion?.severity,
+            level: suggestion?.level,
+            oneSentenceSummary:
+                suggestion?.oneSentenceSummary ||
+                suggestion?.suggestionContent?.substring(0, 200),
+        };
+    }
+
     constructor(
         private readonly reviewOrchestrator: ReviewOrchestratorService,
         private readonly observabilityService: ObservabilityService,
@@ -270,6 +291,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             prNumber,
                             callGraphChars: callGraph.length,
                             callGraphPreview: callGraph.substring(0, 320),
+                            callGraphTail: callGraph.length > 320 ? callGraph.substring(callGraph.length - 500) : '',
                         },
                     });
                 } else {
@@ -336,6 +358,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     suggestionsCount: result.suggestions.length,
                     agentResults: result.agentResults.map((r) => ({
                         agent: r.agentName,
+                        category: r.agentCategory,
+                        replicaIndex: r.agentReplicaIndex,
+                        replicaTotal: r.agentReplicaTotal,
                         suggestions: r.suggestions.length,
                         turns: r.turnsUsed,
                         durationMs: r.durationMs,
@@ -434,19 +459,53 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             );
 
             let dedupedNonRules = nonKodyRulesForDedup;
+            let dedupTrace: DedupTraceSummary = {
+                status:
+                    nonKodyRulesForDedup.length <= 1 ? 'skipped' : 'success',
+                totalClassifiedCount: classified.length,
+                kodyRulesSkippedCount: kodyRulesForDedup.length,
+                nonKodyInputCount: nonKodyRulesForDedup.length,
+                nonKodyOutputCount: nonKodyRulesForDedup.length,
+                finalOutputCount: classified.length,
+                uniqueCount: nonKodyRulesForDedup.length,
+                groupsCount: 0,
+                removedCount: 0,
+                unique: nonKodyRulesForDedup.map((suggestion) =>
+                    this.summarizeDedupSuggestion(suggestion),
+                ),
+            };
             try {
-                dedupedNonRules = await this.deduplicateSuggestions(
+                const dedupResult = await this.deduplicateSuggestions(
                     nonKodyRulesForDedup,
                     prNumber,
                     context.codeReviewConfig?.byokConfig,
                     telemetryMeta,
                 );
+                dedupedNonRules = dedupResult.suggestions;
+                dedupTrace = {
+                    ...dedupResult.trace,
+                    totalClassifiedCount: classified.length,
+                    kodyRulesSkippedCount: kodyRulesForDedup.length,
+                    nonKodyInputCount: nonKodyRulesForDedup.length,
+                    nonKodyOutputCount: dedupResult.suggestions.length,
+                    finalOutputCount:
+                        dedupResult.suggestions.length +
+                        kodyRulesForDedup.length,
+                };
             } catch (dedupError) {
                 this.logger.warn({
                     message: `[DEDUP] Failed for PR#${prNumber}, keeping all suggestions`,
                     context: this.stageName,
                     error: dedupError,
                 });
+                dedupTrace = {
+                    ...dedupTrace,
+                    status: 'failed-keep-all',
+                    errorMessage:
+                        dedupError instanceof Error
+                            ? dedupError.message
+                            : String(dedupError),
+                };
             }
 
             const deduped = [...dedupedNonRules, ...kodyRulesForDedup];
@@ -559,6 +618,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     );
                 }
 
+                draft.dedupTrace = dedupTrace;
                 draft.validSuggestions = deduped;
             });
         } catch (error) {
@@ -789,14 +849,54 @@ ${summaries}
         prNumber: number,
         byokConfig?: any,
         telemetryMeta?: LangSmithTelemetryMetadata,
-    ): Promise<Partial<CodeSuggestion>[]> {
-        if (suggestions.length <= 1) return suggestions;
+    ): Promise<{
+        suggestions: Partial<CodeSuggestion>[];
+        trace: DedupTraceSummary;
+    }> {
+        if (suggestions.length <= 1) {
+            return {
+                suggestions,
+                trace: {
+                    status: 'skipped',
+                    totalClassifiedCount: suggestions.length,
+                    kodyRulesSkippedCount: 0,
+                    nonKodyInputCount: suggestions.length,
+                    nonKodyOutputCount: suggestions.length,
+                    finalOutputCount: suggestions.length,
+                    uniqueCount: suggestions.length,
+                    groupsCount: 0,
+                    removedCount: 0,
+                    unique: suggestions.map((suggestion) =>
+                        this.summarizeDedupSuggestion(suggestion),
+                    ),
+                },
+            };
+        }
 
         // Use Gemini 3 Flash for dedup — excellent structured output + code understanding
         const googleKey =
             process.env.API_GOOGLE_AI_API_KEY ||
             process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-        if (!googleKey) return suggestions;
+        if (!googleKey) {
+            return {
+                suggestions,
+                trace: {
+                    status: 'failed-keep-all',
+                    totalClassifiedCount: suggestions.length,
+                    kodyRulesSkippedCount: 0,
+                    nonKodyInputCount: suggestions.length,
+                    nonKodyOutputCount: suggestions.length,
+                    finalOutputCount: suggestions.length,
+                    uniqueCount: suggestions.length,
+                    groupsCount: 0,
+                    removedCount: 0,
+                    errorMessage: 'Missing Google AI API key for dedup',
+                    unique: suggestions.map((suggestion) =>
+                        this.summarizeDedupSuggestion(suggestion),
+                    ),
+                },
+            };
+        }
 
         const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
         const model = createGoogleGenerativeAI({ apiKey: googleKey })(
@@ -928,15 +1028,36 @@ ${summaries}`,
                     message: `[DEDUP] PR#${prNumber}: LLM returned empty result, keeping all ${suggestions.length} suggestions`,
                     context: this.stageName,
                 });
-                return suggestions;
+                return {
+                    suggestions,
+                    trace: {
+                        status: 'empty-keep-all',
+                        totalClassifiedCount: suggestions.length,
+                        kodyRulesSkippedCount: 0,
+                        nonKodyInputCount: suggestions.length,
+                        nonKodyOutputCount: suggestions.length,
+                        finalOutputCount: suggestions.length,
+                        uniqueCount: 0,
+                        groupsCount: 0,
+                        removedCount: 0,
+                        unique: suggestions.map((suggestion) =>
+                            this.summarizeDedupSuggestion(suggestion),
+                        ),
+                    },
+                };
             }
 
             const result: Partial<CodeSuggestion>[] = [];
+            const uniqueSuggestions: DedupTraceSuggestionSummary[] = [];
+            const groupSummaries: DedupTraceGroupSummary[] = [];
 
             // Add unique suggestions as-is
             for (const idx of unique) {
                 if (idx >= 0 && idx < suggestions.length) {
                     result.push(suggestions[idx]);
+                    uniqueSuggestions.push(
+                        this.summarizeDedupSuggestion(suggestions[idx]),
+                    );
                 }
             }
 
@@ -948,12 +1069,14 @@ ${summaries}`,
                 if (keepIdx < 0 || keepIdx >= suggestions.length) continue;
 
                 const kept = { ...suggestions[keepIdx] };
+                const duplicateSummaries: DedupTraceSuggestionSummary[] = [];
 
                 // Collect locations from duplicates that are in DIFFERENT locations
                 const otherLocations: string[] = [];
                 for (const dupIdx of dupIndices) {
                     if (dupIdx < 0 || dupIdx >= suggestions.length) continue;
                     const dup = suggestions[dupIdx];
+                    duplicateSummaries.push(this.summarizeDedupSuggestion(dup));
                     const dupLocation = `${dup.relevantFile}:${dup.relevantLinesStart}-${dup.relevantLinesEnd}`;
                     const keptLocation = `${kept.relevantFile}:${kept.relevantLinesStart}-${kept.relevantLinesEnd}`;
 
@@ -975,6 +1098,10 @@ ${summaries}`,
                     kept.suggestionContent = `${kept.suggestionContent}\n\n**Also found in:**\n${locationsList}`;
                 }
 
+                groupSummaries.push({
+                    keep: this.summarizeDedupSuggestion(kept),
+                    duplicates: duplicateSummaries,
+                });
                 result.push(kept);
             }
 
@@ -986,14 +1113,47 @@ ${summaries}`,
                 });
             }
 
-            return result;
+            return {
+                suggestions: result,
+                trace: {
+                    status: 'success',
+                    totalClassifiedCount: suggestions.length,
+                    kodyRulesSkippedCount: 0,
+                    nonKodyInputCount: suggestions.length,
+                    nonKodyOutputCount: result.length,
+                    finalOutputCount: result.length,
+                    uniqueCount: uniqueSuggestions.length,
+                    groupsCount: groupSummaries.length,
+                    removedCount: totalRemoved,
+                    groups: groupSummaries,
+                    unique: uniqueSuggestions,
+                },
+            };
         } catch (error) {
             this.logger.warn({
                 message: `[DEDUP] PR#${prNumber}: Failed, keeping all ${suggestions.length} suggestions`,
                 context: this.stageName,
                 error,
             });
-            return suggestions;
+            return {
+                suggestions,
+                trace: {
+                    status: 'failed-keep-all',
+                    totalClassifiedCount: suggestions.length,
+                    kodyRulesSkippedCount: 0,
+                    nonKodyInputCount: suggestions.length,
+                    nonKodyOutputCount: suggestions.length,
+                    finalOutputCount: suggestions.length,
+                    uniqueCount: suggestions.length,
+                    groupsCount: 0,
+                    removedCount: 0,
+                    errorMessage:
+                        error instanceof Error ? error.message : String(error),
+                    unique: suggestions.map((suggestion) =>
+                        this.summarizeDedupSuggestion(suggestion),
+                    ),
+                },
+            };
         }
     }
 
@@ -1014,7 +1174,7 @@ ${summaries}`,
         >();
 
         return (event: AgentProgressEvent) => {
-            const stageName = `AgentReview::${event.agentName.replace('kodus-', '').replace('-review-agent', '')}`;
+            const stageName = this.getAgentStageName(event);
             const label = this.formatAgentLabel(event);
 
             // Fire-and-forget — don't block the agent loop
@@ -1032,10 +1192,26 @@ ${summaries}`,
         };
     }
 
+    private getAgentStageName(event: AgentProgressEvent): string {
+        const baseName =
+            event.agentCategory ||
+            event.agentName.replace('kodus-', '').replace('-review-agent', '');
+
+        if (
+            event.agentReplicaTotal &&
+            event.agentReplicaTotal > 1 &&
+            event.agentReplicaIndex
+        ) {
+            return `AgentReview::${baseName}-r${event.agentReplicaIndex}`;
+        }
+
+        return `AgentReview::${baseName}`;
+    }
+
     private formatAgentLabel(event: AgentProgressEvent): string {
-        const name = event.agentName
-            .replace('kodus-', '')
-            .replace('-review-agent', '');
+        const name =
+            event.agentCategory ||
+            event.agentName.replace('kodus-', '').replace('-review-agent', '');
         const icon =
             name === 'bug'
                 ? 'Bug'
@@ -1043,7 +1219,15 @@ ${summaries}`,
                   ? 'Security'
                   : name === 'rules'
                     ? 'Rules'
-                    : 'Performance';
+                    : name === 'kody_rules'
+                      ? 'Rules'
+                      : 'Performance';
+        const replicaSuffix =
+            event.agentReplicaTotal &&
+            event.agentReplicaTotal > 1 &&
+            event.agentReplicaIndex
+                ? ` #${event.agentReplicaIndex}/${event.agentReplicaTotal}`
+                : '';
 
         const duration = event.durationMs
             ? `in ${Math.round(event.durationMs / 1000)}s`
@@ -1051,9 +1235,9 @@ ${summaries}`,
 
         switch (event.status) {
             case 'started':
-                return `${icon} Agent — investigating...`;
+                return `${icon} Agent${replicaSuffix} — investigating...`;
             case 'investigating':
-                return `${icon} Agent — step ${event.step}, ${event.toolCalls?.length ?? 0} tool calls`;
+                return `${icon} Agent${replicaSuffix} — step ${event.step}, ${event.toolCalls?.length ?? 0} tool calls`;
             case 'completed': {
                 const suffix =
                     event.source === 'second-chance'
@@ -1061,19 +1245,19 @@ ${summaries}`,
                         : event.source === 'generate-object'
                           ? ' (structured by fallback)'
                           : '';
-                return `${icon} Agent — ${event.findings ?? 0} findings ${duration}${suffix}`;
+                return `${icon} Agent${replicaSuffix} — ${event.findings ?? 0} findings ${duration}${suffix}`;
             }
             case 'error': {
                 if (event.finishReason === 'timeout') {
-                    return `${icon} Agent — timed out after ${duration} (${event.step ?? 0} steps)`;
+                    return `${icon} Agent${replicaSuffix} — timed out after ${duration} (${event.step ?? 0} steps)`;
                 }
                 if (event.finishReason === 'max-steps') {
-                    return `${icon} Agent — hit step limit (${event.step ?? 0} steps, no findings)`;
+                    return `${icon} Agent${replicaSuffix} — hit step limit (${event.step ?? 0} steps, no findings)`;
                 }
-                return `${icon} Agent — failed ${duration}`;
+                return `${icon} Agent${replicaSuffix} — failed ${duration}`;
             }
             default:
-                return `${icon} Agent`;
+                return `${icon} Agent${replicaSuffix}`;
         }
     }
 
@@ -1111,12 +1295,16 @@ ${summaries}`,
         if (event.status === 'completed' || event.status === 'error') {
             const allCalls = agentToolCalls.get(event.agentName) || [];
             metadata.agentTrace = {
+                category: event.agentCategory,
+                replicaIndex: event.agentReplicaIndex,
+                replicaTotal: event.agentReplicaTotal,
                 steps: event.step,
                 findings: event.findings,
                 durationMs: event.durationMs,
                 totalTokens: event.totalTokens,
                 toolCalls: allCalls.slice(-30), // Keep last 30 to avoid huge payloads
                 toolSummary: this.summarizeToolCalls(allCalls),
+                suggestionsPreview: event.suggestionsPreview,
                 coverage: event.coverage,
                 verification: event.verification,
                 anomalies: event.anomalies,
