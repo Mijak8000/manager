@@ -12,6 +12,7 @@ import { RemoteCommands } from '@libs/code-review/infrastructure/adapters/servic
 import { ObservabilityService } from '@libs/core/log/observability.service';
 import { PermissionValidationService } from '@libs/ee/shared/services/permissionValidation.service';
 import { IKodyRule } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
+import { convertTiptapJSONToText } from '@libs/common/utils/tiptap-json';
 import { byokToVercelModel, getModelName } from './llm/byok-to-vercel';
 import {
     runAgentLoop,
@@ -23,6 +24,38 @@ import {
     CoverageSummary,
     formatCoverageTargetsForPrompt,
 } from './llm/coverage-ledger';
+
+const DEFAULT_SEVERITY_FLAGS = {
+    critical:
+        'Application crash/downtime. Data loss/corruption. Security breach. Critical operation failure.',
+    high: 'Important functionality broken. Memory leaks causing eventual crash. Performance degradation affecting UX.',
+    medium: 'Partially broken functionality. Performance issues in specific scenarios. Incorrect but recoverable data.',
+    low: 'Minor performance overhead. Incorrect metrics/logs. Rarely affecting few users. Edge-case issues.',
+} as const;
+
+function resolvePromptOverrideText(value: unknown): string {
+    if (value === undefined || value === null) {
+        return '';
+    }
+
+    if (typeof value === 'string') {
+        return convertTiptapJSONToText(value).trim();
+    }
+
+    if (typeof value === 'object') {
+        if ('value' in value) {
+            return resolvePromptOverrideText(
+                (value as { value?: unknown }).value,
+            );
+        }
+
+        return convertTiptapJSONToText(
+            value as Record<string, unknown>,
+        ).trim();
+    }
+
+    return '';
+}
 
 /**
  * Category-specific agent configuration provided by each concrete subclass.
@@ -688,6 +721,7 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
     - Concrete findings include build-time and contract failures too. If the diff introduces a signature mismatch, wrong delegate call, impossible method call, or dropped required side effect, you may report it even without a runtime trace.
     - For wrappers, middleware, providers, caches, and adapters, verify both behavior and wiring: the changed code may be wrong because it calls the wrong target, preserves the wrong cached semantics, or silently stops propagating tracing/logging/metrics/auth state.
     - For security flows, challenge any value that became static, shared, or reused across requests/users when it should be per-request, per-session, or per-principal.
+    - If the system prompt includes client-specific severity criteria, use those criteria when choosing critical/high/medium/low. Treat those criteria as authoritative over your default intuition.
     ${mixedLabelRules}
     ${mixedLabelLensRules}
     - Assign a confidence score (1-10) to each finding:
@@ -763,15 +797,13 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
         const descriptions = input.v2PromptOverrides?.categories?.descriptions;
         if (descriptions) {
             if (this.supportsMixedLabels()) {
-                const labels: Array<'bug' | 'security' | 'performance'> = [
-                    'bug',
-                    'security',
-                    'performance',
-                ];
+                const labels = this.getAllowedSuggestionLabels(input);
 
                 const mixedCategorySections = labels
                     .map((label) => {
-                        const value = descriptions[label];
+                        const value = resolvePromptOverrideText(
+                            descriptions[label],
+                        );
                         if (!value) return null;
 
                         const header =
@@ -787,21 +819,37 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
                 }
             } else {
                 const categoryLabel = this.getCategoryLabel();
-                const categoryDesc =
+                const categoryDesc = resolvePromptOverrideText(
                     descriptions[
                         categoryLabel as keyof typeof descriptions
-                    ];
+                    ],
+                );
                 if (categoryDesc) {
                     parts.push(`## Category Guidelines\n${categoryDesc}`);
                 }
             }
         }
 
-        // Level classification is done in a separate step after agent generation
-        // by GPT 5.4 mini (more consistent than letting the BYOK model classify)
+        const severityFlags = input.v2PromptOverrides?.severity?.flags;
+        if (
+            severityFlags &&
+            Object.values(severityFlags).some((value) => Boolean(value))
+        ) {
+            const severityGuidance = [
+                `### Critical\n${resolvePromptOverrideText(severityFlags.critical) || DEFAULT_SEVERITY_FLAGS.critical}`,
+                `### High\n${resolvePromptOverrideText(severityFlags.high) || DEFAULT_SEVERITY_FLAGS.high}`,
+                `### Medium\n${resolvePromptOverrideText(severityFlags.medium) || DEFAULT_SEVERITY_FLAGS.medium}`,
+                `### Low\n${resolvePromptOverrideText(severityFlags.low) || DEFAULT_SEVERITY_FLAGS.low}`,
+            ].join('\n\n');
 
-        const generationMain =
-            input.generationMain ?? input.v2PromptOverrides?.generation?.main;
+            parts.push(
+                `## Client Severity Criteria\nUse these criteria when assigning the final severity field for each finding.\n\n${severityGuidance}`,
+            );
+        }
+
+        const generationMain = resolvePromptOverrideText(
+            input.generationMain ?? input.v2PromptOverrides?.generation?.main,
+        );
         if (generationMain) {
             parts.push(`## Writing Guidelines\n${generationMain}`);
         }

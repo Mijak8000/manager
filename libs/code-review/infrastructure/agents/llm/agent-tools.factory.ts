@@ -1,4 +1,5 @@
 import { jsonSchema } from 'ai';
+import * as path from 'node:path';
 import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts.service';
 
 export const MAX_GREP_MATCHES = 100;
@@ -56,6 +57,61 @@ function addLineNumbers(content: string, baseLineNumber: number): string {
         .split('\n')
         .map((line, i) => `${baseLineNumber + i}: ${line}`)
         .join('\n');
+}
+
+function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function normalizeRepoPath(value: string): string {
+    return value.replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/$/, '');
+}
+
+function truncateShellOutput(output: string): string {
+    if (output.length <= MAX_SHELL_OUTPUT) return output;
+    return output.substring(0, MAX_SHELL_OUTPUT) + '\n... (truncated)';
+}
+
+function filterDiagnosticsToTarget(
+    output: string,
+    targetPath: string,
+    scopePath?: string,
+): string {
+    const normalizedTarget = normalizeRepoPath(targetPath || '.');
+    const targetBase = path.posix.basename(normalizedTarget);
+    const targetDir = path.posix.dirname(normalizedTarget);
+    const normalizedScope = scopePath ? normalizeRepoPath(scopePath) : '';
+    const scopeDir = normalizedScope
+        ? path.posix.dirname(normalizedScope)
+        : '';
+
+    const markers = [
+        normalizedTarget,
+        targetBase,
+        targetDir !== '.' ? `${targetDir}/` : '',
+        scopeDir && scopeDir !== '.' ? `${scopeDir}/` : '',
+    ].filter(Boolean);
+
+    const lines = output.split('\n');
+    const keep = new Set<number>();
+
+    for (let i = 0; i < lines.length; i++) {
+        if (!markers.some((marker) => lines[i].includes(marker))) {
+            continue;
+        }
+
+        keep.add(i);
+        if (i > 0) keep.add(i - 1);
+        if (i + 1 < lines.length) keep.add(i + 1);
+    }
+
+    if (keep.size === 0) return '';
+
+    return Array.from(keep)
+        .sort((a, b) => a - b)
+        .map((index) => lines[index])
+        .join('\n')
+        .trim();
 }
 
 /**
@@ -400,10 +456,91 @@ export function buildAgentTools(
     if (remoteCommands.exec) {
         const exec = remoteCommands.exec;
 
+        const findNearestProjectFile = async (
+            targetPath: string,
+            exactNames: string[] = [],
+            globPattern?: string,
+        ): Promise<string | null> => {
+            const normalizedTarget = normalizeRepoPath(targetPath || '.');
+            const exactChecks = exactNames
+                .map(
+                    (name) =>
+                        `if [ -f "$dir/${name}" ]; then printf '%s\\n' "$dir/${name}"; exit 0; fi`,
+                )
+                .join('\n');
+            const globCheck = globPattern
+                ? `
+match=$(find "$dir" -maxdepth 1 -type f -name ${shellQuote(globPattern)} | sort | head -1)
+if [ -n "$match" ]; then printf '%s\\n' "$match"; exit 0; fi`
+                : '';
+
+            const script = `
+target=${shellQuote(normalizedTarget || '.')}
+if [ -f "$target" ]; then
+  dir=$(dirname "$target")
+else
+  dir="$target"
+fi
+while true; do
+${exactChecks}
+${globCheck}
+  if [ "$dir" = "." ] || [ "$dir" = "/" ]; then
+    break
+  fi
+  next=$(dirname "$dir")
+  if [ "$next" = "$dir" ]; then
+    break
+  fi
+  dir="$next"
+done
+${exactNames
+    .map(
+        (name) =>
+            `if [ -f ${shellQuote(name)} ]; then printf '%s\\n' ${shellQuote(name)}; exit 0; fi`,
+    )
+    .join('\n')}
+`;
+
+            try {
+                const { stdout } = await exec(script);
+                return stdout?.trim() || null;
+            } catch {
+                return null;
+            }
+        };
+
+        const collectTargetFiles = async (
+            targetPath: string,
+            extension: string,
+            maxFiles: number,
+        ): Promise<string[]> => {
+            const normalizedTarget = normalizeRepoPath(targetPath || '.');
+            const safeTarget = shellQuote(normalizedTarget || '.');
+            const safePattern = shellQuote(`*${extension}`);
+            const script = `
+target=${safeTarget}
+if [ -f "$target" ]; then
+  printf '%s\\n' "$target"
+else
+  find "$target" -maxdepth 3 -type f -name ${safePattern} 2>/dev/null | head -${maxFiles}
+fi
+`;
+
+            try {
+                const { stdout } = await exec(script);
+                return stdout
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean);
+            } catch {
+                return [];
+            }
+        };
+
         tools.checkTypes = mkTool(
-            'Run type checker or linter on changed files. Auto-detects language and runs the appropriate tool ' +
-                '(mypy/py_compile for Python, go vet/go build for Go, tsc for TypeScript, dart analyze, cargo check, ' +
-                'php -l, ruby -c, javac, etc.). Use this early to find type errors, compile errors, and import issues.',
+            'Run a local type checker, compiler, or linter for a file or directory. Auto-detects language and scopes ' +
+                'checks to the nearest package/project when possible (for example nearest tsconfig, go.mod, Cargo.toml, or .csproj). ' +
+                'Use this to confirm concrete type errors, compile errors, wiring issues, and import problems.',
             {
                 type: 'object',
                 properties: {
@@ -415,91 +552,14 @@ export function buildAgentTools(
                 },
             },
             async (args: any) => {
-                const target = (args.path || '.').replace(/^\/+/, '') || '.';
-
-                const checks: Array<{
-                    lang: string;
-                    ext: string;
-                    cmds: string[];
-                }> = [
-                    {
-                        lang: 'Python',
-                        ext: '.py',
-                        cmds: [
-                            `python3 -m py_compile ${target.endsWith('.py') ? target : `$(find ${target} -name "*.py" -maxdepth 3 | head -10 | tr '\\n' ' ')`} 2>&1`,
-                            `mypy ${target} --no-error-summary --no-color 2>&1 | head -30`,
-                        ],
-                    },
-                    {
-                        lang: 'Go',
-                        ext: '.go',
-                        cmds: [
-                            `go vet ${target === '.' ? './...' : target} 2>&1 | head -30`,
-                            `go build -o /dev/null ${target === '.' ? './...' : target} 2>&1 | head -30`,
-                        ],
-                    },
-                    {
-                        lang: 'TypeScript',
-                        ext: '.ts',
-                        cmds: [`npx tsc --noEmit 2>&1 | head -40`],
-                    },
-                    {
-                        lang: 'Ruby',
-                        ext: '.rb',
-                        cmds: [
-                            `ruby -c ${target.endsWith('.rb') ? target : `$(find ${target} -name "*.rb" -maxdepth 3 | head -10 | tr '\\n' ' ')`} 2>&1 | grep -v "Syntax OK" | head -20`,
-                        ],
-                    },
-                    {
-                        lang: 'PHP',
-                        ext: '.php',
-                        cmds: [
-                            `php -l ${target.endsWith('.php') ? target : `$(find ${target} -name "*.php" -maxdepth 3 | head -10 | tr '\\n' ' ')`} 2>&1 | grep -v "No syntax errors" | head -20`,
-                        ],
-                    },
-                    {
-                        lang: 'Dart',
-                        ext: '.dart',
-                        cmds: [`dart analyze ${target} 2>&1 | head -30`],
-                    },
-                    {
-                        lang: 'Rust',
-                        ext: '.rs',
-                        cmds: [`cargo check 2>&1 | head -30`],
-                    },
-                    {
-                        lang: 'C#',
-                        ext: '.cs',
-                        cmds: [
-                            `dotnet build --no-restore 2>&1 | grep -E "error|warning" | head -30`,
-                        ],
-                    },
-                    {
-                        lang: 'Java',
-                        ext: '.java',
-                        cmds: [
-                            `javac -d /tmp/javaout ${target.endsWith('.java') ? target : `$(find ${target} -name "*.java" -maxdepth 3 | head -5 | tr '\\n' ' ')`} 2>&1 | head -30`,
-                        ],
-                    },
-                    {
-                        lang: 'Kotlin',
-                        ext: '.kt',
-                        cmds: [`kotlinc -script ${target} 2>&1 | head -20`],
-                    },
-                    {
-                        lang: 'Swift',
-                        ext: '.swift',
-                        cmds: [
-                            `swiftc -typecheck ${target.endsWith('.swift') ? target : `$(find ${target} -name "*.swift" -maxdepth 3 | head -5 | tr '\\n' ' ')`} 2>&1 | head -20`,
-                        ],
-                    },
-                ];
+                const target = normalizeRepoPath(args.path || '.') || '.';
+                const safeTarget = shellQuote(target);
 
                 // Detect which languages exist
                 let fileList: string;
                 try {
                     const { stdout } = await exec(
-                        `find ${target} -maxdepth 3 -type f 2>/dev/null | head -50`,
+                        `[ -f ${safeTarget} ] && printf '%s\\n' ${safeTarget} || find ${safeTarget} -maxdepth 3 -type f 2>/dev/null | head -50`,
                     );
                     fileList = stdout;
                 } catch {
@@ -507,23 +567,234 @@ export function buildAgentTools(
                 }
 
                 const results: string[] = [];
-                for (const check of checks) {
-                    if (!fileList.includes(check.ext)) {
-                        continue;
+
+                const pushScopedResult = (
+                    lang: string,
+                    scope: string,
+                    rawOutput: string,
+                ) => {
+                    const output = rawOutput?.trim();
+                    if (
+                        !output ||
+                        output.includes('command not found') ||
+                        output.includes('not found')
+                    ) {
+                        return;
                     }
-                    for (const cmd of check.cmds) {
+
+                    const filteredOutput = filterDiagnosticsToTarget(
+                        output,
+                        target,
+                        scope,
+                    );
+                    if (filteredOutput) {
+                        results.push(
+                            truncateShellOutput(
+                                `[${lang} — scope: ${scope}]\n${filteredOutput}`,
+                            ),
+                        );
+                        return;
+                    }
+
+                    results.push(
+                        `[${lang} — scope: ${scope}]\nNo diagnostics matched ${target}; omitted unrelated diagnostics outside this local scope.`,
+                    );
+                };
+
+                if (fileList.includes('.py')) {
+                    const files = await collectTargetFiles(target, '.py', 10);
+                    if (files.length > 0) {
+                        const quotedFiles = files.map(shellQuote).join(' ');
+                        try {
+                            const { stdout } = await exec(
+                                `python3 -m py_compile ${quotedFiles} 2>&1`,
+                            );
+                            pushScopedResult('Python', target, stdout);
+                        } catch {
+                            // py_compile not available, skip
+                        }
+                        try {
+                            const { stdout } = await exec(
+                                `mypy ${safeTarget} --no-error-summary --no-color 2>&1 | head -30`,
+                            );
+                            pushScopedResult('Python', target, stdout);
+                        } catch {
+                            // mypy not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.go')) {
+                    const scopeDir = target.endsWith('.go')
+                        ? path.posix.dirname(target)
+                        : target || '.';
+                    const packageScope =
+                        scopeDir && scopeDir !== '.'
+                            ? `./${scopeDir}`
+                            : '.';
+                    for (const cmd of [
+                        `go vet ${shellQuote(packageScope)} 2>&1 | head -30`,
+                        `go build -o /dev/null ${shellQuote(packageScope)} 2>&1 | head -30`,
+                    ]) {
                         try {
                             const { stdout } = await exec(cmd);
-                            const output = stdout?.trim();
-                            if (
-                                output &&
-                                !output.includes('command not found') &&
-                                !output.includes('not found')
-                            ) {
-                                results.push(`[${check.lang}]\n${output}`);
-                            }
+                            pushScopedResult('Go', packageScope, stdout);
                         } catch {
-                            // Linter not available, skip
+                            // go tool not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.ts')) {
+                    const tsconfig =
+                        (await findNearestProjectFile(target, [
+                            'tsconfig.json',
+                        ])) ||
+                        (await findNearestProjectFile(
+                            target,
+                            [],
+                            'tsconfig*.json',
+                        ));
+
+                    try {
+                        const { stdout } = await exec(
+                            tsconfig
+                                ? `npx tsc --noEmit -p ${shellQuote(tsconfig)} 2>&1 | head -40`
+                                : `npx tsc --noEmit --pretty false ${safeTarget} 2>&1 | head -40`,
+                        );
+                        pushScopedResult(
+                            'TypeScript',
+                            tsconfig || target,
+                            stdout,
+                        );
+                    } catch {
+                        // tsc not available, skip
+                    }
+                }
+
+                if (fileList.includes('.rb')) {
+                    const files = await collectTargetFiles(target, '.rb', 10);
+                    if (files.length > 0) {
+                        try {
+                            const { stdout } = await exec(
+                                `ruby -c ${files
+                                    .map(shellQuote)
+                                    .join(' ')} 2>&1 | grep -v "Syntax OK" | head -20`,
+                            );
+                            pushScopedResult('Ruby', target, stdout);
+                        } catch {
+                            // ruby not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.php')) {
+                    const files = await collectTargetFiles(target, '.php', 10);
+                    if (files.length > 0) {
+                        try {
+                            const { stdout } = await exec(
+                                `php -l ${files
+                                    .map(shellQuote)
+                                    .join(' ')} 2>&1 | grep -v "No syntax errors" | head -20`,
+                            );
+                            pushScopedResult('PHP', target, stdout);
+                        } catch {
+                            // php not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.dart')) {
+                    try {
+                        const { stdout } = await exec(
+                            `dart analyze ${safeTarget} 2>&1 | head -30`,
+                        );
+                        pushScopedResult('Dart', target, stdout);
+                    } catch {
+                        // dart not available, skip
+                    }
+                }
+
+                if (fileList.includes('.rs')) {
+                    const cargoToml = await findNearestProjectFile(target, [
+                        'Cargo.toml',
+                    ]);
+                    if (cargoToml) {
+                        try {
+                            const { stdout } = await exec(
+                                `cargo check --manifest-path ${shellQuote(cargoToml)} 2>&1 | head -30`,
+                            );
+                            pushScopedResult('Rust', cargoToml, stdout);
+                        } catch {
+                            // cargo not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.cs')) {
+                    const projectFile =
+                        (await findNearestProjectFile(
+                            target,
+                            [],
+                            '*.csproj',
+                        )) ||
+                        (await findNearestProjectFile(target, [], '*.sln'));
+                    if (projectFile) {
+                        try {
+                            const { stdout } = await exec(
+                                `dotnet build ${shellQuote(projectFile)} --no-restore 2>&1 | grep -E "error|warning" | head -30`,
+                            );
+                            pushScopedResult('C#', projectFile, stdout);
+                        } catch {
+                            // dotnet not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.java')) {
+                    const files = await collectTargetFiles(target, '.java', 5);
+                    if (files.length > 0) {
+                        try {
+                            const { stdout } = await exec(
+                                `javac -d /tmp/javaout ${files
+                                    .map(shellQuote)
+                                    .join(' ')} 2>&1 | head -30`,
+                            );
+                            pushScopedResult('Java', target, stdout);
+                        } catch {
+                            // javac not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.kt')) {
+                    const files = await collectTargetFiles(target, '.kt', 5);
+                    if (files.length > 0) {
+                        try {
+                            const { stdout } = await exec(
+                                `kotlinc ${files
+                                    .map(shellQuote)
+                                    .join(' ')} -d /tmp/kotlinc-out.jar 2>&1 | head -20`,
+                            );
+                            pushScopedResult('Kotlin', target, stdout);
+                        } catch {
+                            // kotlinc not available, skip
+                        }
+                    }
+                }
+
+                if (fileList.includes('.swift')) {
+                    const files = await collectTargetFiles(target, '.swift', 5);
+                    if (files.length > 0) {
+                        try {
+                            const { stdout } = await exec(
+                                `swiftc -typecheck ${files
+                                    .map(shellQuote)
+                                    .join(' ')} 2>&1 | head -20`,
+                            );
+                            pushScopedResult('Swift', target, stdout);
+                        } catch {
+                            // swiftc not available, skip
                         }
                     }
                 }
@@ -532,13 +803,7 @@ export function buildAgentTools(
                     return 'No type errors or linter issues found (or no supported linter available).';
                 }
 
-                let result = results.join('\n\n');
-                if (result.length > MAX_SHELL_OUTPUT) {
-                    result =
-                        result.substring(0, MAX_SHELL_OUTPUT) +
-                        '\n... (truncated)';
-                }
-                return result;
+                return truncateShellOutput(results.join('\n\n'));
             },
         );
     }
