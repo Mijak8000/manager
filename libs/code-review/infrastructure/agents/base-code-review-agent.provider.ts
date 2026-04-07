@@ -126,7 +126,7 @@ export interface ReviewAgentInput {
     /** Optional replica metadata for replicated agent runs. */
     agentReplicaIndex?: number;
     agentReplicaTotal?: number;
-    /** Review mode: 'normal' skips verify for high-confidence findings, 'deep' verifies everything. */
+    /** Review mode: 'normal' skips verify only for very-high-confidence findings, 'deep' verifies everything. */
     reviewMode?: 'normal' | 'deep';
     /** Optional per-agent step budget for the main investigation loop. */
     maxSteps?: number;
@@ -579,9 +579,12 @@ export abstract class BaseCodeReviewAgentProvider {
         c) If the changed method calls ANOTHER method, grep for THAT method too — read it. What does it actually return? Is it the right target?
         d) Keep following calls until you hit a concrete implementation or return value. Do NOT stop at the first layer.
         For interfaces/abstract methods, grep "implements X" or "extends X" to find concrete implementations.
+        e) Before every readFile call, identify the exact unanswered question that this read will answer.
+        f) Do not reread a highly overlapping range of the same file unless you have a new concrete question, such as a newly discovered symbol, a specific caller/callee to verify, or a branch not covered by the previous read.
+        g) Confidence-seeking rereads are a mistake. If the next read would mostly overlap with what you already saw and you cannot name a new question, do not make that read.
 
       Step 3: Read caller context. Understand HOW the changed code is used in production.
-        If available, use checkTypes to run the language's type checker on changed files.
+        If you have a concrete compile-time or contract hypothesis and checkTypes is available, you may use it to verify that hypothesis on the changed files.
 
       Step 4: If the code uses an external library or framework API that you are unsure about, use searchDocs to verify.
         Examples: "Does Rails serializer require ? suffix on include_ methods?", "Does Python dataclass use shared mutable defaults?", "Does Prisma @updatedAt fire with empty data object?"
@@ -609,6 +612,7 @@ export abstract class BaseCodeReviewAgentProvider {
         GOOD reasoning: "Challenged CreateDevice: what if two requests pass count check simultaneously? Grepped TagDevice(, found caller at impl.go:155. No lock or unique constraint — race condition. Reported."
 
       Do not stop after finding the first issue — investigate ALL changed code before responding.
+      Do not burn steps rereading the same body. If a readFile range overlaps heavily with what you already saw, reread only when a newly discovered symbol or branch creates a new concrete question; otherwise continue with grep, caller/callee tracing, or another changed file.
 
     IMPORTANT — VERIFY BEFORE CLAIMING:
       NEVER claim something is missing, undefined, not imported, or does not exist without first using grep to verify.
@@ -712,12 +716,16 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
     - "Looks correct" is not a valid reason to dismiss — explain the specific reason it is safe.
     - Before finalizing, make sure you have inspected every changed file listed above.
     - Before reporting, be able to answer at least one of these: which changed line creates the risk, what concrete failing path follows, which caller/callee assumption is broken, or what observable bad behavior would happen.
-    - Do not promote a finding from a mere possibility. The changed code plus one or two concrete references must make the failure mode plausible and specific.
+    - Do not promote a finding from a mere possibility. Plausible is not enough. The changed code plus the code you inspected must show a concrete failure path and a concrete wrong outcome.
     - Do not report generic resource exhaustion, shell injection, bypass, or performance theories unless the modified code directly creates or worsens that path.
     - Clear local defects in the diff should still be reported immediately. Cross-file claims require at least one confirming reference from a caller, callee, test, or nearby state transition.
+    - Before every readFile call, identify the exact unanswered question that this read will answer.
+    - Do not reread the same or highly overlapping range just to gain confidence. Confidence-seeking rereads are a mistake.
+    - Treat redundant readFile calls as a mistake. Only reread overlapping lines if a newly discovered symbol, caller/callee, or branch creates a new concrete question that the previous read did not answer.
     - Do NOT report generic efficiency concerns (O(N), N+1, redundant calls, missing pagination, missing timeouts) as bugs. Report them only when the changed code creates a concrete, material slowdown or resource blowup, and then label them as performance.
     - Do NOT report missing defensive measures (missing CSRF, missing rate limiting, missing input validation) unless you can demonstrate a specific exploit path in the changed code.
-    - Every finding must pass this test: "Can I name the exact input that triggers the failure and the exact wrong output or crash that results?" If not, do not report it.
+    - Every finding must pass this test: "Can I name the exact input or state that triggers the failure, and the exact wrong behavior, wrong output, or crash that results?" If not, do not report it.
+    - Before reporting, ask what would make the behavior intentional or safe. If the code you inspected does not let you reject that safe explanation, do not report the finding.
     - Concrete findings include build-time and contract failures too. If the diff introduces a signature mismatch, wrong delegate call, impossible method call, or dropped required side effect, you may report it even without a runtime trace.
     - For wrappers, middleware, providers, caches, and adapters, verify both behavior and wiring: the changed code may be wrong because it calls the wrong target, preserves the wrong cached semantics, or silently stops propagating tracing/logging/metrics/auth state.
     - For security flows, challenge any value that became static, shared, or reused across requests/users when it should be per-request, per-session, or per-principal.

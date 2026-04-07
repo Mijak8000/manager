@@ -249,7 +249,9 @@ export function buildAgentTools(
         readFile: mkTool(
             'Read file contents with injected line numbers. Always use startLine/endLine from grep results or diff @@ markers. ' +
                 'Rule of thumb: readFile(file, startLine=grepLine-20, endLine=grepLine+30) gives enough context to understand a caller. ' +
-                'Only read the full file when it is small (<150 lines). Never read a whole file to find a method — grep first.',
+                'Only read the full file when it is small (<150 lines). Never read a whole file to find a method — grep first. ' +
+                'Before each read, know the exact unanswered question this range will answer. ' +
+                'Do not reread highly overlapping ranges of the same file just to gain confidence; only do it when a new symbol, caller/callee, or branch requires one more targeted read.',
             {
                 type: 'object',
                 properties: {
