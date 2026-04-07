@@ -1,6 +1,6 @@
 import { createLogger } from '@kodus/flow';
 import { Output, jsonSchema } from 'ai';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
     tracedGenerateText,
     buildLangSmithProviderOptions,
@@ -20,6 +20,8 @@ import { AutomationStatus } from '@libs/automation/domain/automation/enum/automa
 import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
 import { generateCallGraph, generateCallGraphFromJSON } from '@libs/code-review/infrastructure/agents/call-graph.helper';
 import { KodusGraphService } from '@libs/code-review/infrastructure/adapters/services/kodusGraph.service';
+import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import {
     resolveKodyRuleSeverityLevel,
     SeverityLevel,
@@ -30,7 +32,6 @@ import {
     DedupTraceSuggestionSummary,
     DedupTraceSummary,
 } from '../context/code-review-pipeline.context';
-import { DocumentationSearchAdapter } from '@libs/code-review/infrastructure/agents/llm/agent-tools.factory';
 import { DeliveryStatus } from '@libs/platformData/domain/pullRequests/enums/deliveryStatus.enum';
 
 /**
@@ -156,9 +157,6 @@ function snapLinesToDiff(
     };
 }
 
-export const DOCUMENTATION_SEARCH_ADAPTER_TOKEN = Symbol(
-    'DOCUMENTATION_SEARCH_ADAPTER_TOKEN',
-);
 
 /**
  * Pipeline stage that runs the agent-based code review.
@@ -221,11 +219,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         @Inject(AUTOMATION_EXECUTION_SERVICE_TOKEN)
         private readonly automationExecutionService: IAutomationExecutionService,
         private readonly kodusGraphService: KodusGraphService,
-        @Optional()
-        // ReflectionAgentProvider removed
-        @Optional()
-        @Inject(DOCUMENTATION_SEARCH_ADAPTER_TOKEN)
-        private readonly documentationSearchService?: DocumentationSearchAdapter,
+        private readonly repositoryRepository: RepositoryRepository,
     ) {
         super();
     }
@@ -300,11 +294,30 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             // Generate call graph context using kodus-graph in E2B sandbox
             let callGraph = '';
             try {
+                this.logger.log({
+                    message: `[AGENT] sandboxHandle check: type=${context.sandboxHandle?.type}, hasSandboxHandle=${!!context.sandboxHandle?.sandboxHandle}`,
+                    context: this.stageName,
+                });
                 if (context.sandboxHandle?.sandboxHandle) {
-                    callGraph = await this.kodusGraphService.generateContext(
-                        context.sandboxHandle.sandboxHandle,
-                        changedFiles,
+                    // Try DB-backed flow first (real diff against main branch)
+                    const repo = await this.repositoryRepository.findByExternalId(
+                        context.platformType,
+                        String(context.repository?.id || ''),
                     );
+
+                    if (repo?.astGraphStatus === AstGraphStatus.READY) {
+                        callGraph = await this.kodusGraphService.generateContext(
+                            context.sandboxHandle.sandboxHandle,
+                            changedFiles,
+                            repo.uuid,
+                        );
+                    } else {
+                        // Fallback: legacy flow (parse --all in sandbox)
+                        callGraph = await this.kodusGraphService.generateContextLegacy(
+                            context.sandboxHandle.sandboxHandle,
+                            changedFiles,
+                        );
+                    }
                 }
 
                 if (callGraph) {
@@ -355,8 +368,6 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 generationMain:
                     context.codeReviewConfig?.v2PromptOverrides?.generation
                         ?.main,
-                documentationSearchService:
-                    this.documentationSearchService || undefined,
                 prTitle: context.pullRequest?.title,
                 prBody: context.pullRequest?.body,
                 kodyRules: context.codeReviewConfig?.kodyRules,
