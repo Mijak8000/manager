@@ -73,6 +73,7 @@ import { KodyRulesAgentProvider } from '../infrastructure/agents/kody-rules-agen
 // ReflectionAgentProvider removed — verify/discover was hurting recall
 import { ReviewOrchestratorService } from '../infrastructure/agents/review-orchestrator.service';
 import { DocumentationSearchExaService } from '../infrastructure/adapters/services/documentation-search-exa.service';
+import { KodusGraphService } from '../infrastructure/adapters/services/kodusGraph.service';
 
 @Module({
     imports: [
@@ -146,6 +147,7 @@ import { DocumentationSearchExaService } from '../infrastructure/adapters/servic
         KodyRulesAgentProvider,
         // ReflectionAgentProvider removed
         ReviewOrchestratorService,
+        KodusGraphService,
 
         // EE Stages
         KodyFineTuningStage,

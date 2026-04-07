@@ -1,9 +1,9 @@
 import { jsonSchema } from 'ai';
 import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts.service';
 
-export const MAX_GREP_MATCHES = 100;
-export const MAX_READ_LENGTH = 12_000;
-export const MAX_LIST_LENGTH = 8_000;
+export const MAX_GREP_MATCHES = 50;
+export const MAX_READ_LENGTH = 8_000;
+export const MAX_LIST_LENGTH = 4_000;
 export const MAX_SHELL_OUTPUT = 10_000;
 
 /**
@@ -70,12 +70,13 @@ export function buildAgentTools(
 ): Record<string, any> {
     const tools: Record<string, any> = {
         grep: mkTool(
-            'Search the repository for a regex pattern. Returns results as "file:lineNumber:content" with context lines around each match. ' +
-                'Primary use: find callers of a changed function — search for the method name followed by "(" (e.g. grep("processItem\\(") finds every call site). ' +
-                'The returned lineNumber is the exact line to use in readFile — call readFile(file, startLine=N-15, endLine=N+30) to read caller context. Do NOT read the whole file. ' +
-                'Also use to find implementations of a changed interface or all usages of a changed constant. ' +
-                'Use namesOnly=true to get only file paths. ' +
-                'Use excludeTests=true to skip test/spec files and focus on production code.',
+            'DISCOVERY tool: search the repo for a pattern. Returns "file:line:content" with context. ' +
+                'Use grep BEFORE readFile to locate what you need — never read a whole file to find something. ' +
+                'Common patterns: grep("methodName\\(") for callers, grep("CONSTANT") for usages, grep("implements X") for implementations, ' +
+                'grep("if.*err.*!=.*nil") to check error handling, grep("lock\\|mutex\\|synchronized") to check concurrency. ' +
+                'After finding a match, use readFile(file, startLine=line-15, endLine=line+30) for surgical context. ' +
+                'Use namesOnly=true for blast-radius (which files are affected). ' +
+                'Use excludeTests=true to focus on production code.',
             {
                 type: 'object',
                 properties: {
@@ -131,6 +132,10 @@ export function buildAgentTools(
                         const cmd = `rg '${safePattern}'${globArg}${excludeTestsArgs}${modeArg} '${safePath}'`;
                         const { stdout, exitCode } =
                             await remoteCommands.exec(cmd);
+                        // exit code 1 with "not allowed" = blocked by sandbox, fall through to fallback
+                        if (exitCode === 1 && stdout.includes('not allowed')) {
+                            throw new Error('rg blocked by sandbox');
+                        }
                         // exit code 1 = no matches (not an error)
                         if (exitCode === 1 || !stdout.trim())
                             return 'No matches found.';
@@ -191,9 +196,11 @@ export function buildAgentTools(
         ),
 
         readFile: mkTool(
-            'Read file contents with injected line numbers. Always use startLine/endLine from grep results or diff @@ markers. ' +
-                'Rule of thumb: readFile(file, startLine=grepLine-20, endLine=grepLine+30) gives enough context to understand a caller. ' +
-                'Only read the full file when it is small (<150 lines). Never read a whole file to find a method — grep first.',
+            'Read file contents with line numbers. Use startLine/endLine to read specific sections. ' +
+                'ANALYSIS tool: read file contents with line numbers. Always use startLine/endLine for surgical reads. ' +
+                'Use grep or diff line numbers to know WHERE to read — do not read whole files to search. ' +
+                'readFile(file, startLine=grepLine-15, endLine=grepLine+30) gives ~45 lines of focused context. ' +
+                'Only omit startLine/endLine for small files (<100 lines). Output is truncated at 8K chars.',
             {
                 type: 'object',
                 properties: {
@@ -401,9 +408,9 @@ export function buildAgentTools(
         const exec = remoteCommands.exec;
 
         tools.checkTypes = mkTool(
-            'Run type checker or linter on changed files. Auto-detects language and runs the appropriate tool ' +
-                '(mypy/py_compile for Python, go vet/go build for Go, tsc for TypeScript, dart analyze, cargo check, ' +
-                'php -l, ruby -c, javac, etc.). Use this early to find type errors, compile errors, and import issues.',
+            'Run type checker / compiler on the repo. Auto-detects language (go vet, tsc, mypy, javac, cargo check, etc.). ' +
+                'Use this EARLY in your investigation to catch compile errors, type mismatches, and missing imports. ' +
+                'These are high-confidence findings — if the compiler says it is broken, report it.',
             {
                 type: 'object',
                 properties: {
@@ -543,8 +550,8 @@ export function buildAgentTools(
         );
     }
 
-    // Add searchDocs if available
-    if (docSearchService) {
+    // DISABLED: searchDocs — adds noise to tool list, not needed for code review
+    /* if (docSearchService) {
         tools.searchDocs = mkTool(
             'Search external documentation for a package/library.',
             {
@@ -583,11 +590,10 @@ export function buildAgentTools(
                 }
             },
         );
-    }
+    } */
 
-    // Add readReference tool if GitHub token is available
-    // Fetches files from any repo the user has access to (for cross-repo rule references)
-    if (gitHubToken) {
+    // DISABLED: readReference — adds noise to tool list, not needed for code review
+    /* if (gitHubToken) {
         tools.readReference = mkTool(
             'Read a file from another repository. Use this to fetch reference files mentioned in rules (e.g., coding standards, patterns from other repos).',
             {
@@ -640,76 +646,78 @@ export function buildAgentTools(
                 }
             },
         );
-    }
+    } */
 
     // ── Call Graph lookup tool (AST-based) ──────────────────────────
-    if (repositoryFullName) {
-        const { loadCallGraphForTool } = require('../call-graph.helper');
-        const callGraphData = loadCallGraphForTool(repositoryFullName);
+    // DISABLED: getCallers tool — call graph is already injected in the prompt as <CallGraph>.
+    // Agent reads callers from context (0 tool calls for getCallers in 170+ runs).
+    // Keeping the code for future use if we move call graph out of the prompt.
+    // if (false) {
+    //     const { loadCallGraphForTool } = require('../call-graph.helper');
+    //     const callGraphData = loadCallGraphForTool(repositoryFullName);
 
-        if (callGraphData) {
-            tools.getCallers = mkTool(
-                'Look up production callers of a function using the pre-computed AST call graph. ' +
-                    'Returns who calls this function and from where. Use this when you see a function in the diff ' +
-                    'and need to understand its impact — who depends on it, what breaks if it changes. ' +
-                    'Pass the function name (e.g. "get_result") and optionally the file path for disambiguation. ' +
-                    'Much faster and more accurate than grep for finding callers.',
-                {
-                    type: 'object',
-                    properties: {
-                        functionName: {
-                            type: 'string',
-                            description: 'Function or method name to look up callers for',
-                        },
-                        filePath: {
-                            type: 'string',
-                            description: 'Optional file path to disambiguate (e.g. "src/sentry/api/paginator.py")',
-                        },
-                    },
-                    required: ['functionName'],
-                },
-                async (args: { functionName: string; filePath?: string }) => {
-                    const byShortName = new Map<string, any[]>();
-                    for (const entry of Object.values(callGraphData) as any[]) {
-                        const sn = entry.short_name || entry.name;
-                        const list = byShortName.get(sn) || [];
-                        list.push(entry);
-                        byShortName.set(sn, list);
-                    }
+    //     if (callGraphData) {
+    //         tools.getCallers = mkTool(
+    //             'Look up callers of a function from the pre-computed AST call graph. ' +
+    //                 'Use this for EVERY changed function to understand impact — who calls it, what breaks if it changes. ' +
+    //                 'Returns caller file:line pairs. Then use readFile on each caller to check if the change breaks them. ' +
+    //                 'Faster and more accurate than grep for finding callers. Always try this before grep for caller lookup.',
+    //             {
+    //                 type: 'object',
+    //                 properties: {
+    //                     functionName: {
+    //                         type: 'string',
+    //                         description: 'Function or method name to look up callers for',
+    //                     },
+    //                     filePath: {
+    //                         type: 'string',
+    //                         description: 'Optional file path to disambiguate (e.g. "src/sentry/api/paginator.py")',
+    //                     },
+    //                 },
+    //                 required: ['functionName'],
+    //             },
+    //             async (args: { functionName: string; filePath?: string }) => {
+    //                 const byShortName = new Map<string, any[]>();
+    //                 for (const entry of Object.values(callGraphData) as any[]) {
+    //                     const sn = entry.short_name || entry.name;
+    //                     const list = byShortName.get(sn) || [];
+    //                     list.push(entry);
+    //                     byShortName.set(sn, list);
+    //                 }
 
-                    const candidates = byShortName.get(args.functionName) || [];
-                    let matches = candidates;
+    //                 const candidates = byShortName.get(args.functionName) || [];
+    //                 let matches = candidates;
 
-                    if (args.filePath) {
-                        const fileMatch = candidates.filter((c: any) =>
-                            args.filePath!.endsWith(c.file) || c.file.endsWith(args.filePath!),
-                        );
-                        if (fileMatch.length > 0) matches = fileMatch;
-                    }
+    //                 if (args.filePath) {
+    //                     const fileMatch = candidates.filter((c: any) =>
+    //                         args.filePath!.endsWith(c.file) || c.file.endsWith(args.filePath!),
+    //                     );
+    //                     if (fileMatch.length > 0) matches = fileMatch;
+    //                 }
 
-                    if (matches.length === 0) {
-                        return `No call graph data found for "${args.functionName}"${args.filePath ? ` in ${args.filePath}` : ''}`;
-                    }
+    //                 if (matches.length === 0) {
+    //                     return `No call graph data found for "${args.functionName}"${args.filePath ? ` in ${args.filePath}` : ''}`;
+    //                 }
 
-                    const lines: string[] = [];
-                    for (const entry of matches.slice(0, 3)) {
-                        const shortFile = entry.file.split('/').slice(-2).join('/');
-                        lines.push(`${entry.name} (${shortFile}:${entry.line})`);
-                        if (entry.callers.length === 0) {
-                            lines.push('  (no production callers found)');
-                        } else {
-                            for (const c of entry.callers.slice(0, 8)) {
-                                const callerShort = c.file.split('/').slice(-2).join('/');
-                                lines.push(`  ← ${callerShort}:${c.line}${c.name ? ` (${c.name})` : ''}`);
-                            }
-                        }
-                        lines.push('');
-                    }
-                    return lines.join('\n');
-                },
-            );
-        }
-    }
+    //                 const lines: string[] = [];
+    //                 for (const entry of matches.slice(0, 3)) {
+    //                     const shortFile = entry.file.split('/').slice(-2).join('/');
+    //                     lines.push(`${entry.name} (${shortFile}:${entry.line})`);
+    //                     if (entry.callers.length === 0) {
+    //                         lines.push('  (no production callers found)');
+    //                     } else {
+    //                         for (const c of entry.callers.slice(0, 8)) {
+    //                             const callerShort = c.file.split('/').slice(-2).join('/');
+    //                             lines.push(`  ← ${callerShort}:${c.line}${c.name ? ` (${c.name})` : ''}`);
+    //                         }
+    //                     }
+    //                     lines.push('');
+    //                 }
+    //                 return lines.join('\n');
+    //             },
+    //         );
+    //     }
+    // }
 
     return tools;
 }

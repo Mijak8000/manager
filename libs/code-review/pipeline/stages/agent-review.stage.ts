@@ -18,7 +18,8 @@ import {
 } from '@libs/automation/domain/automationExecution/contracts/automation-execution.service';
 import { AutomationStatus } from '@libs/automation/domain/automation/enum/automation-status';
 import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
-import { generateCallGraph } from '@libs/code-review/infrastructure/agents/call-graph.helper';
+import { generateCallGraph, generateCallGraphFromJSON } from '@libs/code-review/infrastructure/agents/call-graph.helper';
+import { KodusGraphService } from '@libs/code-review/infrastructure/adapters/services/kodusGraph.service';
 import {
     resolveKodyRuleSeverityLevel,
     SeverityLevel,
@@ -219,6 +220,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         private readonly observabilityService: ObservabilityService,
         @Inject(AUTOMATION_EXECUTION_SERVICE_TOKEN)
         private readonly automationExecutionService: IAutomationExecutionService,
+        private readonly kodusGraphService: KodusGraphService,
         @Optional()
         // ReflectionAgentProvider removed
         @Optional()
@@ -295,43 +297,42 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 repositoryId,
             );
 
+            // Generate call graph context using kodus-graph in E2B sandbox
             let callGraph = '';
             try {
-                callGraph = await generateCallGraph(
-                    context.sandboxHandle.remoteCommands,
-                    changedFiles,
-                    context.repository?.fullName ||
-                        context.pullRequest?.base?.repo?.fullName ||
-                        '',
-                );
+                if (context.sandboxHandle?.sandboxHandle) {
+                    callGraph = await this.kodusGraphService.generateContext(
+                        context.sandboxHandle.sandboxHandle,
+                        changedFiles,
+                    );
+                }
+
                 if (callGraph) {
                     this.logger.log({
-                        message: `[AGENT] Call graph generated: ${callGraph.length} chars for PR#${prNumber}`,
+                        message: `[AGENT] kodus-graph context: ${callGraph.length} chars for PR#${prNumber}`,
                         context: this.stageName,
                         metadata: {
                             prNumber,
                             callGraphChars: callGraph.length,
                             callGraphPreview: callGraph.substring(0, 320),
-                            callGraphTail: callGraph.length > 320 ? callGraph.substring(callGraph.length - 500) : '',
                         },
                     });
                 } else {
-                    this.logger.warn({
-                        message: `[AGENT] Call graph empty for PR#${prNumber}`,
-                        context: this.stageName,
-                        metadata: {
-                            prNumber,
-                            repositoryFullName:
-                                context.repository?.fullName ||
-                                context.pullRequest?.base?.repo?.fullName ||
-                                '',
-                            changedFiles: changedFiles.length,
-                        },
-                    });
+                    // Fallback to pre-computed JSON if kodus-graph didn't produce output
+                    const repoFullName = context.repository?.fullName ||
+                        context.pullRequest?.base?.repo?.fullName || '';
+                    callGraph = generateCallGraphFromJSON(changedFiles, repoFullName);
+                    if (callGraph) {
+                        this.logger.log({
+                            message: `[AGENT] Fallback to JSON call graph: ${callGraph.length} chars for PR#${prNumber}`,
+                            context: this.stageName,
+                            metadata: { prNumber, callGraphChars: callGraph.length },
+                        });
+                    }
                 }
             } catch (err) {
                 this.logger.warn({
-                    message: `[AGENT] Call graph generation failed for PR#${prNumber}, proceeding without it`,
+                    message: `[AGENT] Call graph failed for PR#${prNumber}, proceeding without it`,
                     context: this.stageName,
                     error: err,
                 });

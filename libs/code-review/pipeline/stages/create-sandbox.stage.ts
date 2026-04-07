@@ -141,6 +141,7 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                     cleanup: sandbox.cleanup,
                     type: sandbox.type,
                     baseBranch: sandbox.baseBranch,
+                    sandboxHandle: sandbox.sandboxHandle,
                 };
                 draft.getFreshCloneParams = async () => {
                     const freshCloneInfo =
@@ -211,6 +212,7 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                         cleanup: retryResult.cleanup,
                         type: retryResult.type,
                         baseBranch: retryResult.baseBranch,
+                        sandboxHandle: retryResult.sandboxHandle,
                     };
                 });
             } catch (retryError) {

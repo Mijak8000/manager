@@ -790,7 +790,11 @@ Respond with ONLY the JSON:
         }
     }
 
-    let verificationUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+    let verificationUsage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+    };
 
     if (findings.suggestions.length > 0) {
         const verificationResult = await verifyFindingsWithTools({
@@ -1461,10 +1465,18 @@ async function verifyFindingsWithTools(params: {
 
         // Skip: auto-keep high-confidence findings
         for (const { index } of toSkip) {
-            decisions.set(index, { index, keep: true, rationale: 'High confidence (>= 8) — skipped verification in normal mode.' });
+            decisions.set(index, {
+                index,
+                keep: true,
+                rationale:
+                    'High confidence (>= 8) — skipped verification in normal mode.',
+            });
             verifierParseModeByIndex.set(index, 'direct');
             verifierRawTextByIndex.set(index, '');
-            verifierEvidenceByIndex.set(index, { strongFiles: [], weakFiles: [] });
+            verifierEvidenceByIndex.set(index, {
+                strongFiles: [],
+                weakFiles: [],
+            });
         }
 
         // Light verify: 2 steps max, tools available
@@ -1488,7 +1500,10 @@ async function verifyFindingsWithTools(params: {
             decisions.set(toVerifyLight[i].index, vr.decision);
             verifierEvidenceByIndex.set(toVerifyLight[i].index, vr.evidence);
             verifierParseModeByIndex.set(toVerifyLight[i].index, vr.parseMode);
-            verifierRawTextByIndex.set(toVerifyLight[i].index, vr.rawTextPreview);
+            verifierRawTextByIndex.set(
+                toVerifyLight[i].index,
+                vr.rawTextPreview,
+            );
             totalInputTokens += vr.usage.inputTokens;
             totalOutputTokens += vr.usage.outputTokens;
             totalReasoningTokens += vr.usage.reasoningTokens;
@@ -1514,7 +1529,10 @@ async function verifyFindingsWithTools(params: {
             decisions.set(toVerifyFull[i].index, vr.decision);
             verifierEvidenceByIndex.set(toVerifyFull[i].index, vr.evidence);
             verifierParseModeByIndex.set(toVerifyFull[i].index, vr.parseMode);
-            verifierRawTextByIndex.set(toVerifyFull[i].index, vr.rawTextPreview);
+            verifierRawTextByIndex.set(
+                toVerifyFull[i].index,
+                vr.rawTextPreview,
+            );
             totalInputTokens += vr.usage.inputTokens;
             totalOutputTokens += vr.usage.outputTokens;
             totalReasoningTokens += vr.usage.reasoningTokens;
