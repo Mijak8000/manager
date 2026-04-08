@@ -307,7 +307,7 @@ export class KodyRulesTools {
                         .string()
                         .optional()
                         .describe(
-                            'Repository unique identifier - can be used with both scopes to limit rule to specific repository',
+                            'Repository unique identifier to limit the rule to a specific repository. By default, when creating a rule from a PR suggestion, use the current repository ID. If the user explicitly asks for a global rule (e.g., "for all repositories", "organization-wide", "global", "for the entire organization"), omit this field or do not provide it so the rule defaults to global scope.',
                         ),
                     path: z
                         .string()
@@ -497,7 +497,7 @@ export class KodyRulesTools {
                         .string()
                         .optional()
                         .describe(
-                            'Updated repository unique identifier - can be used with both scopes to limit rule to specific repository',
+                            'Updated repository unique identifier. Set to a specific repository ID to limit the rule to that repository, or set to "global" to make the rule apply to all repositories in the organization. Use "global" when the user asks for organization-wide, global, or all-repositories scope.',
                         ),
                     path: z
                         .string()
