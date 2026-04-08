@@ -61,10 +61,7 @@ import { CodeReviewPipelineStrategy } from './strategy/code-review-pipeline.stra
 
 // V3 Agent-First
 import { CreateSandboxStage } from './stages/create-sandbox.stage';
-import {
-    AgentReviewStage,
-    DOCUMENTATION_SEARCH_ADAPTER_TOKEN,
-} from './stages/agent-review.stage';
+import { AgentReviewStage } from './stages/agent-review.stage';
 import { BugAgentProvider } from '../infrastructure/agents/bug-agent.provider';
 import { SecurityAgentProvider } from '../infrastructure/agents/security-agent.provider';
 import { PerformanceAgentProvider } from '../infrastructure/agents/performance-agent.provider';
@@ -72,7 +69,7 @@ import { GeneralistAgentProvider } from '../infrastructure/agents/generalist-age
 import { KodyRulesAgentProvider } from '../infrastructure/agents/kody-rules-agent.provider';
 // ReflectionAgentProvider removed — verify/discover was hurting recall
 import { ReviewOrchestratorService } from '../infrastructure/agents/review-orchestrator.service';
-import { DocumentationSearchExaService } from '../infrastructure/adapters/services/documentation-search-exa.service';
+import { KodusGraphService } from '../infrastructure/adapters/services/kodusGraph.service';
 
 @Module({
     imports: [
@@ -135,10 +132,6 @@ import { DocumentationSearchExaService } from '../infrastructure/adapters/servic
         // V3 Agent-First stages + providers
         CreateSandboxStage,
         AgentReviewStage,
-        {
-            provide: DOCUMENTATION_SEARCH_ADAPTER_TOKEN,
-            useExisting: DocumentationSearchExaService,
-        },
         BugAgentProvider,
         SecurityAgentProvider,
         PerformanceAgentProvider,
@@ -146,6 +139,7 @@ import { DocumentationSearchExaService } from '../infrastructure/adapters/servic
         KodyRulesAgentProvider,
         // ReflectionAgentProvider removed
         ReviewOrchestratorService,
+        KodusGraphService,
 
         // EE Stages
         KodyFineTuningStage,

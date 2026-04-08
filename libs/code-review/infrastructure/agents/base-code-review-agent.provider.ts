@@ -16,10 +16,10 @@ import { convertTiptapJSONToText } from '@libs/common/utils/tiptap-json';
 import { byokToVercelModel, getModelName } from './llm/byok-to-vercel';
 import {
     runAgentLoop,
+    type AgentLoopSecrets,
     type VerificationTraceSummary,
     type AgentAnomalySummary,
 } from './llm/agent-loop';
-import { DocumentationSearchAdapter } from './llm/agent-tools.factory';
 import {
     CoverageSummary,
     formatCoverageTargetsForPrompt,
@@ -49,9 +49,7 @@ function resolvePromptOverrideText(value: unknown): string {
             );
         }
 
-        return convertTiptapJSONToText(
-            value as Record<string, unknown>,
-        ).trim();
+        return convertTiptapJSONToText(value as Record<string, unknown>).trim();
     }
 
     return '';
@@ -112,7 +110,6 @@ export interface ReviewAgentInput {
     memoryRules?: Partial<IKodyRule>[];
     v2PromptOverrides?: CodeReviewConfig['v2PromptOverrides'];
     generationMain?: string;
-    documentationSearchService?: DocumentationSearchAdapter;
     prTitle?: string;
     prBody?: string;
     onAgentProgress?: (event: AgentProgressEvent) => void;
@@ -253,6 +250,15 @@ export abstract class BaseCodeReviewAgentProvider {
             let stepCount = 0;
             const PROGRESS_BATCH_SIZE = 5;
 
+            // Secrets are passed separately to runAgentLoop so that
+            // LangSmith tracing never serializes API keys, tokens, or
+            // NestJS service instances (which carry ConfigService with all env vars).
+            const loopSecrets: AgentLoopSecrets = {
+                remoteCommands: input.remoteCommands,
+                byokConfig,
+                gitHubToken: input.gitHubToken,
+            };
+
             const loopParams = {
                 model,
                 systemPrompt,
@@ -266,14 +272,6 @@ export abstract class BaseCodeReviewAgentProvider {
                     repositoryId: input.repositoryId,
                     provider: modelName,
                 },
-                remoteCommands: input.remoteCommands,
-                documentationSearchService: input.documentationSearchService,
-                documentationSearchOptions: {
-                    organizationAndTeamData: input.organizationAndTeamData,
-                    byokConfig: byokConfig,
-                },
-                byokConfig: byokConfig,
-                gitHubToken: input.gitHubToken,
                 changedFiles: input.changedFiles,
                 prNumber: input.prNumber,
                 repositoryFullName: input.repositoryFullName,
@@ -330,9 +328,9 @@ export abstract class BaseCodeReviewAgentProvider {
                         pullRequestId: input.prNumber,
                     },
                 });
-                agentResult = await tracedRun(loopParams);
+                agentResult = await tracedRun(loopParams, loopSecrets);
             } else {
-                agentResult = await runAgentLoop(loopParams);
+                agentResult = await runAgentLoop(loopParams, loopSecrets);
             }
 
             const durationMs = Date.now() - startTime;
@@ -341,22 +339,24 @@ export abstract class BaseCodeReviewAgentProvider {
             // Uses runInSpan to ensure proper span lifecycle and MongoDB persistence
             try {
                 const vUsage = agentResult.verificationUsage;
-                const mainInputTokens = agentResult.usage.inputTokens - (vUsage?.inputTokens ?? 0);
-                const mainOutputTokens = agentResult.usage.outputTokens - (vUsage?.outputTokens ?? 0);
+                const mainInputTokens =
+                    agentResult.usage.inputTokens - (vUsage?.inputTokens ?? 0);
+                const mainOutputTokens =
+                    agentResult.usage.outputTokens -
+                    (vUsage?.outputTokens ?? 0);
 
                 await this.observabilityService.runInSpan(
                     `${identity.name}::review`,
                     async () => agentResult,
                     {
-                        'gen_ai.usage.input_tokens':
-                            mainInputTokens,
-                        'gen_ai.usage.output_tokens':
-                            mainOutputTokens,
+                        'gen_ai.usage.input_tokens': mainInputTokens,
+                        'gen_ai.usage.output_tokens': mainOutputTokens,
                         'gen_ai.usage.total_tokens':
                             mainInputTokens + mainOutputTokens,
                         ...(agentResult.usage.reasoningTokens > 0 && {
                             'gen_ai.usage.reasoning_tokens':
-                                agentResult.usage.reasoningTokens - (vUsage?.reasoningTokens ?? 0),
+                                agentResult.usage.reasoningTokens -
+                                (vUsage?.reasoningTokens ?? 0),
                         }),
                         'gen_ai.response.model': modelName,
                         'gen_ai.run.name': `code-review-${this.getCategoryLabel()}`,
@@ -374,21 +374,27 @@ export abstract class BaseCodeReviewAgentProvider {
                 );
 
                 // Separate span for verification tokens
-                if (vUsage && (vUsage.inputTokens > 0 || vUsage.outputTokens > 0)) {
+                if (
+                    vUsage &&
+                    (vUsage.inputTokens > 0 || vUsage.outputTokens > 0)
+                ) {
                     await this.observabilityService.runInSpan(
                         `${identity.name}::verify`,
                         async () => agentResult,
                         {
                             'gen_ai.usage.input_tokens': vUsage.inputTokens,
                             'gen_ai.usage.output_tokens': vUsage.outputTokens,
-                            'gen_ai.usage.total_tokens': vUsage.inputTokens + vUsage.outputTokens,
+                            'gen_ai.usage.total_tokens':
+                                vUsage.inputTokens + vUsage.outputTokens,
                             ...(vUsage.reasoningTokens > 0 && {
-                                'gen_ai.usage.reasoning_tokens': vUsage.reasoningTokens,
+                                'gen_ai.usage.reasoning_tokens':
+                                    vUsage.reasoningTokens,
                             }),
                             'gen_ai.response.model': modelName,
                             'gen_ai.run.name': `code-review-${this.getCategoryLabel()}-verify`,
                             'type': byokConfig ? 'byok' : 'system',
-                            'organizationId': input.organizationAndTeamData?.organizationId,
+                            'organizationId':
+                                input.organizationAndTeamData?.organizationId,
                             'teamId': input.organizationAndTeamData?.teamId,
                             'prNumber': input.prNumber,
                         },
@@ -829,9 +835,7 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
             } else {
                 const categoryLabel = this.getCategoryLabel();
                 const categoryDesc = resolvePromptOverrideText(
-                    descriptions[
-                        categoryLabel as keyof typeof descriptions
-                    ],
+                    descriptions[categoryLabel as keyof typeof descriptions],
                 );
                 if (categoryDesc) {
                     parts.push(`## Category Guidelines\n${categoryDesc}`);

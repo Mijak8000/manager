@@ -1,5 +1,11 @@
 import { createLogger } from '@kodus/flow';
-import { Controller, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import {
+    Controller,
+    HttpStatus,
+    Post,
+    Req,
+    Res,
+} from '@nestjs/common';
 import { Request, Response } from 'express';
 
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
@@ -25,6 +31,7 @@ export class GithubController {
             'pull_request',
             'issue_comment',
             'pull_request_review_comment',
+            'push',
         ];
         if (!supportedEvents.includes(event)) {
             return res
@@ -82,4 +89,5 @@ export class GithubController {
                 });
         });
     }
+
 }

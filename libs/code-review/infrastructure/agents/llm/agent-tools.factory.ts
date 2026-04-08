@@ -2,35 +2,11 @@ import { jsonSchema } from 'ai';
 import * as path from 'node:path';
 import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts.service';
 
-export const MAX_GREP_MATCHES = 100;
-export const MAX_READ_LENGTH = 12_000;
-export const MAX_LIST_LENGTH = 8_000;
+export const MAX_GREP_MATCHES = 50;
+export const MAX_READ_LENGTH = 8_000;
+export const MAX_LIST_LENGTH = 4_000;
 export const MAX_SHELL_OUTPUT = 10_000;
 
-/**
- * Minimal interface for the documentation search capability.
- * Avoids importing DocumentationSearchExaService directly (which pulls in exa-js).
- */
-export interface DocumentationSearchAdapter {
-    searchByFilePlan(
-        planByFile: Record<
-            string,
-            { queryTasks: Array<{ packageName: string; query: string }> }
-        >,
-        options?: Record<string, unknown>,
-    ): Promise<
-        Record<
-            string,
-            Array<{
-                query: string;
-                title: string;
-                url: string;
-                snippet: string;
-                source: string;
-            }>
-        >
-    >;
-}
 
 /**
  * Create a tool definition compatible with all AI SDK providers (including Anthropic).
@@ -81,9 +57,7 @@ function filterDiagnosticsToTarget(
     const targetBase = path.posix.basename(normalizedTarget);
     const targetDir = path.posix.dirname(normalizedTarget);
     const normalizedScope = scopePath ? normalizeRepoPath(scopePath) : '';
-    const scopeDir = normalizedScope
-        ? path.posix.dirname(normalizedScope)
-        : '';
+    const scopeDir = normalizedScope ? path.posix.dirname(normalizedScope) : '';
 
     const markers = [
         normalizedTarget,
@@ -119,19 +93,18 @@ function filterDiagnosticsToTarget(
  */
 export function buildAgentTools(
     remoteCommands: RemoteCommands,
-    docSearchService?: DocumentationSearchAdapter,
-    docSearchOptions?: Record<string, unknown>,
     gitHubToken?: string,
     repositoryFullName?: string,
 ): Record<string, any> {
     const tools: Record<string, any> = {
         grep: mkTool(
-            'Search the repository for a regex pattern. Returns results as "file:lineNumber:content" with context lines around each match. ' +
-                'Primary use: find callers of a changed function — search for the method name followed by "(" (e.g. grep("processItem\\(") finds every call site). ' +
-                'The returned lineNumber is the exact line to use in readFile — call readFile(file, startLine=N-15, endLine=N+30) to read caller context. Do NOT read the whole file. ' +
-                'Also use to find implementations of a changed interface or all usages of a changed constant. ' +
-                'Use namesOnly=true to get only file paths. ' +
-                'Use excludeTests=true to skip test/spec files and focus on production code.',
+            'DISCOVERY tool: search the repo for a pattern. Returns "file:line:content" with context. ' +
+                'Use grep BEFORE readFile to locate what you need — never read a whole file to find something. ' +
+                'Common patterns: grep("methodName\\(") for callers, grep("CONSTANT") for usages, grep("implements X") for implementations, ' +
+                'grep("if.*err.*!=.*nil") to check error handling, grep("lock\\|mutex\\|synchronized") to check concurrency. ' +
+                'After finding a match, use readFile(file, startLine=line-15, endLine=line+30) for surgical context. ' +
+                'Use namesOnly=true for blast-radius (which files are affected). ' +
+                'Use excludeTests=true to focus on production code.',
             {
                 type: 'object',
                 properties: {
@@ -187,6 +160,10 @@ export function buildAgentTools(
                         const cmd = `rg '${safePattern}'${globArg}${excludeTestsArgs}${modeArg} '${safePath}'`;
                         const { stdout, exitCode } =
                             await remoteCommands.exec(cmd);
+                        // exit code 1 with "not allowed" = blocked by sandbox, fall through to fallback
+                        if (exitCode === 1 && stdout.includes('not allowed')) {
+                            throw new Error('rg blocked by sandbox');
+                        }
                         // exit code 1 = no matches (not an error)
                         if (exitCode === 1 || !stdout.trim())
                             return 'No matches found.';
@@ -631,9 +608,7 @@ fi
                         ? path.posix.dirname(target)
                         : target || '.';
                     const packageScope =
-                        scopeDir && scopeDir !== '.'
-                            ? `./${scopeDir}`
-                            : '.';
+                        scopeDir && scopeDir !== '.' ? `./${scopeDir}` : '.';
                     for (const cmd of [
                         `go vet ${shellQuote(packageScope)} 2>&1 | head -30`,
                         `go build -o /dev/null ${shellQuote(packageScope)} 2>&1 | head -30`,
@@ -681,7 +656,9 @@ fi
                             const { stdout } = await exec(
                                 `ruby -c ${files
                                     .map(shellQuote)
-                                    .join(' ')} 2>&1 | grep -v "Syntax OK" | head -20`,
+                                    .join(
+                                        ' ',
+                                    )} 2>&1 | grep -v "Syntax OK" | head -20`,
                             );
                             pushScopedResult('Ruby', target, stdout);
                         } catch {
@@ -697,7 +674,9 @@ fi
                             const { stdout } = await exec(
                                 `php -l ${files
                                     .map(shellQuote)
-                                    .join(' ')} 2>&1 | grep -v "No syntax errors" | head -20`,
+                                    .join(
+                                        ' ',
+                                    )} 2>&1 | grep -v "No syntax errors" | head -20`,
                             );
                             pushScopedResult('PHP', target, stdout);
                         } catch {
@@ -776,7 +755,9 @@ fi
                             const { stdout } = await exec(
                                 `kotlinc ${files
                                     .map(shellQuote)
-                                    .join(' ')} -d /tmp/kotlinc-out.jar 2>&1 | head -20`,
+                                    .join(
+                                        ' ',
+                                    )} -d /tmp/kotlinc-out.jar 2>&1 | head -20`,
                             );
                             pushScopedResult('Kotlin', target, stdout);
                         } catch {
@@ -810,51 +791,9 @@ fi
         );
     }
 
-    // Add searchDocs if available
-    if (docSearchService) {
-        tools.searchDocs = mkTool(
-            'Search external documentation for a package/library.',
-            {
-                type: 'object',
-                properties: {
-                    packageName: {
-                        type: 'string',
-                        description: 'Package name (e.g. "express")',
-                    },
-                    query: {
-                        type: 'string',
-                        description: 'What to search for in docs',
-                    },
-                },
-                required: ['packageName', 'query'],
-            },
-            async ({ packageName, query }: any) => {
-                if (!packageName || !query)
-                    return 'Both packageName and query are required.';
-                try {
-                    const results = await docSearchService.searchByFilePlan(
-                        { agent: { queryTasks: [{ packageName, query }] } },
-                        docSearchOptions,
-                    );
-                    const docs = results['agent'] || [];
-                    if (docs.length === 0)
-                        return `No docs found for "${packageName}": ${query}`;
-                    return docs
-                        .map(
-                            (d: any) =>
-                                `### ${d.title}\n${d.url}\n${d.snippet}`,
-                        )
-                        .join('\n---\n');
-                } catch (e) {
-                    return `Doc search error: ${e instanceof Error ? e.message : String(e)}`;
-                }
-            },
-        );
-    }
 
-    // Add readReference tool if GitHub token is available
-    // Fetches files from any repo the user has access to (for cross-repo rule references)
-    if (gitHubToken) {
+    // DISABLED: readReference — adds noise to tool list, not needed for code review
+    /* if (gitHubToken) {
         tools.readReference = mkTool(
             'Read a file from another repository. Use this to fetch reference files mentioned in rules (e.g., coding standards, patterns from other repos).',
             {
@@ -907,76 +846,78 @@ fi
                 }
             },
         );
-    }
+    } */
 
     // ── Call Graph lookup tool (AST-based) ──────────────────────────
-    if (repositoryFullName) {
-        const { loadCallGraphForTool } = require('../call-graph.helper');
-        const callGraphData = loadCallGraphForTool(repositoryFullName);
+    // DISABLED: getCallers tool — call graph is already injected in the prompt as <CallGraph>.
+    // Agent reads callers from context (0 tool calls for getCallers in 170+ runs).
+    // Keeping the code for future use if we move call graph out of the prompt.
+    // if (false) {
+    //     const { loadCallGraphForTool } = require('../call-graph.helper');
+    //     const callGraphData = loadCallGraphForTool(repositoryFullName);
 
-        if (callGraphData) {
-            tools.getCallers = mkTool(
-                'Look up production callers of a function using the pre-computed AST call graph. ' +
-                    'Returns who calls this function and from where. Use this when you see a function in the diff ' +
-                    'and need to understand its impact — who depends on it, what breaks if it changes. ' +
-                    'Pass the function name (e.g. "get_result") and optionally the file path for disambiguation. ' +
-                    'Much faster and more accurate than grep for finding callers.',
-                {
-                    type: 'object',
-                    properties: {
-                        functionName: {
-                            type: 'string',
-                            description: 'Function or method name to look up callers for',
-                        },
-                        filePath: {
-                            type: 'string',
-                            description: 'Optional file path to disambiguate (e.g. "src/sentry/api/paginator.py")',
-                        },
-                    },
-                    required: ['functionName'],
-                },
-                async (args: { functionName: string; filePath?: string }) => {
-                    const byShortName = new Map<string, any[]>();
-                    for (const entry of Object.values(callGraphData) as any[]) {
-                        const sn = entry.short_name || entry.name;
-                        const list = byShortName.get(sn) || [];
-                        list.push(entry);
-                        byShortName.set(sn, list);
-                    }
+    //     if (callGraphData) {
+    //         tools.getCallers = mkTool(
+    //             'Look up callers of a function from the pre-computed AST call graph. ' +
+    //                 'Use this for EVERY changed function to understand impact — who calls it, what breaks if it changes. ' +
+    //                 'Returns caller file:line pairs. Then use readFile on each caller to check if the change breaks them. ' +
+    //                 'Faster and more accurate than grep for finding callers. Always try this before grep for caller lookup.',
+    //             {
+    //                 type: 'object',
+    //                 properties: {
+    //                     functionName: {
+    //                         type: 'string',
+    //                         description: 'Function or method name to look up callers for',
+    //                     },
+    //                     filePath: {
+    //                         type: 'string',
+    //                         description: 'Optional file path to disambiguate (e.g. "src/sentry/api/paginator.py")',
+    //                     },
+    //                 },
+    //                 required: ['functionName'],
+    //             },
+    //             async (args: { functionName: string; filePath?: string }) => {
+    //                 const byShortName = new Map<string, any[]>();
+    //                 for (const entry of Object.values(callGraphData) as any[]) {
+    //                     const sn = entry.short_name || entry.name;
+    //                     const list = byShortName.get(sn) || [];
+    //                     list.push(entry);
+    //                     byShortName.set(sn, list);
+    //                 }
 
-                    const candidates = byShortName.get(args.functionName) || [];
-                    let matches = candidates;
+    //                 const candidates = byShortName.get(args.functionName) || [];
+    //                 let matches = candidates;
 
-                    if (args.filePath) {
-                        const fileMatch = candidates.filter((c: any) =>
-                            args.filePath!.endsWith(c.file) || c.file.endsWith(args.filePath!),
-                        );
-                        if (fileMatch.length > 0) matches = fileMatch;
-                    }
+    //                 if (args.filePath) {
+    //                     const fileMatch = candidates.filter((c: any) =>
+    //                         args.filePath!.endsWith(c.file) || c.file.endsWith(args.filePath!),
+    //                     );
+    //                     if (fileMatch.length > 0) matches = fileMatch;
+    //                 }
 
-                    if (matches.length === 0) {
-                        return `No call graph data found for "${args.functionName}"${args.filePath ? ` in ${args.filePath}` : ''}`;
-                    }
+    //                 if (matches.length === 0) {
+    //                     return `No call graph data found for "${args.functionName}"${args.filePath ? ` in ${args.filePath}` : ''}`;
+    //                 }
 
-                    const lines: string[] = [];
-                    for (const entry of matches.slice(0, 3)) {
-                        const shortFile = entry.file.split('/').slice(-2).join('/');
-                        lines.push(`${entry.name} (${shortFile}:${entry.line})`);
-                        if (entry.callers.length === 0) {
-                            lines.push('  (no production callers found)');
-                        } else {
-                            for (const c of entry.callers.slice(0, 8)) {
-                                const callerShort = c.file.split('/').slice(-2).join('/');
-                                lines.push(`  ← ${callerShort}:${c.line}${c.name ? ` (${c.name})` : ''}`);
-                            }
-                        }
-                        lines.push('');
-                    }
-                    return lines.join('\n');
-                },
-            );
-        }
-    }
+    //                 const lines: string[] = [];
+    //                 for (const entry of matches.slice(0, 3)) {
+    //                     const shortFile = entry.file.split('/').slice(-2).join('/');
+    //                     lines.push(`${entry.name} (${shortFile}:${entry.line})`);
+    //                     if (entry.callers.length === 0) {
+    //                         lines.push('  (no production callers found)');
+    //                     } else {
+    //                         for (const c of entry.callers.slice(0, 8)) {
+    //                             const callerShort = c.file.split('/').slice(-2).join('/');
+    //                             lines.push(`  ← ${callerShort}:${c.line}${c.name ? ` (${c.name})` : ''}`);
+    //                         }
+    //                     }
+    //                     lines.push('');
+    //                 }
+    //                 return lines.join('\n');
+    //             },
+    //         );
+    //     }
+    // }
 
     return tools;
 }

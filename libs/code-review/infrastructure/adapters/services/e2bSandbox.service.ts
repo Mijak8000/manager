@@ -112,6 +112,7 @@ export class E2BSandboxService implements ISandboxProvider {
                 cleanup,
                 type: 'e2b' as const,
                 baseBranch: resolvedBaseBranch,
+                sandboxHandle: sandbox,
             };
         } catch (error) {
             // If setup fails, kill the sandbox before re-throwing

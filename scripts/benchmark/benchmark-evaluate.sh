@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNS_DIR="$SCRIPT_DIR/runs"
-OWNER="ai-code-review-benchmark"
+OWNER="Wellington01"
 
 cd "$REPO_DIR"
 

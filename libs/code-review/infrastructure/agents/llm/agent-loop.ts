@@ -1,7 +1,4 @@
-import {
-    buildAgentTools,
-    DocumentationSearchAdapter,
-} from './agent-tools.factory';
+import { buildAgentTools } from './agent-tools.factory';
 /**
  * Simple agent loop using Vercel AI SDK with native function calling.
  *
@@ -111,16 +108,10 @@ export interface AgentLoopInput {
     model: LanguageModel;
     systemPrompt: string;
     userPrompt: string;
-    remoteCommands: RemoteCommands;
-    documentationSearchService?: DocumentationSearchAdapter;
-    documentationSearchOptions?: Record<string, unknown>;
-    byokConfig?: BYOKConfig;
     agentName?: string; // e.g. 'kodus-bug-review-agent' — used for LangSmith trace identification
     telemetryMetadata?: LangSmithTelemetryMetadata;
     maxSteps?: number;
     onStepFinish?: (event: any) => void;
-    /** @deprecated — pass via toolSecrets instead to avoid LangSmith trace leaks */
-    gitHubToken?: string;
     changedFiles?: any[];
     prNumber?: number;
     repositoryFullName?: string;
@@ -130,6 +121,17 @@ export interface AgentLoopInput {
     callGraph?: string;
     /** Review mode: 'normal' skips verify only for very-high-confidence findings, 'deep' verifies everything. */
     reviewMode?: 'normal' | 'deep';
+}
+
+/**
+ * Secrets and service references that must NEVER be serialized into
+ * LangSmith traces or LLM payloads. Extracted from the old AgentLoopInput
+ * to prevent accidental leaks (NestJS ConfigService carries all env vars).
+ */
+export interface AgentLoopSecrets {
+    remoteCommands: RemoteCommands;
+    byokConfig?: BYOKConfig;
+    gitHubToken?: string;
 }
 
 export interface AgentLoopOutput {
@@ -211,19 +213,18 @@ export interface AgentAnomalySummary {
 
 /**
  * Run the agent loop with native function calling.
+ *
+ * `secrets` is kept separate from `input` so that LangSmith tracing
+ * (which serializes `input`) never captures API keys, tokens, or
+ * NestJS service instances that carry ConfigService with all env vars.
  */
 export async function runAgentLoop(
     input: AgentLoopInput,
+    secrets: AgentLoopSecrets,
 ): Promise<AgentLoopOutput> {
-    // Extract and redact sensitive token to prevent LangSmith trace leaks
-    const gitHubToken = input.gitHubToken;
-    delete (input as any).gitHubToken;
-
     const tools = buildAgentTools(
-        input.remoteCommands,
-        input.documentationSearchService,
-        input.documentationSearchOptions,
-        gitHubToken,
+        secrets.remoteCommands,
+        secrets.gitHubToken,
     );
     const coverageTargets = buildCoverageLedger(input.changedFiles);
 
@@ -466,7 +467,7 @@ export async function runAgentLoop(
                     try {
                         const fallbackResult = await structureWithFallbackModel(
                             bestText,
-                            input.byokConfig,
+                            secrets.byokConfig,
                         );
                         if (
                             fallbackResult &&
@@ -661,7 +662,7 @@ Respond with ONLY the JSON:
 
         const fallbackResult = await structureWithFallbackModel(
             finalText,
-            input.byokConfig,
+            secrets.byokConfig,
         );
         if (fallbackResult) {
             findings = fallbackResult.findings;
@@ -749,7 +750,7 @@ Respond with ONLY the JSON:
             if (!extraFindings && coverageSecondChance.text.length > 50) {
                 const fallbackResult = await structureWithFallbackModel(
                     coverageSecondChance.text,
-                    input.byokConfig,
+                    secrets.byokConfig,
                 );
                 if (fallbackResult) {
                     extraFindings = fallbackResult.findings;
@@ -791,12 +792,17 @@ Respond with ONLY the JSON:
         }
     }
 
-    let verificationUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+    let verificationUsage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+    };
 
     if (findings.suggestions.length > 0) {
         const verificationResult = await verifyFindingsWithTools({
             findings,
             input,
+            secrets,
             allToolCalls,
             tools: pickVerificationTools(tools),
         });
@@ -1303,7 +1309,7 @@ Return ONLY JSON:
         if (!extraFindings && synthesisText.length > 50) {
             const fallbackResult = await structureWithFallbackModel(
                 synthesisText,
-                input.byokConfig,
+                secrets.byokConfig,
             );
             if (fallbackResult) {
                 extraFindings = fallbackResult.findings;
@@ -1392,6 +1398,7 @@ function mergeFindings(
 async function verifyFindingsWithTools(params: {
     findings: FindingsOutput;
     input: AgentLoopInput;
+    secrets: AgentLoopSecrets;
     allToolCalls: AgentLoopOutput['toolCalls'];
     tools: Record<string, any>;
 }): Promise<{
@@ -1404,8 +1411,8 @@ async function verifyFindingsWithTools(params: {
         totalTokens: number;
     };
 }> {
-    const { findings, input, allToolCalls, tools } = params;
-    const internalModel = getInternalModel(input.byokConfig);
+    const { findings, input, secrets, allToolCalls, tools } = params;
+    const internalModel = getInternalModel(secrets.byokConfig);
     const reviewerEvidence = buildToolEvidenceSummary(allToolCalls);
 
     if (!internalModel || findings.suggestions.length === 0) {
@@ -1465,10 +1472,18 @@ async function verifyFindingsWithTools(params: {
 
         // Skip: auto-keep high-confidence findings
         for (const { index } of toSkip) {
-            decisions.set(index, { index, keep: true, rationale: 'Very high confidence (>= 9) — skipped verification in normal mode.' });
+            decisions.set(index, {
+                index,
+                keep: true,
+                rationale:
+                    'Very high confidence (>= 9) — skipped verification in normal mode.',
+            });
             verifierParseModeByIndex.set(index, 'direct');
             verifierRawTextByIndex.set(index, '');
-            verifierEvidenceByIndex.set(index, { strongFiles: [], weakFiles: [] });
+            verifierEvidenceByIndex.set(index, {
+                strongFiles: [],
+                weakFiles: [],
+            });
         }
 
         // Light verify: 2 steps max, tools available
@@ -1478,6 +1493,7 @@ async function verifyFindingsWithTools(params: {
                     index,
                     suggestion,
                     input,
+                    secrets,
                     allToolCalls,
                     tools,
                     maxVerifySteps: 2,
@@ -1492,7 +1508,10 @@ async function verifyFindingsWithTools(params: {
             decisions.set(toVerifyLight[i].index, vr.decision);
             verifierEvidenceByIndex.set(toVerifyLight[i].index, vr.evidence);
             verifierParseModeByIndex.set(toVerifyLight[i].index, vr.parseMode);
-            verifierRawTextByIndex.set(toVerifyLight[i].index, vr.rawTextPreview);
+            verifierRawTextByIndex.set(
+                toVerifyLight[i].index,
+                vr.rawTextPreview,
+            );
             totalInputTokens += vr.usage.inputTokens;
             totalOutputTokens += vr.usage.outputTokens;
             totalReasoningTokens += vr.usage.reasoningTokens;
@@ -1505,6 +1524,7 @@ async function verifyFindingsWithTools(params: {
                     index,
                     suggestion,
                     input,
+                    secrets,
                     allToolCalls,
                     tools,
                 }),
@@ -1518,7 +1538,10 @@ async function verifyFindingsWithTools(params: {
             decisions.set(toVerifyFull[i].index, vr.decision);
             verifierEvidenceByIndex.set(toVerifyFull[i].index, vr.evidence);
             verifierParseModeByIndex.set(toVerifyFull[i].index, vr.parseMode);
-            verifierRawTextByIndex.set(toVerifyFull[i].index, vr.rawTextPreview);
+            verifierRawTextByIndex.set(
+                toVerifyFull[i].index,
+                vr.rawTextPreview,
+            );
             totalInputTokens += vr.usage.inputTokens;
             totalOutputTokens += vr.usage.outputTokens;
             totalReasoningTokens += vr.usage.reasoningTokens;
@@ -1671,6 +1694,7 @@ async function verifySingleFindingWithTools(params: {
     index: number;
     suggestion: FindingsOutput['suggestions'][number];
     input: AgentLoopInput;
+    secrets: AgentLoopSecrets;
     allToolCalls: AgentLoopOutput['toolCalls'];
     tools: Record<string, any>;
     maxVerifySteps?: number;
@@ -1686,8 +1710,8 @@ async function verifySingleFindingWithTools(params: {
         totalTokens: number;
     };
 }> {
-    const { index, suggestion, input, allToolCalls, tools } = params;
-    const internalModel = getInternalModel(input.byokConfig);
+    const { index, suggestion, input, secrets, allToolCalls, tools } = params;
+    const internalModel = getInternalModel(secrets.byokConfig);
     const evidenceBundle = buildSuggestionEvidenceBundle(
         index,
         suggestion,
@@ -1932,7 +1956,7 @@ Rules:
             await structureVerificationDecisionWithFallbackModel(
                 verificationText,
                 index,
-                input.byokConfig,
+                secrets.byokConfig,
             );
 
         if (fallbackDecision) {

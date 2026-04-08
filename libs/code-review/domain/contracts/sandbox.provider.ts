@@ -20,6 +20,8 @@ export interface SandboxInstance {
     type: 'e2b' | 'local' | 'null';
     /** Base branch fetched in the sandbox (e.g. "main"). Allows tools to run git diff origin/${baseBranch}...HEAD */
     baseBranch?: string;
+    /** Raw sandbox handle for long-running commands (e.g. kodus-graph). Only available for E2B sandboxes. */
+    sandboxHandle?: unknown;
 }
 
 export interface ISandboxProvider {

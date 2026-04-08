@@ -208,6 +208,96 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         );
     }
 
+    /**
+     * AST Graph Build jobs
+     */
+    @RabbitSubscribe({
+        exchange: 'workflow.exchange',
+        routingKey: 'workflow.jobs.*.AST_GRAPH_BUILD',
+        queue: 'workflow.jobs.ast_graph_build.queue',
+        errorBehavior: MessageHandlerErrorBehavior.ACK,
+        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        queueOptions: {
+            channel: 'channel-ast-graph-build',
+            arguments: {
+                'x-queue-type': 'quorum',
+                'x-dead-letter-exchange': 'workflow.exchange.dlx',
+                'x-dead-letter-routing-key': 'workflow.job.failed',
+            },
+        },
+    })
+    @RabbitSubscribe({
+        exchange: 'workflow.exchange.delayed',
+        routingKey: 'workflow.jobs.*.AST_GRAPH_BUILD',
+        queue: 'workflow.jobs.ast_graph_build.queue',
+        errorBehavior: MessageHandlerErrorBehavior.ACK,
+        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        queueOptions: {
+            channel: 'channel-ast-graph-build',
+            arguments: {
+                'x-queue-type': 'quorum',
+                'x-dead-letter-exchange': 'workflow.exchange.dlx',
+                'x-dead-letter-routing-key': 'workflow.job.failed',
+            },
+        },
+    })
+    async handleAstGraphBuildJob(
+        message: WorkflowJobMessage | MessagePayload<WorkflowJobMessage>,
+        amqpMsg: ConsumeMessage,
+    ): Promise<void> {
+        return this.handleWorkflowJob(
+            'workflow-job-consumer.ast_graph_build',
+            'workflow.jobs.ast_graph_build.queue',
+            message,
+            amqpMsg,
+        );
+    }
+
+    /**
+     * AST Graph Incremental Update jobs
+     */
+    @RabbitSubscribe({
+        exchange: 'workflow.exchange',
+        routingKey: 'workflow.jobs.*.AST_GRAPH_INCREMENTAL',
+        queue: 'workflow.jobs.ast_graph_incremental.queue',
+        errorBehavior: MessageHandlerErrorBehavior.ACK,
+        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        queueOptions: {
+            channel: 'channel-ast-graph-incremental',
+            arguments: {
+                'x-queue-type': 'quorum',
+                'x-dead-letter-exchange': 'workflow.exchange.dlx',
+                'x-dead-letter-routing-key': 'workflow.job.failed',
+            },
+        },
+    })
+    @RabbitSubscribe({
+        exchange: 'workflow.exchange.delayed',
+        routingKey: 'workflow.jobs.*.AST_GRAPH_INCREMENTAL',
+        queue: 'workflow.jobs.ast_graph_incremental.queue',
+        errorBehavior: MessageHandlerErrorBehavior.ACK,
+        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        queueOptions: {
+            channel: 'channel-ast-graph-incremental',
+            arguments: {
+                'x-queue-type': 'quorum',
+                'x-dead-letter-exchange': 'workflow.exchange.dlx',
+                'x-dead-letter-routing-key': 'workflow.job.failed',
+            },
+        },
+    })
+    async handleAstGraphIncrementalJob(
+        message: WorkflowJobMessage | MessagePayload<WorkflowJobMessage>,
+        amqpMsg: ConsumeMessage,
+    ): Promise<void> {
+        return this.handleWorkflowJob(
+            'workflow-job-consumer.ast_graph_incremental',
+            'workflow.jobs.ast_graph_incremental.queue',
+            message,
+            amqpMsg,
+        );
+    }
+
     private async handleWorkflowJob(
         consumerId: string,
         queueName: string,

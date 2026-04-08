@@ -7,7 +7,10 @@ const logger = createLogger('CallGraphHelper');
 const MAX_CALLGRAPH_CHARS = 6000;
 const MAX_CHANGED_FILES = 15;
 const MAX_FUNCTIONS_PER_FILE = 15;
+const MAX_FUNCTIONS = 50;
 const MAX_CALLERS_PER_FUNCTION = 4;
+const MAX_CALLERS = 5;
+const MAX_CALLEES = 3;
 const MAX_ASSEMBLED_CONTEXT_CHARS = 9000;
 const MAX_ASSEMBLED_FUNCTIONS = 8;
 const MAX_ASSEMBLED_CALLERS = 3;
@@ -91,22 +94,6 @@ const NAME_PATTERNS: RegExp[] = [
 const DEFINITION_PATTERN =
     /^\s*(def |func |fn |function |class |public |private |protected |interface |abstract |override |export (function|class|const))/;
 
-const REPO_NAME_MAP: Record<string, string> = {
-    'sentry': 'sentry',
-    'sentry-greptile': 'sentry',
-    'grafana': 'grafana',
-    'grafana-codex': 'grafana',
-    'grafana-greptile': 'grafana',
-    'discourse': 'discourse',
-    'discourse-cursor': 'discourse',
-    'discourse-greptile': 'discourse',
-    'cal.com': 'calcom',
-    'calcom': 'calcom',
-    'cal-com': 'calcom',
-    'keycloak': 'keycloak',
-    'keycloak-greptile': 'keycloak',
-};
-
 interface CallGraphEntry {
     name: string;
     short_name: string;
@@ -130,19 +117,6 @@ interface CallGraphEntry {
 type CallGraphData = Record<string, CallGraphEntry>;
 
 const astCache = new Map<string, CallGraphData | null>();
-
-function resolveCallGraphDir(): string {
-    return (
-        process.env.CALLGRAPH_DIR || path.resolve(process.cwd(), 'callgraph')
-    );
-}
-
-function resolveRepoKey(repositoryFullName: string): string | null {
-    const repoName = repositoryFullName.split('/').pop() || '';
-    return (
-        REPO_NAME_MAP[repoName] || REPO_NAME_MAP[repoName.toLowerCase()] || null
-    );
-}
 
 function loadCallGraphJSON(repoKey: string): CallGraphData | null {
     if (astCache.has(repoKey)) return astCache.get(repoKey)!;
@@ -789,4 +763,129 @@ export async function generateCallGraph(
     }
 
     return grepResult;
+}
+
+// ---------------------------------------------------------------------------
+// JSON fallback — reads pre-computed call-graph.json when sandbox build fails
+// ---------------------------------------------------------------------------
+
+const REPO_NAME_MAP: Record<string, string> = {
+    'sentry': 'sentry',
+    'sentry-greptile': 'sentry',
+    'grafana': 'grafana',
+    'grafana-codex': 'grafana',
+    'grafana-greptile': 'grafana',
+    'discourse': 'discourse',
+    'discourse-cursor': 'discourse',
+    'discourse-greptile': 'discourse',
+    'cal.com': 'calcom',
+    'calcom': 'calcom',
+    'cal-com': 'calcom',
+    'cal.com-greptile': 'calcom',
+    'keycloak': 'keycloak',
+    'keycloak-greptile': 'keycloak',
+};
+
+function resolveCallGraphDir(): string {
+    return process.env.CALLGRAPH_DIR || path.resolve(process.cwd(), 'callgraph');
+}
+
+function resolveRepoKey(repositoryFullName: string): string | null {
+    const repoName = repositoryFullName.split('/').pop() || '';
+    return REPO_NAME_MAP[repoName] || REPO_NAME_MAP[repoName.toLowerCase()] || null;
+}
+
+/**
+ * Fallback: generate call graph text from pre-computed JSON files.
+ * Used when the sandbox-based code-review-graph build is not available.
+ */
+export function generateCallGraphFromJSON(
+    changedFiles: Array<{ filename: string; patch?: string; patchWithLinesStr?: string }>,
+    repositoryFullName?: string,
+): string {
+    if (!repositoryFullName || !changedFiles?.length) return '';
+
+    const repoKey = resolveRepoKey(repositoryFullName);
+    if (!repoKey) return '';
+
+    const jsonPath = path.join(resolveCallGraphDir(), repoKey, 'call-graph.json');
+    if (!fs.existsSync(jsonPath)) return '';
+
+    try {
+        const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as Record<string, any>;
+
+        // Find functions in changed files
+        const changedPaths = new Set(changedFiles.map((f) => f.filename));
+        const matchedFunctions: any[] = [];
+
+        for (const entry of Object.values(data)) {
+            const entryFile = entry.file || '';
+            // Match if changed file path ends with the entry file or vice versa
+            const matches = [...changedPaths].some(
+                (cf) => cf.endsWith(entryFile) || entryFile.endsWith(cf),
+            );
+            if (matches && entry.kind === 'Function') {
+                matchedFunctions.push(entry);
+            }
+        }
+
+        if (matchedFunctions.length === 0) return '';
+
+        // Format with types
+        const sections: string[] = [];
+        const seen = new Set<string>();
+
+        for (const fn of matchedFunctions.slice(0, MAX_FUNCTIONS)) {
+            const key = `${fn.name}:${fn.file}:${fn.line}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            const shortFile = (fn.file || '').split('/').slice(-2).join('/');
+            const sig = fn.params ? `${fn.short_name || fn.name}${fn.params}` : (fn.short_name || fn.name);
+            const ret = fn.returnType ? ` -> ${fn.returnType}` : '';
+
+            const lines: string[] = [`${sig}${ret}  (${shortFile}:${fn.line})`];
+
+            // Callers
+            const callers = fn.callers || [];
+            if (callers.length === 0) {
+                lines.push('  (no production callers found)');
+            } else {
+                for (const c of callers.slice(0, MAX_CALLERS)) {
+                    const callerShort = (c.file || '').split('/').slice(-2).join('/');
+                    lines.push(`  ← called by ${c.name} (${callerShort}:${c.line})`);
+                }
+            }
+
+            // Callees
+            const callees = fn.callees || [];
+            for (const c of callees.slice(0, MAX_CALLEES)) {
+                const calleeShort = (c.file || c.file_path || '').split('/').slice(-2).join('/');
+                const calleeSig = c.params ? `${c.name}${c.params}` : c.name;
+                const calleeRet = c.returnType || c.return_type ? ` -> ${c.returnType || c.return_type}` : '';
+                lines.push(`  → calls ${calleeSig}${calleeRet}  (${calleeShort}:${c.line || c.line_start || '?'})`);
+            }
+
+            sections.push(lines.join('\n'));
+        }
+
+        let result = 'Changed functions and their production callers (AST):\n\n' + sections.join('\n\n');
+
+        if (result.length > MAX_CALLGRAPH_CHARS) {
+            result = result.substring(0, MAX_CALLGRAPH_CHARS) + '\n... (truncated)';
+        }
+
+        logger.log({
+            message: `[CALL-GRAPH-JSON] Generated ${result.length} chars from JSON fallback (${matchedFunctions.length} functions)`,
+            context: 'CallGraphHelper',
+        });
+
+        return result;
+    } catch (err) {
+        logger.warn({
+            message: `[CALL-GRAPH-JSON] Failed to read ${jsonPath}: ${err instanceof Error ? err.message : String(err)}`,
+            context: 'CallGraphHelper',
+        });
+        return '';
+    }
 }
