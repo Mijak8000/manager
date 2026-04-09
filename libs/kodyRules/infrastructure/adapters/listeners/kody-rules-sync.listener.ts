@@ -33,20 +33,16 @@ export class KodyRulesSyncListener {
             return;
         }
 
-        const centralizedConfigEnabled =
-            await this.isCentralizedConfigEnabled(event);
-
-        if (centralizedConfigEnabled) {
+        if (await this.isCentralizedConfigRepo(event)) {
             this.logger.log({
                 message:
-                    'Centralized config is enabled, skipping legacy Kody rules sync listener',
+                    'Pull request closed in centralized config repository, skipping Kody rules sync',
                 context: KodyRulesSyncListener.name,
                 metadata: {
-                    organizationAndTeamData: event.organizationAndTeamData,
+                    pullRequestNumber: event.pullRequestNumber,
                     repositoryId: event.repository.id,
                 },
             });
-
             return;
         }
 
@@ -71,7 +67,7 @@ export class KodyRulesSyncListener {
         });
     }
 
-    private async isCentralizedConfigEnabled(
+    private async isCentralizedConfigRepo(
         event: PullRequestClosedEvent,
     ): Promise<boolean> {
         try {
@@ -81,7 +77,21 @@ export class KodyRulesSyncListener {
                     event.organizationAndTeamData,
                 );
 
-            return Boolean(centralizedConfigParameter?.configValue?.enabled);
+            if (
+                !centralizedConfigParameter ||
+                !centralizedConfigParameter.configValue
+            ) {
+                return false;
+            }
+
+            if (!centralizedConfigParameter.configValue.enabled) {
+                return false;
+            }
+
+            const centralizedConfigRepoId =
+                centralizedConfigParameter.configValue.repository?.id;
+
+            return centralizedConfigRepoId === event.repository?.id;
         } catch (error) {
             this.logger.warn({
                 message:

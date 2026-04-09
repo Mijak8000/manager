@@ -66,7 +66,7 @@ describe('KodyRulesSyncListener', () => {
         ).not.toHaveBeenCalled();
     });
 
-    it('should skip legacy sync when centralized config is enabled', async () => {
+    it('should continue sync flow when centralized config is enabled', async () => {
         const event = new PullRequestClosedEvent(
             {
                 organizationId: 'org-1',
@@ -99,7 +99,12 @@ describe('KodyRulesSyncListener', () => {
         );
         expect(
             kodyRulesSyncServiceMock.syncFromChangedFiles,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledWith({
+            organizationAndTeamData: event.organizationAndTeamData,
+            repository: event.repository,
+            pullRequestNumber: event.pullRequestNumber,
+            files: event.files,
+        });
     });
 
     it('should execute legacy sync when centralized config is disabled', async () => {

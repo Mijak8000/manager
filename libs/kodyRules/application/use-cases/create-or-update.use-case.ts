@@ -305,15 +305,6 @@ export class CreateOrUpdateKodyRulesUseCase {
             return;
         }
 
-        // For centralized creates we avoid DB writes entirely; the rule is created on next sync.
-        if (operation === 'create') {
-            return;
-        }
-
-        if (!existingRule?.uuid) {
-            return;
-        }
-
         try {
             const repositoryFolder =
                 await this.centralizedConfigPrService.resolveRepositoryFolderName(
@@ -328,6 +319,29 @@ export class CreateOrUpdateKodyRulesUseCase {
                     ruleType === KodyRulesType.MEMORY ? 'memories' : 'review',
                 ruleContent: effectiveRule,
             });
+
+            if (operation === 'create') {
+                await this.kodyRulesService.createOrUpdate(
+                    organizationAndTeamData,
+                    {
+                        ...(effectiveRule as CreateKodyRuleDto),
+                        type: ruleType,
+                        repositoryId: effectiveRule.repositoryId,
+                        origin: effectiveRule.origin || KodyRulesOrigin.USER,
+                        status: effectiveRule.status || KodyRulesStatus.ACTIVE,
+                        centralizedConfig: {
+                            path: centralizedPath,
+                            status: KodyRuleCentralizedStatus.PENDING_ADD,
+                        },
+                    },
+                    userInfo,
+                );
+                return;
+            }
+
+            if (!existingRule?.uuid) {
+                return;
+            }
 
             await this.kodyRulesService.createOrUpdate(
                 organizationAndTeamData,

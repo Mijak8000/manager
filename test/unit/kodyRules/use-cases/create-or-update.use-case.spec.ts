@@ -110,7 +110,7 @@ describe('CreateOrUpdateKodyRulesUseCase (centralized pending states)', () => {
         useCase = module.get(CreateOrUpdateKodyRulesUseCase);
     });
 
-    it('does not persist create flow in DB when centralized PR mode is active', async () => {
+    it('persists create flow as pending_add when centralized PR mode is active', async () => {
         centralizedConfigPrServiceMock.createMutationPullRequestIfEnabled.mockResolvedValue(
             {
                 mode: 'centralized-pr',
@@ -147,7 +147,19 @@ describe('CreateOrUpdateKodyRulesUseCase (centralized pending states)', () => {
         expect(result).toEqual(
             expect.objectContaining({ mode: 'centralized-pr' }),
         );
-        expect(kodyRulesServiceMock.createOrUpdate).not.toHaveBeenCalled();
+        expect(kodyRulesServiceMock.createOrUpdate).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                title: 'Avoid debug logs',
+                repositoryId: 'repo-1',
+                status: KodyRulesStatus.ACTIVE,
+                centralizedConfig: {
+                    path: 'repo-one/.kody-rules/review/avoid-debug.yml',
+                    status: KodyRuleCentralizedStatus.PENDING_ADD,
+                },
+            }),
+            expect.anything(),
+        );
     });
 
     it('keeps existing centralized source path when updating a centralized-pending rule', async () => {
@@ -211,7 +223,7 @@ describe('CreateOrUpdateKodyRulesUseCase (centralized pending states)', () => {
         );
     });
 
-    it('uses explicit teamId for global rule centralized mutation and does not write DB for create', async () => {
+    it('uses explicit teamId for global rule centralized mutation and writes pending_add snapshot', async () => {
         centralizedConfigPrServiceMock.createMutationPullRequestIfEnabled.mockResolvedValue(
             {
                 mode: 'centralized-pr',
@@ -269,7 +281,21 @@ describe('CreateOrUpdateKodyRulesUseCase (centralized pending states)', () => {
             }),
         );
 
-        expect(kodyRulesServiceMock.createOrUpdate).not.toHaveBeenCalled();
+        expect(kodyRulesServiceMock.createOrUpdate).toHaveBeenCalledWith(
+            expect.objectContaining({
+                organizationId: 'org-1',
+                teamId: 'team-explicit',
+            }),
+            expect.objectContaining({
+                repositoryId: 'global',
+                status: KodyRulesStatus.ACTIVE,
+                centralizedConfig: {
+                    path: 'global/.kody-rules/review/no-hardcoded-secrets.yml',
+                    status: KodyRuleCentralizedStatus.PENDING_ADD,
+                },
+            }),
+            expect.anything(),
+        );
     });
 
     it('updates existing file path when legacy rule has no centralizedConfig path', async () => {
