@@ -121,16 +121,6 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
                     this.request?.user?.organization?.uuid;
             }
 
-            const isSelectionScopeMutation =
-                this.isSelectionOnlyConfigPayload(body.configValue) &&
-                (!!repositoryId || !!directoryId || !!directoryPath);
-
-            await this.ensureManualChangesAllowed(
-                organizationAndTeamData,
-                body.actor?.source,
-                isSelectionScopeMutation,
-            );
-
             if (!body.skipAuthorization) {
                 await this.authorizationService.ensure({
                     user: this.request?.user,
@@ -395,7 +385,6 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
 
         const isSelectionOnlyPayload =
             this.isSelectionOnlyConfigPayload(sanitizedIncomingConfig) &&
-            isCreation &&
             level !== ConfigLevel.GLOBAL;
 
         const centralizedPr = isSelectionOnlyPayload
@@ -972,28 +961,34 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
             return false;
         }
 
-        return Object.keys(config).length === 0;
+        return this.hasOnlyUndefinedValues(config as Record<string, unknown>);
     }
 
-    private async ensureManualChangesAllowed(
-        organizationAndTeamData: OrganizationAndTeamData,
-        source?: 'cli' | 'web' | 'sync',
-        allowSelectionMutation = false,
-    ): Promise<void> {
-        if (source === 'sync' || allowSelectionMutation) {
-            return;
+    private hasOnlyUndefinedValues(obj: Record<string, unknown>): boolean {
+        const entries = Object.entries(obj);
+
+        if (entries.length === 0) {
+            return true;
         }
 
-        const centralizedConfig = await this.parametersService.findByKey(
-            ParametersKey.CENTRALIZED_CONFIG,
-            organizationAndTeamData,
-        );
+        for (const [, value] of entries) {
+            if (value === undefined) {
+                continue;
+            }
 
-        if (centralizedConfig?.configValue?.enabled === true) {
-            throw new ForbiddenException(
-                'Code review settings are locked while centralized configuration is enabled.',
-            );
+            if (
+                value &&
+                typeof value === 'object' &&
+                !Array.isArray(value) &&
+                this.hasOnlyUndefinedValues(value as Record<string, unknown>)
+            ) {
+                continue;
+            }
+
+            return false;
         }
+
+        return true;
     }
 
     private applyDeltaKeyRemovals(params: {

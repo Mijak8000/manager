@@ -408,9 +408,25 @@ describe('UpdateOrCreateCodeReviewParameterUseCase', () => {
         });
     });
 
-    it('blocks manual updates when centralized configuration is enabled', async () => {
+    it('routes manual updates through centralized PR when centralized configuration is enabled', async () => {
         const createOrUpdateParametersUseCase = {
             execute: jest.fn().mockResolvedValue(true),
+        };
+
+        const centralizedConfigPrService = {
+            getScopedKodusConfigFileContent: jest.fn().mockResolvedValue({}),
+            createMutationPullRequestIfEnabled: jest.fn().mockResolvedValue({
+                mode: 'centralized-pr',
+                prUrl: 'https://example.test/pr/manual-settings',
+                pending: true,
+            }),
+            buildCentralizedPath: jest
+                .fn()
+                .mockImplementation(({ repositoryFolder, relativePath }) =>
+                    repositoryFolder === 'global'
+                        ? relativePath
+                        : `${repositoryFolder}/${relativePath}`,
+                ),
         };
 
         const useCase = new UpdateOrCreateCodeReviewParameterUseCase(
@@ -452,7 +468,7 @@ describe('UpdateOrCreateCodeReviewParameterUseCase', () => {
             {
                 buildConfigKey: jest.fn().mockReturnValue('config-key'),
             } as any,
-            buildCentralizedConfigPrServiceMock() as any,
+            centralizedConfigPrService as any,
         );
 
         await expect(
@@ -469,8 +485,11 @@ describe('UpdateOrCreateCodeReviewParameterUseCase', () => {
                 },
                 skipAuthorization: true,
             } as any),
-        ).rejects.toThrow(
-            'Code review settings are locked while centralized configuration is enabled.',
+        ).resolves.toEqual(
+            expect.objectContaining({
+                mode: 'centralized-pr',
+                prUrl: 'https://example.test/pr/manual-settings',
+            }),
         );
 
         expect(createOrUpdateParametersUseCase.execute).not.toHaveBeenCalled();
@@ -977,6 +996,103 @@ describe('UpdateOrCreateCodeReviewParameterUseCase', () => {
         ).not.toHaveBeenCalled();
         expect(createOrUpdateParametersUseCase.execute).toHaveBeenCalled();
         expect(result).toBe(true);
+    });
+
+    it('treats dto-shaped payload with undefined fields as empty for selection', async () => {
+        const createOrUpdateParametersUseCase = {
+            execute: jest.fn().mockResolvedValue(true),
+        };
+
+        const useCase = new UpdateOrCreateCodeReviewParameterUseCase(
+            {
+                findByKey: jest.fn().mockImplementation((key: string) => {
+                    if (key === 'centralized_config') {
+                        return Promise.resolve({
+                            configValue: {
+                                enabled: true,
+                            },
+                        });
+                    }
+
+                    return Promise.resolve({
+                        configValue: {
+                            id: 'global',
+                            name: 'Global',
+                            isSelected: true,
+                            configs: {},
+                            repositories: [
+                                {
+                                    id: 'repo-1',
+                                    name: 'alpha',
+                                    isSelected: false,
+                                    configs: {},
+                                    directories: [],
+                                },
+                            ],
+                        },
+                    });
+                }),
+            } as any,
+            createOrUpdateParametersUseCase as any,
+            {
+                findIntegrationConfigFormatted: jest.fn().mockResolvedValue([
+                    {
+                        id: 'repo-1',
+                        name: 'alpha',
+                        directories: [],
+                    },
+                ]),
+            } as any,
+            {
+                emit: jest.fn(),
+            } as any,
+            {} as any,
+            {
+                ensure: jest.fn(),
+            } as any,
+            {
+                detectAndSaveReferences: jest.fn(),
+            } as any,
+            {
+                buildConfigKey: jest.fn().mockReturnValue('config-key'),
+            } as any,
+            buildCentralizedConfigPrServiceMock() as any,
+        );
+
+        const dtoShapedEmptyPayload = {
+            id: undefined,
+            name: undefined,
+            path: undefined,
+            isSelected: undefined,
+            ignorePaths: undefined,
+            automatedReviewActive: undefined,
+            pullRequestApprovalActive: undefined,
+            reviewCadence: undefined,
+            runOnDraft: undefined,
+            v2PromptOverrides: undefined,
+            customMessages: undefined,
+            suggestionControl: {
+                severityLevelFilter: undefined,
+            },
+        };
+
+        await expect(
+            useCase.execute({
+                actor: {
+                    source: 'web',
+                },
+                configValue: dtoShapedEmptyPayload,
+                organizationAndTeamData: {
+                    organizationId: 'org-1',
+                    teamId: 'team-1',
+                },
+                repositoryId: 'repo-1',
+                directoryPath: '/src',
+                skipAuthorization: true,
+            } as any),
+        ).resolves.toBe(true);
+
+        expect(createOrUpdateParametersUseCase.execute).toHaveBeenCalled();
     });
 
     it('removes a reverted-to-default key from existing scoped centralized file content', async () => {
