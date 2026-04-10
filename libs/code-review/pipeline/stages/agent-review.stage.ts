@@ -190,26 +190,21 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         };
     }
 
-    private normalizeSeverity(
-        severity?: string,
-    ): 'critical' | 'high' | 'medium' | 'low' {
+    private normalizeSeverity(severity?: string): SeverityLevel {
         switch ((severity || '').toLowerCase()) {
             case 'critical':
-                return 'critical';
-            case 'high':
-                return 'high';
-            case 'medium':
-                return 'medium';
-            case 'low':
-                return 'low';
             case SeverityLevel.CRITICAL:
-                return 'critical';
+                return SeverityLevel.CRITICAL;
+            case 'high':
             case SeverityLevel.ISSUE:
-                return 'high';
+                return SeverityLevel.HIGH;
+            case 'medium':
+                return SeverityLevel.MEDIUM;
+            case 'low':
             case SeverityLevel.WARNING:
-                return 'low';
+                return SeverityLevel.LOW;
             default:
-                return 'medium';
+                return SeverityLevel.MEDIUM;
         }
     }
 
