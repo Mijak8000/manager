@@ -148,30 +148,31 @@ export class ReviewOrchestratorService {
             changedFiles: agentInput.changedFiles.map(({ content, fileContent, ...rest }) => rest as any),
         };
 
-        // Dispatch all agents in parallel
+        const runAgent = async (task: (typeof agentTasks)[0]) => {
+            try {
+                return await task.provider.execute({
+                    ...agentInputWithoutContent,
+                    maxSteps: this.getMaxStepsForAgent(
+                        task.name,
+                        agentInput.reviewMode,
+                    ),
+                });
+            } catch (error) {
+                this.logger.error({
+                    message: `[AGENT] ${task.name} agent failed for PR#${agentInput.prNumber}`,
+                    context: ReviewOrchestratorService.name,
+                    error,
+                    metadata: {
+                        agent: task.name,
+                        prNumber: agentInput.prNumber,
+                    },
+                });
+                throw error;
+            }
+        };
+
         const results = await Promise.allSettled(
-            agentTasks.map(async (task) => {
-                try {
-                    return await task.provider.execute({
-                        ...agentInputWithoutContent,
-                        maxSteps: this.getMaxStepsForAgent(
-                            task.name,
-                            agentInput.reviewMode,
-                        ),
-                    });
-                } catch (error) {
-                    this.logger.error({
-                        message: `[AGENT] ${task.name} agent failed for PR#${agentInput.prNumber}`,
-                        context: ReviewOrchestratorService.name,
-                        error,
-                        metadata: {
-                            agent: task.name,
-                            prNumber: agentInput.prNumber,
-                        },
-                    });
-                    throw error;
-                }
-            }),
+            agentTasks.map((task) => runAgent(task)),
         );
 
         // Collect successful results

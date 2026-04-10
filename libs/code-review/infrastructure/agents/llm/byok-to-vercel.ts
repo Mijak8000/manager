@@ -174,3 +174,210 @@ export function getInternalModel(
 
     return createGoogleGenerativeAI({ apiKey: googleKey })('gemini-2.5-flash');
 }
+
+export type BYOKLimiterRole = 'main' | 'fallback' | 'internal';
+
+type BYOKProviderSlotConfig = NonNullable<BYOKConfig['main']>;
+
+type QueuedTask<T> = {
+    id: number;
+    label: string;
+    run: () => Promise<T>;
+    resolve: (value: T) => void;
+    reject: (reason?: unknown) => void;
+    started: boolean;
+    cancelled: boolean;
+    timer?: ReturnType<typeof setTimeout>;
+    cleanup?: () => void;
+};
+
+const DEFAULT_LIMITER_QUEUE_TIMEOUT_MS = 0;
+
+class BYOKConcurrencyLimiter {
+    private readonly queue: Array<QueuedTask<unknown>> = [];
+    private activeCount = 0;
+    private nextTaskId = 1;
+
+    constructor(
+        readonly concurrency: number,
+        readonly queueTimeoutMs: number,
+    ) {}
+
+    run<T>(
+        label: string,
+        fn: () => Promise<T>,
+        abortSignal?: AbortSignal,
+    ): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            const task: QueuedTask<T> = {
+                id: this.nextTaskId++,
+                label,
+                run: fn,
+                resolve,
+                reject,
+                started: false,
+                cancelled: false,
+            };
+
+            const abortQueuedTask = () => {
+                if (task.started || task.cancelled) return;
+                task.cancelled = true;
+                if (task.timer) clearTimeout(task.timer);
+                const index = this.queue.findIndex(
+                    (item) => item.id === task.id,
+                );
+                if (index >= 0) {
+                    this.queue.splice(index, 1);
+                }
+                reject(
+                    abortSignal?.reason instanceof Error
+                        ? abortSignal.reason
+                        : new Error(
+                              `[BYOK-QUEUE-ABORTED] ${label} was cancelled before acquiring an LLM concurrency slot`,
+                          ),
+                );
+            };
+
+            if (abortSignal) {
+                if (abortSignal.aborted) {
+                    abortQueuedTask();
+                    return;
+                }
+                abortSignal.addEventListener('abort', abortQueuedTask, {
+                    once: true,
+                });
+                task.cleanup = () =>
+                    abortSignal.removeEventListener('abort', abortQueuedTask);
+            }
+
+            if (this.queueTimeoutMs > 0) {
+                task.timer = setTimeout(() => {
+                    if (task.started || task.cancelled) return;
+                    task.cancelled = true;
+                    task.cleanup?.();
+                    const index = this.queue.findIndex((item) => item.id === task.id);
+                    if (index >= 0) {
+                        this.queue.splice(index, 1);
+                    }
+                    reject(
+                        new Error(
+                            `[BYOK-QUEUE-TIMEOUT] ${label} waited more than ${Math.round(
+                                this.queueTimeoutMs / 1000,
+                            )}s for an LLM concurrency slot`,
+                        ),
+                    );
+                }, this.queueTimeoutMs);
+            }
+
+            this.queue.push(task as QueuedTask<unknown>);
+            this.drain();
+        });
+    }
+
+    private drain() {
+        while (this.activeCount < this.concurrency && this.queue.length > 0) {
+            const task = this.queue.shift();
+            if (!task || task.cancelled) continue;
+
+            task.started = true;
+            if (task.timer) clearTimeout(task.timer);
+            task.cleanup?.();
+            this.activeCount++;
+
+            Promise.resolve()
+                .then(() => task.run())
+                .then(
+                    (value) => task.resolve(value),
+                    (error) => task.reject(error),
+                )
+                .finally(() => {
+                    this.activeCount = Math.max(0, this.activeCount - 1);
+                    this.drain();
+                });
+        }
+    }
+}
+
+const limiterCache = new Map<string, BYOKConcurrencyLimiter>();
+
+function getLimiterConfig(
+    byokConfig?: BYOKConfig,
+    role: BYOKLimiterRole = 'main',
+): BYOKProviderSlotConfig | undefined {
+    if (!byokConfig) return undefined;
+
+    switch (role) {
+        case 'fallback':
+            return byokConfig.fallback;
+        case 'internal':
+            return byokConfig.fallback ?? byokConfig.main;
+        case 'main':
+        default:
+            return byokConfig.main;
+    }
+}
+
+function buildLimiterCacheKey(params: {
+    byokConfig?: BYOKConfig;
+    organizationId?: string;
+    role?: BYOKLimiterRole;
+}): string | null {
+    const role = params.role ?? 'main';
+    const config = getLimiterConfig(params.byokConfig, role);
+    if (!config) return null;
+
+    const organizationScope = params.organizationId || 'global';
+    return [
+        organizationScope,
+        config.provider,
+        config.apiKey,
+        config.baseURL || '',
+        config.model,
+    ].join('::');
+}
+
+/**
+ * Runs a task through a BYOK concurrency limiter scoped by organization + provider account.
+ *
+ * The limiter is shared across main/internal/fallback calls when they hit the same
+ * provider account, because upstream concurrency limits are account-wide rather than
+ * call-type-specific.
+ */
+export function runWithBYOKLimiter<T>(
+    params: {
+        byokConfig?: BYOKConfig;
+        organizationId?: string;
+        role?: BYOKLimiterRole;
+        queueTimeoutMs?: number;
+        abortSignal?: AbortSignal;
+    },
+    fn: () => Promise<T>,
+    label = 'llm-call',
+): Promise<T> {
+    const role = params.role ?? 'main';
+    const config = getLimiterConfig(params.byokConfig, role);
+    const maxConcurrent = config?.maxConcurrentRequests;
+
+    if (!maxConcurrent || maxConcurrent <= 0) {
+        return fn();
+    }
+
+    const cacheKey = buildLimiterCacheKey(params);
+    if (!cacheKey) {
+        return fn();
+    }
+
+    const queueTimeoutMs =
+        params.queueTimeoutMs ?? DEFAULT_LIMITER_QUEUE_TIMEOUT_MS;
+    let limiter = limiterCache.get(cacheKey);
+    if (
+        !limiter ||
+        limiter.concurrency !== maxConcurrent ||
+        limiter.queueTimeoutMs !== queueTimeoutMs
+    ) {
+        limiter = new BYOKConcurrencyLimiter(maxConcurrent, queueTimeoutMs);
+        limiterCache.set(cacheKey, limiter);
+    }
+
+    return limiter.run(label, fn, params.abortSignal);
+}

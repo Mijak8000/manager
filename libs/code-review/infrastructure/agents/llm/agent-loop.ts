@@ -21,8 +21,47 @@ if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
     }
 }
 
-/** Re-export the LangSmith-wrapped generateText for use outside the agent loop. */
+// Wrap generateText with a hard timeout safety net.
+// Some BYOK providers (Synthetic, Z.AI) ignore AbortSignal and hang forever.
+// This ensures every LLM call has a maximum wall-clock time.
+const _rawGenerateText = generateText;
+generateText = (async (...args: Parameters<typeof _rawGenerateText>) => {
+    // Extract timeout from the abortSignal if present, otherwise use AGENT_TIMEOUT_MS
+    const opts = args[0] as any;
+    const ms = opts?.__kodusHardTimeoutMs ?? (opts?.abortSignal
+        ? LLM_CALL_TIMEOUT_MS  // secondary calls already set timeoutSignal
+        : AGENT_TIMEOUT_MS);     // main call uses agent-level timeout
+    const label = opts?.experimental_telemetry?.functionId || 'generateText';
+    return hardTimeout(_rawGenerateText(...args), ms, label);
+}) as typeof generateText;
+
+/** Re-export the LangSmith-wrapped (+ hard-timeout) generateText for use outside the agent loop. */
 export { generateText as tracedGenerateText };
+
+/**
+ * Wraps a generateText call through the BYOK concurrency limiter.
+ * When maxConcurrentRequests is configured (e.g. 1 for Z.AI/Synthetic),
+ * all LLM calls across all pipelines in this process are serialized.
+ */
+function throttledGenerateText<T>(params: {
+    byokConfig?: BYOKConfig;
+    organizationId?: string;
+    role?: BYOKLimiterRole;
+    label?: string;
+    abortSignal?: AbortSignal;
+    fn: () => Promise<T>;
+}): Promise<T> {
+    return runWithBYOKLimiter(
+        {
+            byokConfig: params.byokConfig,
+            organizationId: params.organizationId,
+            role: params.role ?? 'main',
+            abortSignal: params.abortSignal,
+        },
+        params.fn,
+        params.label ?? 'generateText',
+    );
+}
 
 /**
  * Standard metadata sent to LangSmith for every LLM call in the code review pipeline.
@@ -65,7 +104,11 @@ import { createLogger } from '@kodus/flow';
 import { EnhancedJSONParser } from '@kodus/flow';
 import { BYOKConfig } from '@kodus/kodus-common/llm';
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
-import { getInternalModel } from './byok-to-vercel';
+import {
+    getInternalModel,
+    runWithBYOKLimiter,
+    type BYOKLimiterRole,
+} from './byok-to-vercel';
 import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts.service';
 import {
     buildCoverageLedger,
@@ -87,6 +130,27 @@ function timeoutSignal(ms: number): AbortSignal {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), ms);
     return controller.signal;
+}
+
+/**
+ * Hard timeout wrapper — kills the promise even if the provider ignores AbortSignal.
+ * Uses Promise.race so that a stuck HTTP connection can never block the pipeline forever.
+ *
+ * Every generateText call already passes timeoutSignal(ms) as AbortSignal,
+ * but some providers (OpenAI-compatible proxies like Synthetic, Z.AI) ignore it.
+ * This is the safety net.
+ */
+function hardTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    return Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+            timer = setTimeout(
+                () => reject(new Error(`[HARD-TIMEOUT] ${label} exceeded ${ms / 1000}s`)),
+                ms + 5_000, // +5s grace so AbortSignal fires first when it works
+            );
+        }),
+    ]).finally(() => clearTimeout(timer));
 }
 
 /** Schema for structured output */
@@ -260,85 +324,93 @@ export async function runAgentLoop(
 
     let result;
     try {
-        result = await generateText({
-            model: input.model,
+        result = await throttledGenerateText({
+            byokConfig: secrets.byokConfig,
+            organizationId: input.telemetryMetadata?.organizationId,
+            role: 'main',
+            label: input.agentName ?? 'agent-loop',
             abortSignal: abortController.signal,
-            system: input.systemPrompt,
-            prompt: input.userPrompt,
-            experimental_telemetry: {
-                isEnabled: true,
-                functionId: input.agentName ?? 'agent-loop',
-            },
-            providerOptions: buildLangSmithProviderOptions(
-                input.agentName ?? 'agent-loop',
-                input.telemetryMetadata,
-            ),
-            tools,
-            stopWhen: stepCountIs(
-                input.maxSteps ||
-                    (input.reviewMode === 'deep'
-                        ? MAX_STEPS_DEEP
-                        : MAX_STEPS_NORMAL),
-            ),
-            // Last 2 steps: remove tools entirely to force text response.
-            // toolChoice: 'none' doesn't work with all providers (e.g., Gemini ignores it).
-            // Removing tools entirely guarantees the model can only respond with text.
-            prepareStep: ({ stepNumber }: any) => {
-                const maxSteps =
-                    input.maxSteps ||
-                    (input.reviewMode === 'deep'
-                        ? MAX_STEPS_DEEP
-                        : MAX_STEPS_NORMAL);
-                const forceTextAfter = maxSteps - 2;
-                const coverageDebt = formatCoverageDebt(coverageTargets);
+            fn: () =>
+                generateText({
+                    ...( { __kodusHardTimeoutMs: AGENT_TIMEOUT_MS } as any ),
+                    model: input.model,
+                    abortSignal: abortController.signal,
+                    system: input.systemPrompt,
+                    prompt: input.userPrompt,
+                    experimental_telemetry: {
+                        isEnabled: true,
+                        functionId: input.agentName ?? 'agent-loop',
+                    },
+                    providerOptions: buildLangSmithProviderOptions(
+                        input.agentName ?? 'agent-loop',
+                        input.telemetryMetadata,
+                    ),
+                    tools,
+                    stopWhen: stepCountIs(
+                        input.maxSteps ||
+                            (input.reviewMode === 'deep'
+                                ? MAX_STEPS_DEEP
+                                : MAX_STEPS_NORMAL),
+                    ),
+                    // Last 2 steps: remove tools entirely to force text response.
+                    // toolChoice: 'none' doesn't work with all providers (e.g., Gemini ignores it).
+                    // Removing tools entirely guarantees the model can only respond with text.
+                    prepareStep: ({ stepNumber }: any) => {
+                        const maxSteps =
+                            input.maxSteps ||
+                            (input.reviewMode === 'deep'
+                                ? MAX_STEPS_DEEP
+                                : MAX_STEPS_NORMAL);
+                        const forceTextAfter = maxSteps - 2;
+                        const coverageDebt = formatCoverageDebt(coverageTargets);
 
-                if (coverageDebt) {
-                    if (stepNumber >= forceTextAfter) {
-                        logger.log({
-                            message: `[AGENT-COVERAGE-DEBT] step=${stepNumber}/${maxSteps} pending=${getCoverageSummary(coverageTargets).pendingTargets} — prioritizing uncovered changed files`,
-                            context: 'AgentLoop',
-                        });
-                    }
+                        if (coverageDebt) {
+                            if (stepNumber >= forceTextAfter) {
+                                logger.log({
+                                    message: `[AGENT-COVERAGE-DEBT] step=${stepNumber}/${maxSteps} pending=${getCoverageSummary(coverageTargets).pendingTargets} — prioritizing uncovered changed files`,
+                                    context: 'AgentLoop',
+                                });
+                            }
 
-                    return {
-                        system:
-                            input.systemPrompt +
-                            '\n\nIMPORTANT: Coverage debt is still open.\n' +
-                            coverageDebt +
-                            '\nPrioritize the uncovered changed files before exploring anything else.',
-                    };
-                }
+                            return {
+                                system:
+                                    input.systemPrompt +
+                                    '\n\nIMPORTANT: Coverage debt is still open.\n' +
+                                    coverageDebt +
+                                    '\nPrioritize the uncovered changed files before exploring anything else.',
+                            };
+                        }
 
-                if (stepNumber >= forceTextAfter) {
-                    logger.log({
-                        message: `[AGENT-FORCE-TEXT] step=${stepNumber}/${maxSteps} — removing tools, forcing JSON response`,
-                        context: 'AgentLoop',
-                    });
-                    return {
-                        toolChoice: 'none' as const,
-                        activeTools: [],
-                        system:
-                            input.systemPrompt +
-                            '\n\nIMPORTANT: You have reached the final response step. ' +
-                            'Do NOT call any more tools. ' +
-                            'Respond ONLY with a JSON object inside a markdown code block:\n' +
-                            '```json\n' +
-                            '{\n' +
-                            '  "reasoning": "what you investigated and found",\n' +
-                            '  "suggestions": []\n' +
-                            '}\n' +
-                            '```\n' +
-                            'If you found no issues, return an empty suggestions array. No prose, no explanation outside the JSON.',
-                    };
-                }
+                        if (stepNumber >= forceTextAfter) {
+                            logger.log({
+                                message: `[AGENT-FORCE-TEXT] step=${stepNumber}/${maxSteps} — removing tools, forcing JSON response`,
+                                context: 'AgentLoop',
+                            });
+                            return {
+                                toolChoice: 'none' as const,
+                                activeTools: [],
+                                system:
+                                    input.systemPrompt +
+                                    '\n\nIMPORTANT: You have reached the final response step. ' +
+                                    'Do NOT call any more tools. ' +
+                                    'Respond ONLY with a JSON object inside a markdown code block:\n' +
+                                    '```json\n' +
+                                    '{\n' +
+                                    '  "reasoning": "what you investigated and found",\n' +
+                                    '  "suggestions": []\n' +
+                                    '}\n' +
+                                    '```\n' +
+                                    'If you found no issues, return an empty suggestions array. No prose, no explanation outside the JSON.',
+                            };
+                        }
 
-                // Note: toolChoice: 'required' was removed because some providers
-                // (e.g. Moonshot) reject it with "incompatible with thinking enabled".
-                // The prompt already instructs "Your first action must be a tool call".
+                        // Note: toolChoice: 'required' was removed because some providers
+                        // (e.g. Moonshot) reject it with "incompatible with thinking enabled".
+                        // The prompt already instructs "Your first action must be a tool call".
 
-                return {};
-            },
-            onStepFinish: (event: any) => {
+                        return {};
+                    },
+                    onStepFinish: (event: any) => {
                 stepCount++;
 
                 if (event.toolCalls) {
@@ -443,7 +515,8 @@ export async function runAgentLoop(
                 }
 
                 input.onStepFinish?.(event);
-            },
+                    },
+                }),
         });
     } catch (error) {
         clearTimeout(timeoutHandle);
@@ -488,6 +561,7 @@ export async function runAgentLoop(
                         const fallbackResult = await structureWithFallbackModel(
                             bestText,
                             secrets.byokConfig,
+                            input.telemetryMetadata?.organizationId,
                         );
                         if (
                             fallbackResult &&
@@ -583,12 +657,20 @@ export async function runAgentLoop(
                     return `${tc.toolName}(${args.substring(0, 150)}) → ${resultStr || '(empty)'}`;
                 })
                 .join('\n');
+            const secondChanceSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
-            const secondChanceResult = await generateText({
-                abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-                model: input.model,
-                system: input.systemPrompt,
-                prompt: `You have already investigated this code review task using ${allToolCalls.length} tool calls. Here is a summary of your investigation:
+            const secondChanceResult = await throttledGenerateText({
+                byokConfig: secrets.byokConfig,
+                organizationId: input.telemetryMetadata?.organizationId,
+                role: 'main',
+                label: `${input.agentName ?? 'agent-loop'}-second-chance`,
+                abortSignal: secondChanceSignal,
+                fn: () =>
+                    generateText({
+                        abortSignal: secondChanceSignal,
+                        model: input.model,
+                        system: input.systemPrompt,
+                        prompt: `You have already investigated this code review task using ${allToolCalls.length} tool calls. Here is a summary of your investigation:
 
 <InvestigationLog>
 ${investigationSummary.substring(0, 8000)}
@@ -622,7 +704,8 @@ Respond with ONLY the JSON:
   ]
 }
 \`\`\``,
-                stopWhen: stepCountIs(1), // No tools, just respond
+                        stopWhen: stepCountIs(1), // No tools, just respond
+                    }),
             });
 
             finalText = secondChanceResult.text || '';
@@ -684,6 +767,7 @@ Respond with ONLY the JSON:
         const fallbackResult = await structureWithFallbackModel(
             finalText,
             secrets.byokConfig,
+            input.telemetryMetadata?.organizationId,
         );
         if (fallbackResult) {
             findings = fallbackResult.findings;
@@ -718,6 +802,7 @@ Respond with ONLY the JSON:
 
         const coverageRecovery = await runCoverageRecoveryPass({
             input,
+            byokConfig: secrets.byokConfig,
             tools,
             coverageTargets,
             allToolCalls,
@@ -753,6 +838,7 @@ Respond with ONLY the JSON:
 
         const coverageSecondChance = await runLowCoverageSecondChance({
             input,
+            byokConfig: secrets.byokConfig,
             tools,
             coverageTargets,
             allToolCalls,
@@ -772,6 +858,7 @@ Respond with ONLY the JSON:
                 const fallbackResult = await structureWithFallbackModel(
                     coverageSecondChance.text,
                     secrets.byokConfig,
+                    input.telemetryMetadata?.organizationId,
                 );
                 if (fallbackResult) {
                     extraFindings = fallbackResult.findings;
@@ -795,6 +882,7 @@ Respond with ONLY the JSON:
 
     const synthesisRescue = await runSynthesisRescuePass({
         input,
+        byokConfig: secrets.byokConfig,
         findings,
         allToolCalls,
         totalInputTokens,
@@ -930,6 +1018,7 @@ Respond with ONLY the JSON:
 
 async function runCoverageRecoveryPass(params: {
     input: AgentLoopInput;
+    byokConfig?: BYOKConfig;
     tools: Record<string, any>;
     coverageTargets: ReturnType<typeof buildCoverageLedger>;
     allToolCalls: AgentLoopOutput['toolCalls'];
@@ -944,6 +1033,7 @@ async function runCoverageRecoveryPass(params: {
 }> {
     const {
         input,
+        byokConfig,
         tools,
         coverageTargets,
         allToolCalls,
@@ -974,15 +1064,23 @@ async function runCoverageRecoveryPass(params: {
 
     let recoveryStep = 0;
     let recoveryText = '';
+    const recoverySignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
     try {
-        const recoveryResult = await generateText({
-            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-            model: input.model,
-            system:
-                input.systemPrompt +
-                '\n\nIMPORTANT: This is a coverage recovery pass. You must inspect the remaining changed files before responding.',
-            prompt: `You already investigated this review, but some changed files are still uncovered.
+        const recoveryResult = await throttledGenerateText({
+            byokConfig,
+            organizationId: input.telemetryMetadata?.organizationId,
+            role: 'main',
+            label: `${input.agentName ?? 'agent-loop'}-coverage-recovery`,
+            abortSignal: recoverySignal,
+            fn: () =>
+                generateText({
+                    abortSignal: recoverySignal,
+                    model: input.model,
+                    system:
+                        input.systemPrompt +
+                        '\n\nIMPORTANT: This is a coverage recovery pass. You must inspect the remaining changed files before responding.',
+                    prompt: `You already investigated this review, but some changed files are still uncovered.
 
 <RecentInvestigation>
 ${investigationSummary || 'No prior tool calls captured.'}
@@ -998,55 +1096,56 @@ Investigate the remaining changed files now.
 - After inspecting them, return ONLY JSON with ADDITIONAL findings discovered from this recovery pass.
 - If no new findings appear, return an empty suggestions array.
 `,
-            tools,
-            stopWhen: stepCountIs(6),
-            prepareStep: ({ stepNumber }: any) => {
-                recoveryStep = stepNumber;
-                if (stepNumber >= 5) {
-                    return {
-                        toolChoice: 'none' as const,
-                        activeTools: [],
-                        system:
-                            input.systemPrompt +
-                            '\n\nIMPORTANT: This is the final step of the coverage recovery pass. Do NOT call tools. Respond with JSON only.',
-                    };
-                }
+                    tools,
+                    stopWhen: stepCountIs(6),
+                    prepareStep: ({ stepNumber }: any) => {
+                        recoveryStep = stepNumber;
+                        if (stepNumber >= 5) {
+                            return {
+                                toolChoice: 'none' as const,
+                                activeTools: [],
+                                system:
+                                    input.systemPrompt +
+                                    '\n\nIMPORTANT: This is the final step of the coverage recovery pass. Do NOT call tools. Respond with JSON only.',
+                            };
+                        }
 
-                return {
-                    system:
-                        input.systemPrompt +
-                        '\n\nIMPORTANT: Coverage recovery is in progress.\n' +
-                        formatCoverageDebt(coverageTargets, 12),
-                };
-            },
-            onStepFinish: (event: any) => {
-                if (event.toolCalls) {
-                    for (const toolCall of event.toolCalls) {
-                        const args =
-                            (toolCall as any).args ||
-                            (toolCall as any).input ||
-                            {};
+                        return {
+                            system:
+                                input.systemPrompt +
+                                '\n\nIMPORTANT: Coverage recovery is in progress.\n' +
+                                formatCoverageDebt(coverageTargets, 12),
+                        };
+                    },
+                    onStepFinish: (event: any) => {
+                        if (event.toolCalls) {
+                            for (const toolCall of event.toolCalls) {
+                                const args =
+                                    (toolCall as any).args ||
+                                    (toolCall as any).input ||
+                                    {};
 
-                        allToolCalls.push({
-                            tool: toolCall.toolName,
-                            toolName: toolCall.toolName,
-                            args,
-                            result: '',
-                        });
+                                allToolCalls.push({
+                                    tool: toolCall.toolName,
+                                    toolName: toolCall.toolName,
+                                    args,
+                                    result: '',
+                                });
 
-                        markCoverageFromToolCall(
-                            coverageTargets,
-                            toolCall.toolName,
-                            args,
-                            recoveryStep,
-                        );
-                    }
-                }
+                                markCoverageFromToolCall(
+                                    coverageTargets,
+                                    toolCall.toolName,
+                                    args,
+                                    recoveryStep,
+                                );
+                            }
+                        }
 
-                if (event.text) {
-                    recoveryText = event.text;
-                }
-            },
+                        if (event.text) {
+                            recoveryText = event.text;
+                        }
+                    },
+                }),
         });
 
         recoveryText = recoveryResult.text || recoveryText;
@@ -1098,6 +1197,7 @@ function shouldRunLowCoverageSecondChance(
 
 async function runLowCoverageSecondChance(params: {
     input: AgentLoopInput;
+    byokConfig?: BYOKConfig;
     tools: Record<string, any>;
     coverageTargets: ReturnType<typeof buildCoverageLedger>;
     allToolCalls: AgentLoopOutput['toolCalls'];
@@ -1112,6 +1212,7 @@ async function runLowCoverageSecondChance(params: {
 }> {
     const {
         input,
+        byokConfig,
         tools,
         coverageTargets,
         allToolCalls,
@@ -1142,15 +1243,23 @@ async function runLowCoverageSecondChance(params: {
 
     let secondChanceStep = 0;
     let secondChanceText = '';
+    const lowCoverageSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
     try {
-        const secondChanceResult = await generateText({
-            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-            model: input.model,
-            system:
-                input.systemPrompt +
-                '\n\nIMPORTANT: Coverage is still too low. This is a final targeted inspection pass. You must inspect the remaining changed files with readFile or checkTypes before responding.',
-            prompt: `Your previous review finished with low changed-file coverage.
+        const secondChanceResult = await throttledGenerateText({
+            byokConfig,
+            organizationId: input.telemetryMetadata?.organizationId,
+            role: 'main',
+            label: `${input.agentName ?? 'agent-loop'}-coverage-second-chance`,
+            abortSignal: lowCoverageSignal,
+            fn: () =>
+                generateText({
+                    abortSignal: lowCoverageSignal,
+                    model: input.model,
+                    system:
+                        input.systemPrompt +
+                        '\n\nIMPORTANT: Coverage is still too low. This is a final targeted inspection pass. You must inspect the remaining changed files with readFile or checkTypes before responding.',
+                    prompt: `Your previous review finished with low changed-file coverage.
 
 <RecentInvestigation>
 ${investigationSummary || 'No prior tool calls captured.'}
@@ -1165,55 +1274,56 @@ Instructions:
 - Use readFile or checkTypes on those files before responding.
 - Be surgical: inspect remaining files, then return ONLY JSON with ADDITIONAL findings.
 - If the remaining files are safe, return an empty suggestions array.`,
-            tools,
-            stopWhen: stepCountIs(5),
-            prepareStep: ({ stepNumber }: any) => {
-                secondChanceStep = stepNumber;
-                if (stepNumber >= 4) {
-                    return {
-                        toolChoice: 'none' as const,
-                        activeTools: [],
-                        system:
-                            input.systemPrompt +
-                            '\n\nIMPORTANT: Final step of the low-coverage second chance. Do NOT call tools. Return JSON only.',
-                    };
-                }
+                    tools,
+                    stopWhen: stepCountIs(5),
+                    prepareStep: ({ stepNumber }: any) => {
+                        secondChanceStep = stepNumber;
+                        if (stepNumber >= 4) {
+                            return {
+                                toolChoice: 'none' as const,
+                                activeTools: [],
+                                system:
+                                    input.systemPrompt +
+                                    '\n\nIMPORTANT: Final step of the low-coverage second chance. Do NOT call tools. Return JSON only.',
+                            };
+                        }
 
-                return {
-                    system:
-                        input.systemPrompt +
-                        '\n\nIMPORTANT: Low-coverage second chance in progress.\n' +
-                        formatCoverageDebt(coverageTargets, 12),
-                };
-            },
-            onStepFinish: (event: any) => {
-                if (event.toolCalls) {
-                    for (const toolCall of event.toolCalls) {
-                        const args =
-                            (toolCall as any).args ||
-                            (toolCall as any).input ||
-                            {};
+                        return {
+                            system:
+                                input.systemPrompt +
+                                '\n\nIMPORTANT: Low-coverage second chance in progress.\n' +
+                                formatCoverageDebt(coverageTargets, 12),
+                        };
+                    },
+                    onStepFinish: (event: any) => {
+                        if (event.toolCalls) {
+                            for (const toolCall of event.toolCalls) {
+                                const args =
+                                    (toolCall as any).args ||
+                                    (toolCall as any).input ||
+                                    {};
 
-                        allToolCalls.push({
-                            tool: toolCall.toolName,
-                            toolName: toolCall.toolName,
-                            args,
-                            result: '',
-                        });
+                                allToolCalls.push({
+                                    tool: toolCall.toolName,
+                                    toolName: toolCall.toolName,
+                                    args,
+                                    result: '',
+                                });
 
-                        markCoverageFromToolCall(
-                            coverageTargets,
-                            toolCall.toolName,
-                            args,
-                            secondChanceStep,
-                        );
-                    }
-                }
+                                markCoverageFromToolCall(
+                                    coverageTargets,
+                                    toolCall.toolName,
+                                    args,
+                                    secondChanceStep,
+                                );
+                            }
+                        }
 
-                if (event.text) {
-                    secondChanceText = event.text;
-                }
-            },
+                        if (event.text) {
+                            secondChanceText = event.text;
+                        }
+                    },
+                }),
         });
 
         secondChanceText = secondChanceResult.text || secondChanceText;
@@ -1253,6 +1363,7 @@ Instructions:
 
 async function runSynthesisRescuePass(params: {
     input: AgentLoopInput;
+    byokConfig?: BYOKConfig;
     findings: FindingsOutput;
     allToolCalls: AgentLoopOutput['toolCalls'];
     totalInputTokens: number;
@@ -1266,6 +1377,7 @@ async function runSynthesisRescuePass(params: {
 }> {
     const {
         input,
+        byokConfig,
         findings,
         allToolCalls,
         totalInputTokens: initialTotalInputTokens,
@@ -1305,23 +1417,31 @@ async function runSynthesisRescuePass(params: {
             return `${toolCall.toolName || toolCall.tool}(${args.substring(0, 180)}) => ${truncateText(toolCall.result || '(empty)', 240)}`;
         })
         .join('\n');
+    const synthesisSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
     try {
-        const synthesisResult = await generateText({
-            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-            model: input.model,
-            experimental_telemetry: {
-                isEnabled: true,
-                functionId: `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
-            },
-            providerOptions: buildLangSmithProviderOptions(
-                `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
-                input.telemetryMetadata,
-            ),
-            system:
-                input.systemPrompt +
-                '\n\nIMPORTANT: This is a synthesis pass, not an exploration pass. Do NOT call tools. Re-evaluate the diff, call graph, inspected files, and current findings to detect at most one concrete missed bug.',
-            prompt: `${input.userPrompt}
+        const synthesisResult = await throttledGenerateText({
+            byokConfig,
+            organizationId: input.telemetryMetadata?.organizationId,
+            role: 'main',
+            label: `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
+            abortSignal: synthesisSignal,
+            fn: () =>
+                generateText({
+                    abortSignal: synthesisSignal,
+                    model: input.model,
+                    experimental_telemetry: {
+                        isEnabled: true,
+                        functionId: `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
+                    },
+                    providerOptions: buildLangSmithProviderOptions(
+                        `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
+                        input.telemetryMetadata,
+                    ),
+                    system:
+                        input.systemPrompt +
+                        '\n\nIMPORTANT: This is a synthesis pass, not an exploration pass. Do NOT call tools. Re-evaluate the diff, call graph, inspected files, and current findings to detect at most one concrete missed bug.',
+                    prompt: `${input.userPrompt}
 
 <AlreadyInspectedFiles>
 ${inspectedFilesSummary}
@@ -1362,7 +1482,8 @@ Return ONLY JSON:
   ]
 }
 \`\`\``,
-            stopWhen: stepCountIs(1),
+                    stopWhen: stepCountIs(1),
+                }),
         });
 
         const synthesisText = synthesisResult.text || '';
@@ -1372,6 +1493,7 @@ Return ONLY JSON:
             const fallbackResult = await structureWithFallbackModel(
                 synthesisText,
                 secrets.byokConfig,
+                input.telemetryMetadata?.organizationId,
             );
             if (fallbackResult) {
                 extraFindings = fallbackResult.findings;
@@ -1552,17 +1674,19 @@ async function verifyFindingsWithTools(params: {
 
         // Light verify: 2 steps max, tools available
         const lightResults = await Promise.allSettled(
-            toVerifyLight.map(({ index, suggestion }) =>
-                verifySingleFindingWithTools({
-                    index,
-                    suggestion,
-                    input,
-                    secrets,
-                    allToolCalls,
-                    tools,
-                    maxVerifySteps: 2,
-                }),
-            ),
+            toVerifyLight.map(({ index, suggestion }) => {
+                return (
+                    verifySingleFindingWithTools({
+                        index,
+                        suggestion,
+                        input,
+                        secrets,
+                        allToolCalls,
+                        tools,
+                        maxVerifySteps: 2,
+                    })
+                );
+            }),
         );
 
         for (let i = 0; i < lightResults.length; i++) {
@@ -1583,16 +1707,18 @@ async function verifyFindingsWithTools(params: {
 
         // Full verify: 5 steps, all tools
         const fullResults = await Promise.allSettled(
-            toVerifyFull.map(({ index, suggestion }) =>
-                verifySingleFindingWithTools({
-                    index,
-                    suggestion,
-                    input,
-                    secrets,
-                    allToolCalls,
-                    tools,
-                }),
-            ),
+            toVerifyFull.map(({ index, suggestion }) => {
+                return (
+                    verifySingleFindingWithTools({
+                        index,
+                        suggestion,
+                        input,
+                        secrets,
+                        allToolCalls,
+                        tools,
+                    })
+                );
+            }),
         );
 
         for (let i = 0; i < fullResults.length; i++) {
@@ -1844,90 +1970,105 @@ async function verifySingleFindingWithTools(params: {
         evidenceBundle.bundle,
         index,
     );
+    const verifierSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
-    const verificationRun: any = await generateText({
-        abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-        model: internalModel as any,
-        experimental_telemetry: {
-            isEnabled: true,
-            functionId: `${input.agentName ?? 'agent-loop'}-verify-finding`,
-        },
-        providerOptions: buildLangSmithProviderOptions(
-            `${input.agentName ?? 'agent-loop'}-verify-finding`,
-            input.telemetryMetadata,
-        ),
-        system: verificationPrompt.system,
-        prompt: verificationPrompt.prompt,
-        tools,
-        stopWhen: stepCountIs(params.maxVerifySteps || 5),
-        prepareStep: ({ stepNumber }: any) => {
-            const maxSteps = params.maxVerifySteps || 5;
-            verifierSteps = stepNumber;
-            if (stepNumber >= maxSteps - 1) {
-                return {
-                    toolChoice: 'none' as const,
-                    activeTools: [],
-                    system: 'You are a surgical code review verifier.\n\nIMPORTANT: Final step. Do NOT call tools. Return JSON only.',
-                };
-            }
-            return {};
-        },
-        onStepFinish: (event: any) => {
-            if (event.text) {
-                finalText = event.text;
-                verifierStepTexts.push(event.text);
-            }
-            if (event.usage) {
-                totalInputTokens += event.usage.inputTokens ?? 0;
-                totalOutputTokens += event.usage.outputTokens ?? 0;
-                totalReasoningTokens += event.usage.reasoningTokens ?? 0;
-            }
-            if (event.toolCalls) {
-                const resultLookup = new Map<string, string>();
-                const toolResults: any[] = event.toolResults || [];
+    const verificationRun: any = await throttledGenerateText({
+        byokConfig: secrets.byokConfig,
+        organizationId: input.telemetryMetadata?.organizationId,
+        role: 'internal',
+        label: `${input.agentName ?? 'agent-loop'}-verify-finding`,
+        abortSignal: verifierSignal,
+        fn: () =>
+            generateText({
+                abortSignal: verifierSignal,
+                model: internalModel as any,
+                experimental_telemetry: {
+                    isEnabled: true,
+                    functionId: `${input.agentName ?? 'agent-loop'}-verify-finding`,
+                },
+                providerOptions: buildLangSmithProviderOptions(
+                    `${input.agentName ?? 'agent-loop'}-verify-finding`,
+                    input.telemetryMetadata,
+                ),
+                system: verificationPrompt.system,
+                prompt: verificationPrompt.prompt,
+                tools,
+                stopWhen: stepCountIs(params.maxVerifySteps || 5),
+                prepareStep: ({ stepNumber }: any) => {
+                    const maxSteps = params.maxVerifySteps || 5;
+                    verifierSteps = stepNumber;
+                    if (stepNumber >= maxSteps - 1) {
+                        return {
+                            toolChoice: 'none' as const,
+                            activeTools: [],
+                            system: 'You are a surgical code review verifier.\n\nIMPORTANT: Final step. Do NOT call tools. Return JSON only.',
+                        };
+                    }
+                    return {};
+                },
+                onStepFinish: (event: any) => {
+                    if (event.text) {
+                        finalText = event.text;
+                        verifierStepTexts.push(event.text);
+                    }
+                    if (event.usage) {
+                        totalInputTokens += event.usage.inputTokens ?? 0;
+                        totalOutputTokens += event.usage.outputTokens ?? 0;
+                        totalReasoningTokens += event.usage.reasoningTokens ?? 0;
+                    }
+                    if (event.toolCalls) {
+                        const resultLookup = new Map<string, string>();
+                        const toolResults: any[] = event.toolResults || [];
 
-                for (const tr of toolResults) {
-                    const id = tr?.toolCallId || tr?.id || '';
-                    const val = tr?.result ?? tr?.output ?? tr?.content ?? '';
-                    if (id) resultLookup.set(id, String(val));
-                }
+                        for (const tr of toolResults) {
+                            const id = tr?.toolCallId || tr?.id || '';
+                            const val =
+                                tr?.result ?? tr?.output ?? tr?.content ?? '';
+                            if (id) resultLookup.set(id, String(val));
+                        }
 
-                for (const toolCall of event.toolCalls) {
-                    const args =
-                        (toolCall as any).args || (toolCall as any).input || {};
-                    const callId =
-                        (toolCall as any).toolCallId ||
-                        (toolCall as any).id ||
-                        '';
-                    let resultStr = resultLookup.get(callId) || '';
+                        for (const toolCall of event.toolCalls) {
+                            const args =
+                                (toolCall as any).args ||
+                                (toolCall as any).input ||
+                                {};
+                            const callId =
+                                (toolCall as any).toolCallId ||
+                                (toolCall as any).id ||
+                                '';
+                            let resultStr = resultLookup.get(callId) || '';
 
-                    if (
-                        !resultStr &&
-                        toolResults.length === event.toolCalls.length
-                    ) {
-                        const idx = event.toolCalls.indexOf(toolCall);
-                        if (idx >= 0 && toolResults[idx]) {
-                            const tr = toolResults[idx];
-                            resultStr = String(
-                                tr?.result ?? tr?.output ?? tr?.content ?? '',
-                            );
+                            if (
+                                !resultStr &&
+                                toolResults.length === event.toolCalls.length
+                            ) {
+                                const idx = event.toolCalls.indexOf(toolCall);
+                                if (idx >= 0 && toolResults[idx]) {
+                                    const tr = toolResults[idx];
+                                    resultStr = String(
+                                        tr?.result ??
+                                            tr?.output ??
+                                            tr?.content ??
+                                            '',
+                                    );
+                                }
+                            }
+
+                            verifierToolCalls.push({
+                                tool: toolCall.toolName,
+                                toolName: toolCall.toolName,
+                                args,
+                                result: resultStr.substring(0, 500),
+                            });
+
+                            logger.log({
+                                message: `[AGENT-VERIFY-TOOL] finding=${index} step=${verifierSteps} ${toolCall.toolName}(${JSON.stringify((toolCall as any).args || (toolCall as any).input || {}).substring(0, 180)})`,
+                                context: 'AgentLoop',
+                            });
                         }
                     }
-
-                    verifierToolCalls.push({
-                        tool: toolCall.toolName,
-                        toolName: toolCall.toolName,
-                        args,
-                        result: resultStr.substring(0, 500),
-                    });
-
-                    logger.log({
-                        message: `[AGENT-VERIFY-TOOL] finding=${index} step=${verifierSteps} ${toolCall.toolName}(${JSON.stringify((toolCall as any).args || (toolCall as any).input || {}).substring(0, 180)})`,
-                        context: 'AgentLoop',
-                    });
-                }
-            }
-        },
+                },
+            }),
     });
 
     let verificationText =
@@ -1952,23 +2093,31 @@ async function verifySingleFindingWithTools(params: {
             .join('\n');
 
         try {
-            const secondChanceResult: any = await generateText({
-                abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-                model: internalModel as any,
-                experimental_telemetry: {
-                    isEnabled: true,
-                    functionId: `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
-                },
-                providerOptions: buildLangSmithProviderOptions(
-                    `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
-                    input.telemetryMetadata,
-                ),
-                system: `You are a surgical code review verifier.
+            const verifierSecondChanceSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
+            const secondChanceResult: any = await throttledGenerateText({
+                byokConfig: secrets.byokConfig,
+                organizationId: input.telemetryMetadata?.organizationId,
+                role: 'internal',
+                label: `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
+                abortSignal: verifierSecondChanceSignal,
+                fn: () =>
+                    generateText({
+                        abortSignal: verifierSecondChanceSignal,
+                        model: internalModel as any,
+                        experimental_telemetry: {
+                            isEnabled: true,
+                            functionId: `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
+                        },
+                        providerOptions: buildLangSmithProviderOptions(
+                            `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
+                            input.telemetryMetadata,
+                        ),
+                        system: `You are a surgical code review verifier.
 
 You already investigated the candidate finding with tools. Do NOT call any more tools.
 
 Your job now is only to return the final verdict as JSON.`,
-                prompt: `${evidenceBundle.bundle}
+                        prompt: `${evidenceBundle.bundle}
 
 <VerifierInvestigation>
 ${investigationSummary}
@@ -1988,7 +2137,8 @@ Rules:
 - Drop only if you found concrete evidence against the candidate.
 - If you cannot refute it, keep it.
 - No prose outside JSON.`,
-                stopWhen: stepCountIs(1),
+                        stopWhen: stepCountIs(1),
+                    }),
             });
 
             verificationText = secondChanceResult.text || verificationText;
@@ -2028,6 +2178,7 @@ Rules:
                 verificationText,
                 index,
                 secrets.byokConfig,
+                input.telemetryMetadata?.organizationId,
             );
 
         if (fallbackDecision) {
@@ -2508,6 +2659,7 @@ async function structureVerificationDecisionWithFallbackModel(
     verificationText: string,
     index: number,
     byokConfig?: BYOKConfig,
+    organizationId?: string,
 ): Promise<{
     decision: SuggestionVerificationDecision;
     usage: {
@@ -2519,6 +2671,7 @@ async function structureVerificationDecisionWithFallbackModel(
 } | null> {
     try {
         const internalModel = getInternalModel(byokConfig);
+        const verifierFallbackSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
         if (!internalModel) {
             logger.warn({
@@ -2529,25 +2682,32 @@ async function structureVerificationDecisionWithFallbackModel(
             return null;
         }
 
-        const result: any = await generateText({
-            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-            model: internalModel as any,
-            output: Output.object({
-                schema: jsonSchema({
-                    type: 'object',
-                    properties: {
-                        index: { type: 'number' },
-                        keep: { type: 'boolean' },
-                        rationale: { type: 'string' },
-                        confidence: {
-                            type: 'string',
-                            enum: ['high', 'medium', 'low'],
-                        },
-                    },
-                    required: ['keep', 'rationale'],
-                }),
-            }) as any,
-            system: `You are a JSON extraction assistant.
+        const result: any = await throttledGenerateText({
+            byokConfig,
+            organizationId,
+            role: 'internal',
+            label: 'verify-structure-fallback',
+            abortSignal: verifierFallbackSignal,
+            fn: () =>
+                generateText({
+                    abortSignal: verifierFallbackSignal,
+                    model: internalModel as any,
+                    output: Output.object({
+                        schema: jsonSchema({
+                            type: 'object',
+                            properties: {
+                                index: { type: 'number' },
+                                keep: { type: 'boolean' },
+                                rationale: { type: 'string' },
+                                confidence: {
+                                    type: 'string',
+                                    enum: ['high', 'medium', 'low'],
+                                },
+                            },
+                            required: ['keep', 'rationale'],
+                        }),
+                    }) as any,
+                    system: `You are a JSON extraction assistant.
 
 You receive the raw text output of a code-review verifier and must extract only its final verdict.
 
@@ -2568,6 +2728,7 @@ Return:
 - keep
 - rationale
 - confidence (if present)`,
+                }),
         });
 
         const output: any = (result as any).object ?? (result as any).output;
@@ -2742,6 +2903,7 @@ function looksLikeFindings(text: string): boolean {
 async function structureWithFallbackModel(
     reviewText: string,
     byokConfig?: BYOKConfig,
+    organizationId?: string,
 ): Promise<{
     findings: FindingsOutput;
     usage: {
@@ -2777,6 +2939,7 @@ async function structureWithFallbackModel(
             ],
         } as const;
         const internalModel = getInternalModel(byokConfig);
+        const structureFallbackSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
         if (!internalModel) {
             logger.warn({
@@ -2787,51 +2950,58 @@ async function structureWithFallbackModel(
             return null;
         }
 
-        const result: any = await generateText({
-            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
-            model: internalModel as any,
-            output: Output.object({
-                schema: jsonSchema({
-                    type: 'object',
-                    additionalProperties: false,
-                    properties: {
-                        reasoning: { type: 'string' },
-                        suggestions: {
-                            type: 'array',
-                            items: {
-                                type: 'object',
-                                additionalProperties: false,
-                                properties: {
-                                    relevantFile: { type: 'string' },
-                                    language: nullableStringSchema,
-                                    label: nullableLabelSchema,
-                                    suggestionContent: { type: 'string' },
-                                    existingCode: { type: 'string' },
-                                    improvedCode: { type: 'string' },
-                                    oneSentenceSummary: nullableStringSchema,
-                                    relevantLinesStart: nullableNumberSchema,
-                                    relevantLinesEnd: nullableNumberSchema,
-                                    severity: nullableSeveritySchema,
+        const result: any = await throttledGenerateText({
+            byokConfig,
+            organizationId,
+            role: 'internal',
+            label: 'review-structure-fallback',
+            abortSignal: structureFallbackSignal,
+            fn: () =>
+                generateText({
+                    abortSignal: structureFallbackSignal,
+                    model: internalModel as any,
+                    output: Output.object({
+                        schema: jsonSchema({
+                            type: 'object',
+                            additionalProperties: false,
+                            properties: {
+                                reasoning: { type: 'string' },
+                                suggestions: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        additionalProperties: false,
+                                        properties: {
+                                            relevantFile: { type: 'string' },
+                                            language: nullableStringSchema,
+                                            label: nullableLabelSchema,
+                                            suggestionContent: { type: 'string' },
+                                            existingCode: { type: 'string' },
+                                            improvedCode: { type: 'string' },
+                                            oneSentenceSummary: nullableStringSchema,
+                                            relevantLinesStart: nullableNumberSchema,
+                                            relevantLinesEnd: nullableNumberSchema,
+                                            severity: nullableSeveritySchema,
+                                        },
+                                        required: [
+                                            'relevantFile',
+                                            'language',
+                                            'label',
+                                            'suggestionContent',
+                                            'existingCode',
+                                            'improvedCode',
+                                            'oneSentenceSummary',
+                                            'relevantLinesStart',
+                                            'relevantLinesEnd',
+                                            'severity',
+                                        ],
+                                    },
                                 },
-                                required: [
-                                    'relevantFile',
-                                    'language',
-                                    'label',
-                                    'suggestionContent',
-                                    'existingCode',
-                                    'improvedCode',
-                                    'oneSentenceSummary',
-                                    'relevantLinesStart',
-                                    'relevantLinesEnd',
-                                    'severity',
-                                ],
                             },
-                        },
-                    },
-                    required: ['reasoning', 'suggestions'],
-                }),
-            }) as any,
-            system: `You are a JSON extraction assistant. You receive code review text and extract structured findings.
+                            required: ['reasoning', 'suggestions'],
+                        }),
+                    }) as any,
+                    system: `You are a JSON extraction assistant. You receive code review text and extract structured findings.
 
 Rules:
 - Extract EVERY issue/bug/vulnerability mentioned into a separate suggestion
@@ -2847,6 +3017,7 @@ ${reviewText}
 ---
 
 For each issue found, extract: relevantFile, language, label (bug/security/performance when present), suggestionContent (full description), existingCode, improvedCode, oneSentenceSummary, relevantLinesStart, relevantLinesEnd, severity (critical/high/medium/low).`,
+                }),
         });
 
         const rawOutput: any = (result as any).object ?? (result as any).output;

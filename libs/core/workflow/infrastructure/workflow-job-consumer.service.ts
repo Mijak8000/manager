@@ -70,29 +70,10 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
 
     /**
      * Webhook-processing jobs
+     * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
     @RabbitSubscribe({
         exchange: 'workflow.exchange',
-        routingKey: 'workflow.jobs.*.WEBHOOK_PROCESSING',
-        queue: 'workflow.jobs.webhook.queue',
-        errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
-        queueOptions: {
-            channel: 'channel-webhook',
-            arguments: {
-                'x-queue-type': 'quorum',
-                'x-dead-letter-exchange': 'workflow.exchange.dlx',
-                'x-dead-letter-routing-key': 'workflow.job.failed',
-            },
-        },
-    })
-    /**
-     * Binding from delayed exchange for retry messages.
-     * This creates the binding: workflow.exchange.delayed -> workflow.jobs.<type>.queue
-     * Required for the retry mechanism to work.
-     */
-    @RabbitSubscribe({
-        exchange: 'workflow.exchange.delayed',
         routingKey: 'workflow.jobs.*.WEBHOOK_PROCESSING',
         queue: 'workflow.jobs.webhook.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
@@ -120,24 +101,10 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
 
     /**
      * Code-review jobs
+     * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
     @RabbitSubscribe({
         exchange: 'workflow.exchange',
-        routingKey: 'workflow.jobs.*.CODE_REVIEW',
-        queue: 'workflow.jobs.code_review.queue',
-        errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
-        queueOptions: {
-            channel: 'channel-code-review',
-            arguments: {
-                'x-queue-type': 'quorum',
-                'x-dead-letter-exchange': 'workflow.exchange.dlx',
-                'x-dead-letter-routing-key': 'workflow.job.failed',
-            },
-        },
-    })
-    @RabbitSubscribe({
-        exchange: 'workflow.exchange.delayed',
         routingKey: 'workflow.jobs.*.CODE_REVIEW',
         queue: 'workflow.jobs.code_review.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
@@ -165,24 +132,10 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
 
     /**
      * Implementation Check jobs
+     * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
     @RabbitSubscribe({
         exchange: 'workflow.exchange',
-        routingKey: 'workflow.jobs.*.CHECK_SUGGESTION_IMPLEMENTATION',
-        queue: 'workflow.jobs.check_implementation.queue',
-        errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
-        queueOptions: {
-            channel: 'channel-check-implementation',
-            arguments: {
-                'x-queue-type': 'quorum',
-                'x-dead-letter-exchange': 'workflow.exchange.dlx',
-                'x-dead-letter-routing-key': 'workflow.job.failed',
-            },
-        },
-    })
-    @RabbitSubscribe({
-        exchange: 'workflow.exchange.delayed',
         routingKey: 'workflow.jobs.*.CHECK_SUGGESTION_IMPLEMENTATION',
         queue: 'workflow.jobs.check_implementation.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
@@ -210,24 +163,10 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
 
     /**
      * AST Graph Build jobs
+     * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
     @RabbitSubscribe({
         exchange: 'workflow.exchange',
-        routingKey: 'workflow.jobs.*.AST_GRAPH_BUILD',
-        queue: 'workflow.jobs.ast_graph_build.queue',
-        errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
-        queueOptions: {
-            channel: 'channel-ast-graph-build',
-            arguments: {
-                'x-queue-type': 'quorum',
-                'x-dead-letter-exchange': 'workflow.exchange.dlx',
-                'x-dead-letter-routing-key': 'workflow.job.failed',
-            },
-        },
-    })
-    @RabbitSubscribe({
-        exchange: 'workflow.exchange.delayed',
         routingKey: 'workflow.jobs.*.AST_GRAPH_BUILD',
         queue: 'workflow.jobs.ast_graph_build.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
@@ -255,24 +194,10 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
 
     /**
      * AST Graph Incremental Update jobs
+     * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
     @RabbitSubscribe({
         exchange: 'workflow.exchange',
-        routingKey: 'workflow.jobs.*.AST_GRAPH_INCREMENTAL',
-        queue: 'workflow.jobs.ast_graph_incremental.queue',
-        errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
-        queueOptions: {
-            channel: 'channel-ast-graph-incremental',
-            arguments: {
-                'x-queue-type': 'quorum',
-                'x-dead-letter-exchange': 'workflow.exchange.dlx',
-                'x-dead-letter-routing-key': 'workflow.job.failed',
-            },
-        },
-    })
-    @RabbitSubscribe({
-        exchange: 'workflow.exchange.delayed',
         routingKey: 'workflow.jobs.*.AST_GRAPH_INCREMENTAL',
         queue: 'workflow.jobs.ast_graph_incremental.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,

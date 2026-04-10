@@ -31,6 +31,7 @@ import { ChecksAdapterFactory } from '@libs/core/infrastructure/pipeline/service
 import { NullChecksAdapter } from '@libs/core/infrastructure/pipeline/services/null-checks.adapter';
 import { PipelineChecksService } from '@libs/core/infrastructure/pipeline/services/pipeline-checks.service';
 import { WorkflowCoreModule } from '@libs/core/workflow/modules/workflow-core.module';
+import { DistributedLockService } from '@libs/core/workflow/infrastructure/distributed-lock.service';
 import { DryRunCoreModule } from '@libs/dryRun/dry-run-core.module';
 import { FileReviewModule } from '@libs/ee/codeReview/fileReviewContextPreparation/fileReview.module';
 import { CodeAnalysisASTCleanupStage } from '@libs/ee/codeReview/stages/code-analysis-ast-cleanup.stage';
@@ -55,6 +56,7 @@ import { DocumentationContextModule } from '../modules/documentation-context.mod
 import { PullRequestsModule } from '../modules/pull-requests.module';
 import { PullRequestMessagesModule } from '../modules/pullRequestMessages.module';
 import { CodeReviewJobProcessorService } from '../workflow/code-review-job-processor.service';
+import { ByokConcurrencyGateService } from '../workflow/byok-concurrency-gate.service';
 import { ImplementationVerificationProcessor } from '../workflow/implementation-verification.processor';
 import { LOAD_EXTERNAL_CONTEXT_STAGE_TOKEN } from './stages/contracts/loadExternalContextStage.contract';
 import { ValidateSuggestionsStage } from './stages/validate-suggestions.stage';
@@ -101,6 +103,8 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
 
         // Job Processor
         CodeReviewJobProcessorService,
+        ByokConcurrencyGateService,
+        DistributedLockService,
 
         // Services
         CloneParamsResolverService,
