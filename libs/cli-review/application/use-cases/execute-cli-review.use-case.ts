@@ -39,7 +39,6 @@ import {
     IKodyRulesService,
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
-import { KodyRuleCentralizedStatus } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { KodyRulesValidationService } from '@libs/ee/kodyRules/service/kody-rules-validation.service';
 
 interface GitContext {
@@ -352,19 +351,9 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                     paramObj.configValue?.repositories,
                 );
 
-            // Load and filter kody rules (global + repository-scoped)
-            const codeReviewFlowRules =
-                kodyRulesEntity
-                    ?.toObject()
-                    ?.rules?.filter(
-                        (rule) =>
-                            rule?.centralizedConfig?.status !==
-                            KodyRuleCentralizedStatus.PENDING_ADD,
-                    ) || [];
-
             const { standardRules, memoryRules } =
                 this.kodyRulesValidationService.filterKodyRules(
-                    codeReviewFlowRules,
+                    kodyRulesEntity?.toObject()?.rules || [],
                     repositoryId,
                 );
 

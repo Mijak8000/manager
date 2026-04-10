@@ -45,7 +45,6 @@ import {
     IKodyRulesService,
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
-import { KodyRuleCentralizedStatus } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import {
     GLOBAL_PARAMETERS_SERVICE_TOKEN,
     IGlobalParametersService,
@@ -140,18 +139,9 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
                     CodeBaseConfigService.name,
                 );
 
-            const codeReviewFlowRules =
-                kodyRulesEntity
-                    ?.toObject()
-                    ?.rules?.filter(
-                        (rule) =>
-                            rule?.centralizedConfig?.status !==
-                            KodyRuleCentralizedStatus.PENDING_ADD,
-                    ) || [];
-
             const { standardRules, memoryRules } =
                 this.kodyRulesValidationService.filterKodyRules(
-                    codeReviewFlowRules,
+                    kodyRulesEntity?.toObject()?.rules || [],
                     repository.id,
                     mergedConfigs.directoryId,
                     limited,
