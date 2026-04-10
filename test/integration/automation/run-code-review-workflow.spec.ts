@@ -91,7 +91,8 @@ describe('Code Review Workflow Logic Integrity (No AST)', () => {
 
     // Mock do LLM Analysis (Onde a AST era usada)
     const mockLLMAnalysisService = {
-        analyzeCodeWithAI: jest.fn().mockResolvedValue({
+        analyzeCodeWithAI: jest.fn(),
+        analyzeCodeWithAI_v2: jest.fn().mockResolvedValue({
             codeSuggestions: [
                 {
                     relevantFile: 'test.ts',
@@ -101,7 +102,6 @@ describe('Code Review Workflow Logic Integrity (No AST)', () => {
                 },
             ],
         }),
-        analyzeCodeWithAI_v2: jest.fn(),
     };
 
     const mockKodyRulesAnalysisService = {
@@ -303,16 +303,14 @@ describe('Code Review Workflow Logic Integrity (No AST)', () => {
         );
 
         // Verifica se o conteúdo enviado para o LLM é o conteúdo completo do arquivo
-        expect(mockLLMAnalysisService.analyzeCodeWithAI).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.anything(),
+        expect(mockLLMAnalysisService.analyzeCodeWithAI_v2).toHaveBeenCalled();
+        const callArgs = mockLLMAnalysisService.analyzeCodeWithAI_v2.mock.calls[0];
+        expect(callArgs[2]).toEqual(
             expect.objectContaining({
                 file: expect.objectContaining({
                     fileContent: 'FULL FILE CONTENT',
                 }),
             }),
-            expect.anything(),
-            expect.anything(),
         );
 
         console.log('✅ Fallback de contexto (arquivo completo) validado');
@@ -348,7 +346,7 @@ describe('Code Review Workflow Logic Integrity (No AST)', () => {
 
         // --- ASSERT ---
         // 1. Deve chamar o LLM Standard
-        expect(mockLLMAnalysisService.analyzeCodeWithAI).toHaveBeenCalled();
+        expect(mockLLMAnalysisService.analyzeCodeWithAI_v2).toHaveBeenCalled();
 
         // 2. Não deve ter quebrado (try/catch interno do orchestrator)
         // Se tivesse tentado chamar ASTAnalysisService (que não injetamos), teria dado erro se ainda estivesse no código.
