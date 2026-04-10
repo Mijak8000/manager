@@ -400,7 +400,7 @@ export class KodyRulesTools {
         return {
             name: 'KODUS_CREATE_KODY_RULE',
             description:
-                'Create a new Kody Rule with custom scope and severity. pull_request scope: analyzes entire PR context for PR-level rules. file scope: analyzes individual files one by one for file-level rules. Rule starts in pending status.',
+                'Create a new Kody Rule with custom scope and severity. pull_request scope: analyzes entire PR context for PR-level rules. file scope: analyzes individual files one by one for file-level rules. Rule starts in pending status. If centralized config is enabled the rule will be published to a pull request pending to be approved.',
             inputSchema,
             outputSchema: z.object({
                 success: z.boolean(),
@@ -411,6 +411,8 @@ export class KodyRulesTools {
                     rule: z.string().optional(),
                     status: z.enum(KodyRulesStatus).optional(),
                 }),
+                message: z.string().optional(),
+                prUrl: z.string().optional(),
             }),
             execute: wrapToolHandler(
                 async (args: InputType): Promise<CreateKodyRuleResponse> => {
@@ -611,7 +613,7 @@ export class KodyRulesTools {
         return {
             name: 'KODUS_UPDATE_KODY_RULE',
             description:
-                'Update an existing Kody Rule. Only the fields provided in kodyRule will be updated. Use this to modify rule details, change severity, scope, or status of existing rules.',
+                'Update an existing Kody Rule. Only the fields provided in kodyRule will be updated. Use this to modify rule details, change severity, scope, or status of existing rules. If centralized config is enabled the update will be published to a pull request pending to be approved.',
             inputSchema,
             outputSchema: z.object({
                 success: z.boolean(),
@@ -622,6 +624,8 @@ export class KodyRulesTools {
                     rule: z.string(),
                     status: z.enum(KodyRulesStatus),
                 }),
+                message: z.string().optional(),
+                prUrl: z.string().optional(),
             }),
             execute: wrapToolHandler(
                 async (args: InputType): Promise<CreateKodyRuleResponse> => {
@@ -760,11 +764,12 @@ export class KodyRulesTools {
         return {
             name: 'KODUS_DELETE_KODY_RULE',
             description:
-                'Delete a Kody Rule permanently from the system. This action cannot be undone. Use this to remove rules that are no longer needed or relevant.',
+                'Delete a Kody Rule permanently from the system. This action cannot be undone. Use this to remove rules that are no longer needed or relevant. If centralized config is enabled the deletion will be published to a pull request pending to be approved.',
             inputSchema,
             outputSchema: z.object({
                 success: z.boolean(),
                 message: z.string().optional(),
+                prUrl: z.string().optional(),
             }),
             execute: wrapToolHandler(
                 async (args: InputType): Promise<DeleteKodyRuleResponse> => {
@@ -878,7 +883,7 @@ export class KodyRulesTools {
         return {
             name: 'KODUS_CREATE_MEMORY',
             description:
-                'Capture a memory, preference, or coding rule derived from context to influence future interactions or code generation. Invoke this tool whenever the user demonstrates an explicit or implicit intent to save a memory, establish a convention, or note a preference. Focus on capturing the user intent rather than strictly evaluating it as a permanent architectural rule. After execution, ALWAYS inform the user of: (1) final decision/action (created or updated), (2) whether approval is required in UI, and (3) the provided link to navigate in UI. If status is pending, use the returned general memories page link (without ruleId/teamId); do not claim direct memory details link will work. AVOID: Transient task instructions ("Fix this now"), debugging chatter ("I see an error"), questions ("What is the deadline?"), or vague statements without clear actionable information.',
+                'Capture a memory, preference, or coding rule derived from context to influence future interactions or code generation. Invoke this tool whenever the user demonstrates an explicit or implicit intent to save a memory, establish a convention, or note a preference. Focus on capturing the user intent rather than strictly evaluating it as a permanent architectural rule. After execution, ALWAYS inform the user of: (1) final decision/action (created or updated), (2) whether approval is required in UI, and (3) the provided link to navigate in UI. If status is pending, use the returned general memories page link (without ruleId/teamId); do not claim direct memory details link will work. AVOID: Transient task instructions ("Fix this now"), debugging chatter ("I see an error"), questions ("What is the deadline?"), or vague statements without clear actionable information. If centralized config is enabled the memory rule will be published to a pull request pending to be approved.',
             inputSchema,
             outputSchema: z.object({
                 success: z.boolean(),
@@ -895,6 +900,8 @@ export class KodyRulesTools {
                         .string()
                         .describe('Link to view the memory in the system'),
                 }),
+                message: z.string().optional(),
+                prUrl: z.string().optional(),
             }),
             execute: wrapToolHandler(
                 async (args: InputType): Promise<CreateMemoryRuleResponse> => {
