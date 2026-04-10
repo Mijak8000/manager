@@ -14,6 +14,7 @@ import {
     IKodyRulesService,
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
+import { DeleteRuleInOrganizationByIdKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/delete-rule-in-organization-by-id.use-case';
 import {
     FindMemoriesResult,
     IKodyRule,
@@ -124,6 +125,7 @@ export class KodyRulesTools {
         @Inject(KODY_RULES_SERVICE_TOKEN)
         private readonly kodyRulesService: IKodyRulesService,
         private readonly centralizedConfigPrService: CentralizedConfigPrService,
+        private readonly deleteRuleInOrganizationByIdKodyRulesUseCase: DeleteRuleInOrganizationByIdKodyRulesUseCase,
     ) {}
 
     getKodyRules(): McpToolDefinition {
@@ -773,51 +775,25 @@ export class KodyRulesTools {
             }),
             execute: wrapToolHandler(
                 async (args: InputType): Promise<DeleteKodyRuleResponse> => {
-                    const organizationAndTeamData = {
-                        organizationId: args.organizationId,
-                        ...(args.teamId ? { teamId: args.teamId } : {}),
-                    };
-
-                    const existingRule = await this.kodyRulesService.findById(
-                        args.ruleId,
-                    );
-
-                    if (existingRule) {
-                        const centralizedPr =
-                            await this.centralizedConfigPrService.createMutationPullRequestIfEnabled(
-                                buildKodyRuleCentralizedMutationRequest({
-                                    centralizedConfigPrService:
-                                        this.centralizedConfigPrService,
-                                    organizationAndTeamData,
-                                    repositoryId: existingRule.repositoryId,
-                                    ruleContent: existingRule,
-                                    ruleType:
-                                        existingRule.type ||
-                                        KodyRulesType.STANDARD,
-                                    operation: 'delete',
-                                }),
-                            );
-
-                        if (centralizedPr.mode === 'centralized-pr') {
-                            return {
-                                success: true,
-                                message: centralizedPr.message,
-                                prUrl: centralizedPr.prUrl,
-                            };
-                        }
-                    }
-
-                    const userInfo = {
-                        userId: 'kody-delete-mcp-tool',
-                        userEmail: 'kody@kodus.io',
-                    };
-
                     const result =
-                        await this.kodyRulesService.deleteRuleWithLogging(
-                            organizationAndTeamData,
+                        await this.deleteRuleInOrganizationByIdKodyRulesUseCase.execute(
                             args.ruleId,
-                            userInfo,
+                            {
+                                source: 'cli',
+                                organizationId: args.organizationId,
+                                teamId: args.teamId,
+                                userId: 'kody-delete-mcp-tool',
+                                userEmail: 'kody@kodus.io',
+                            },
                         );
+
+                    if (typeof result !== 'boolean') {
+                        return {
+                            success: true,
+                            message: result.message,
+                            prUrl: result.prUrl,
+                        };
+                    }
 
                     return {
                         success: result,
@@ -925,40 +901,6 @@ export class KodyRulesTools {
                             path: args.kodyRule.path || null,
                         },
                     };
-
-                    const centralizedPr =
-                        await this.centralizedConfigPrService.createMutationPullRequestIfEnabled(
-                            buildKodyRuleCentralizedMutationRequest({
-                                centralizedConfigPrService:
-                                    this.centralizedConfigPrService,
-                                organizationAndTeamData:
-                                    params.organizationAndTeamData,
-                                repositoryId: params.kodyRule.repositoryId,
-                                ruleContent: params.kodyRule,
-                                ruleType: KodyRulesType.MEMORY,
-                                operation: 'create',
-                            }),
-                        );
-
-                    if (centralizedPr.mode === 'centralized-pr') {
-                        return {
-                            success: true,
-                            count: 1,
-                            data: {
-                                title: params.kodyRule.title,
-                                rule: params.kodyRule.rule,
-                                status: KodyRulesStatus.PENDING,
-                                action: 'created',
-                                requiresApproval: true,
-                                message:
-                                    centralizedPr.message ||
-                                    'Memory change proposed via centralized configuration pull request.',
-                                link: centralizedPr.prUrl || '',
-                            },
-                            message: centralizedPr.message,
-                            prUrl: centralizedPr.prUrl,
-                        };
-                    }
 
                     const result: CreateOrUpdateMemoryResult | null =
                         await this.kodyRulesService.createOrUpdateMemory(
