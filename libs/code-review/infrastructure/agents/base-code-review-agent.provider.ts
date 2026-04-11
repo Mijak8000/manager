@@ -162,7 +162,13 @@ export interface AgentProgressEvent {
 export interface ReviewAgentInput {
     organizationAndTeamData: OrganizationAndTeamData;
     changedFiles: FileChange[];
-    remoteCommands: RemoteCommands;
+    /**
+     * Remote commands for the E2B sandbox. When undefined, the agent runs
+     * in self-contained mode (no tools, single-shot analysis on the diffs
+     * inlined in the user prompt). Used by the CLI trial flow where there
+     * is no sandbox available.
+     */
+    remoteCommands: RemoteCommands | undefined;
     prNumber: number;
     repositoryId?: string;
     repositoryFullName: string;
@@ -183,8 +189,8 @@ export interface ReviewAgentInput {
     /** Optional replica metadata for replicated agent runs. */
     agentReplicaIndex?: number;
     agentReplicaTotal?: number;
-    /** Review mode: 'normal' skips verify only for very-high-confidence findings, 'deep' verifies everything. */
-    reviewMode?: 'normal' | 'deep';
+    /** Review mode: 'fast' skips heavy passes (verify, coverage recovery, synthesis rescue) and caps agent steps; 'normal' skips verify only for very-high-confidence findings; 'deep' verifies everything. */
+    reviewMode?: 'fast' | 'normal' | 'deep';
     /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
     severityLevelFilter?: string;
     /** Optional per-agent step budget for the main investigation loop. */
@@ -795,6 +801,11 @@ export abstract class BaseCodeReviewAgentProvider {
     }
 
     private buildSystemPrompt(input: ReviewAgentInput): string {
+        const isSelfContained = !input.remoteCommands;
+        if (isSelfContained) {
+            return this.buildSelfContainedSystemPrompt(input);
+        }
+
         const identity = this.getIdentity();
         const categoryPrompt = this.getCategoryPrompt();
         const overridesSection = this.formatOverrides(input);
@@ -886,6 +897,11 @@ ${memoryRulesSection}
     }
 
     protected buildUserPrompt(input: ReviewAgentInput): string {
+        const isSelfContained = !input.remoteCommands;
+        if (isSelfContained) {
+            return this.buildSelfContainedUserPrompt(input);
+        }
+
         const prContextSection = this.formatPRContext(
             input.prTitle,
             input.prBody,
@@ -1017,6 +1033,202 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
   </OutputFormat>
 </ReviewTask>`
         );
+    }
+
+    /**
+     * Builds a self-contained system prompt for trial / no-sandbox flows.
+     *
+     * The tool-heavy workflow (grep callers, readFile bodies, checkTypes)
+     * from the normal system prompt does not apply — the agent has no
+     * tools. This variant keeps the role/mindset/category guidance but
+     * replaces the workflow with a single-pass analysis instruction set.
+     */
+    private buildSelfContainedSystemPrompt(input: ReviewAgentInput): string {
+        const identity = this.getIdentity();
+        const categoryPrompt = this.getCategoryPrompt();
+        const overridesSection = this.formatOverrides(input);
+        const memoryRulesSection = this.formatMemoryRules(input.memoryRules);
+
+        const langSection = input.languageResultPrompt
+            ? `\n  <Language>Write all review comments in ${input.languageResultPrompt}.</Language>`
+            : '';
+
+        return `<CodeReviewAgent mode="self-contained">
+  <Date>${new Date().toLocaleDateString('en-GB')}</Date>
+  <Role>
+    You are ${identity.name}, ${identity.description}
+    ${categoryPrompt}${langSection}
+  </Role>
+
+  <Mindset>
+    You are running without tools and without access to the repository.
+    You see only the diffs and any inlined file contents.
+    Report findings only when the evidence is fully visible in what you see.
+    "Might be" is not enough — if you cannot point to specific visible lines as proof, do NOT report it.
+    Low-hallucination mode: err on the side of silence when the defect depends on code you cannot see.
+  </Mindset>
+
+  <Workflow>
+    PHASE 1 — READ
+      Read every diff. For each changed function, understand what it does differently now.
+      If full file contents are inlined below, also read those to understand the surrounding context of each change.
+
+    PHASE 2 — CHALLENGE (strictly within the visible code)
+      For each changed function, ask:
+        - "Is there a null/undefined dereference on a path the diff introduces?"
+        - "Is an off-by-one, inverted condition, missing break, or wrong operator visible?"
+        - "Is a secret, credential, or token hardcoded in the diff?"
+        - "Is there an obvious injection sink (SQL concat, shell interpolation, unsafe HTML) in the diff?"
+        - "Is a resource opened but not closed on an error path visible in the diff?"
+        - "Is a value used that is assigned later, or never assigned at all, in the shown code?"
+      Do NOT ask questions you cannot answer from the visible code.
+
+    PHASE 3 — RESPOND
+      Return a JSON object with your findings. Every finding must cite exact line numbers from the diff.
+      Assign confidence honestly: 7+ only when the defect is obvious from the shown lines, 3-5 when you suspect it but cannot fully prove it, below 3 for speculation (do NOT report below 5).
+
+    FORBIDDEN:
+      - Claiming a caller passes wrong data (you cannot see callers).
+      - Claiming a dependency has a signature mismatch (you cannot read the dependency).
+      - Reporting missing rate-limiting, CSRF, or defense-in-depth without a concrete exploit visible in the diff.
+      - Any finding whose proof would require reading a file that is not inlined below.
+  </Workflow>
+
+  <Scope>
+    Root cause must be in lines added or modified by this change.
+    relevantFile/relevantLinesStart/relevantLinesEnd must point to the changed lines.
+  </Scope>
+
+${overridesSection}
+
+${memoryRulesSection}
+
+</CodeReviewAgent>`;
+    }
+
+    /**
+     * Builds a self-contained user prompt for trial / no-sandbox flows.
+     *
+     * The agent has no tools and cannot explore the repo, so the prompt:
+     *   - Inlines file content when the CLI shipped it (fileContent field)
+     *   - Removes all tool instructions (no readFile/grep/checkTypes refs)
+     *   - Drops the CoverageContract (nothing to cover against)
+     *   - Explicitly forbids speculation about callers or cross-file behavior
+     *   - Focuses on self-evident defects in the diff
+     */
+    protected buildSelfContainedUserPrompt(input: ReviewAgentInput): string {
+        const prContextSection = this.formatPRContext(
+            input.prTitle,
+            input.prBody,
+        );
+        const diffsSection = this.formatDiffs(input.changedFiles);
+        const fileContentsSection = this.formatInlineFileContents(
+            input.changedFiles,
+        );
+
+        const categoryLabel = this.getCategoryLabel();
+        const mixedLabelMode = this.supportsMixedLabels();
+        const allowedSuggestionLabels = this.getAllowedSuggestionLabels(input);
+        const outputLabelLine = mixedLabelMode
+            ? `"label": "${allowedSuggestionLabels.join('|')}",
+      `
+            : '';
+
+        const taskDescriptions: Record<string, string> = {
+            bug: 'real bugs introduced, exposed, or made worse by these changes',
+            performance:
+                'real performance regressions introduced or worsened by these changes',
+            security:
+                'real security vulnerabilities introduced, exposed, or made worse by these changes',
+            generalist:
+                'real bugs, security vulnerabilities, and material performance regressions introduced, exposed, or made worse by these changes',
+        };
+        const taskDescription =
+            categoryLabel === 'generalist'
+                ? `real ${allowedSuggestionLabels.join(', ')} issues self-evident from these diffs`
+                : (taskDescriptions[categoryLabel] ??
+                  'issues introduced by these changes');
+
+        return (
+            `<ReviewTask mode="self-contained">
+  ${prContextSection}
+
+  <Diffs>
+${diffsSection}
+  </Diffs>
+${fileContentsSection}
+
+  <Task>
+    You are running in self-contained mode. You have NO tools and NO access to the repository beyond the diffs and any inlined file contents shown above.
+
+    Review these changes for ${taskDescription} that are self-evident from the diff alone.
+
+    Report only findings you can fully justify from what you can see. Do NOT speculate about callers, cross-file behavior, or code you do not have.
+  </Task>
+
+  <Rules>
+    - Root cause must be visible in the diff or in the inlined file contents.
+    - Do NOT claim "function X might be called from somewhere that passes null" — you cannot verify that.
+    - Do NOT claim "this might break an existing caller" — you cannot see callers.
+    - DO report: null/undefined dereferences with no guard in the changed code, off-by-one errors, inverted conditions, missing await, hardcoded secrets, obvious injection paths, resource leaks in the changed function, missing error handling around risky operations, typos in identifiers that are local to the shown code.
+    - DO NOT report: generic performance theories, missing CSRF/rate-limiting, speculative race conditions without a visible shared-state violation, suggestions that require knowing how the code is used elsewhere.
+    - Every finding must pass this test: "Can I point to the exact lines in the diff and explain the failure path using only what is visible here?"
+    - If in doubt, do NOT report it.
+    - Assign a confidence score (1-10). In self-contained mode, confidence above 7 is rare — reserve it for defects that are obvious from the shown lines alone.
+    - Return only the JSON object inside markdown fences, no extra text.
+  </Rules>
+
+  <OutputFormat>
+` +
+            '```' +
+            `json
+{
+  "reasoning": "What you checked and why. Example: 'Looked at auth.ts line 42: new code dereferences user.email without checking if user is null. Parameter comes from an unchecked path in the same function. Reported.'",
+  "suggestions": [
+    {
+      ${outputLabelLine}"relevantFile": "path/to/file.ext",
+      "language": "the file language",
+      "suggestionContent": "WHAT: one sentence naming the exact problem. WHY: one sentence on the real impact visible from the diff. HOW: concrete fix if clear.",
+      "existingCode": "problematic code snippet from the diff",
+      "improvedCode": "fixed code snippet",
+      "oneSentenceSummary": "Brief summary",
+      "relevantLinesStart": 10,
+      "relevantLinesEnd": 15,
+      "severity": "critical|high|medium|low",
+      "confidence": 6
+    }
+  ]
+}
+` +
+            '```' +
+            `
+  </OutputFormat>
+</ReviewTask>`
+        );
+    }
+
+    /**
+     * Inlines full file contents for any FileChange that carries a
+     * `fileContent` field. Used only in self-contained mode: the CLI
+     * client ships the user's local file state so the agent has at least
+     * the full modified files to reason over, even without a sandbox.
+     */
+    private formatInlineFileContents(files: FileChange[]): string {
+        if (!files?.length) return '';
+
+        const withContent = files.filter(
+            (f) => typeof f.fileContent === 'string' && f.fileContent.length > 0,
+        );
+        if (withContent.length === 0) return '';
+
+        const blocks = withContent
+            .map((f) => {
+                const lang = (f as any).language || '';
+                return `### ${f.filename}\n\`\`\`${lang}\n${f.fileContent}\n\`\`\``;
+            })
+            .join('\n\n');
+
+        return `\n\n  <FileContents>\n${blocks}\n  </FileContents>`;
     }
 
     private formatPRContext(prTitle?: string, prBody?: string): string {

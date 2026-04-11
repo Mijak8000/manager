@@ -207,8 +207,8 @@ export interface AgentLoopInput {
     baseBranch?: string;
     /** Pre-computed call graph shared by reviewers and verifier. */
     callGraph?: string;
-    /** Review mode: 'normal' skips verify only for very-high-confidence findings, 'deep' verifies everything. */
-    reviewMode?: 'normal' | 'deep';
+    /** Review mode: 'fast' skips heavy passes and caps steps; 'normal' skips verify only for very-high-confidence findings; 'deep' verifies everything. */
+    reviewMode?: 'fast' | 'normal' | 'deep';
     /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
     severityLevelFilter?: string;
     /** Model context window in tokens. Used to trigger context compression when the message history grows too large. */
@@ -221,7 +221,13 @@ export interface AgentLoopInput {
  * to prevent accidental leaks (NestJS ConfigService carries all env vars).
  */
 export interface AgentLoopSecrets {
-    remoteCommands: RemoteCommands;
+    /**
+     * Remote commands for the E2B sandbox. When undefined, the agent runs
+     * in self-contained mode (no tools, single-shot analysis on the diffs
+     * inlined in the user prompt). Used by the CLI trial flow where there
+     * is no sandbox available.
+     */
+    remoteCommands: RemoteCommands | undefined;
     byokConfig?: BYOKConfig;
     gitHubToken?: string;
 }
@@ -319,6 +325,9 @@ export async function runAgentLoop(
     secrets: AgentLoopSecrets,
 ): Promise<AgentLoopOutput> {
     const tools = buildAgentTools(secrets.remoteCommands, secrets.gitHubToken);
+    // Self-contained mode: no sandbox, no tools. The agent analyzes diffs
+    // and any inlined fileContent in a single LLM call. Used by CLI trial.
+    const isSelfContained = Object.keys(tools).length === 0;
     const coverageTargets = buildCoverageLedger(input.changedFiles);
 
     const allToolCalls: AgentLoopOutput['toolCalls'] = [];
@@ -364,16 +373,27 @@ export async function runAgentLoop(
                         input.telemetryMetadata,
                     ),
                     tools,
+                    // Self-contained mode has no tools — a single LLM call
+                    // is enough to produce the final JSON response.
                     stopWhen: stepCountIs(
-                        input.maxSteps ||
-                            (input.reviewMode === 'deep'
-                                ? MAX_STEPS_DEEP
-                                : MAX_STEPS_NORMAL),
+                        isSelfContained
+                            ? 1
+                            : input.maxSteps ||
+                              (input.reviewMode === 'deep'
+                                  ? MAX_STEPS_DEEP
+                                  : MAX_STEPS_NORMAL),
                     ),
                     // Last 2 steps: remove tools entirely to force text response.
                     // toolChoice: 'none' doesn't work with all providers (e.g., Gemini ignores it).
                     // Removing tools entirely guarantees the model can only respond with text.
                     prepareStep: ({ stepNumber, messages }: any) => {
+                        // Self-contained mode has no tools and a single
+                        // step, so coverage debt / force-text logic does
+                        // not apply. Just return empty modifications.
+                        if (isSelfContained) {
+                            return {};
+                        }
+
                         const maxSteps =
                             input.maxSteps ||
                             (input.reviewMode === 'deep'
@@ -874,8 +894,18 @@ Respond with ONLY the JSON:
         source = 'empty';
     }
 
+    // Fast mode: skip heavy post-processing passes to keep latency low.
+    // The main agent loop already ran with a capped step budget; spending
+    // extra minutes on recovery/rescue/verify defeats the point of `--fast`.
+    //
+    // Self-contained mode: these passes all re-run the agent with tools,
+    // which doesn't exist in trial flow. Skip them entirely.
+    const isFastMode = input.reviewMode === 'fast';
+    const skipHeavyPasses = isFastMode || isSelfContained;
+
     const coverageSummaryBeforeRecovery = getCoverageSummary(coverageTargets);
     if (
+        !skipHeavyPasses &&
         coverageSummaryBeforeRecovery.pendingTargets > 0 &&
         allToolCalls.length > 0
     ) {
@@ -914,7 +944,7 @@ Respond with ONLY the JSON:
     }
     let coverageSummary = getCoverageSummary(coverageTargets);
 
-    if (shouldRunLowCoverageSecondChance(coverageSummary)) {
+    if (!skipHeavyPasses && shouldRunLowCoverageSecondChance(coverageSummary)) {
         logger.warn({
             message: `[AGENT-COVERAGE-SECOND-CHANCE] Coverage still low after recovery (${coverageSummary.touchedTargets}/${coverageSummary.totalTargets}). Running one more focused inspection pass.`,
             context: 'AgentLoop',
@@ -967,24 +997,29 @@ Respond with ONLY the JSON:
         coverageSummary = getCoverageSummary(coverageTargets);
     }
 
-    const synthesisRescue = await runSynthesisRescuePass({
-        input,
-        byokConfig: secrets.byokConfig,
-        findings,
-        allToolCalls,
-        totalInputTokens,
-        totalOutputTokens,
-        totalReasoningTokens,
-    });
+    if (!skipHeavyPasses) {
+        const synthesisRescue = await runSynthesisRescuePass({
+            input,
+            byokConfig: secrets.byokConfig,
+            findings,
+            allToolCalls,
+            totalInputTokens,
+            totalOutputTokens,
+            totalReasoningTokens,
+        });
 
-    totalInputTokens = synthesisRescue.totalInputTokens;
-    totalOutputTokens = synthesisRescue.totalOutputTokens;
-    totalReasoningTokens = synthesisRescue.totalReasoningTokens;
+        totalInputTokens = synthesisRescue.totalInputTokens;
+        totalOutputTokens = synthesisRescue.totalOutputTokens;
+        totalReasoningTokens = synthesisRescue.totalReasoningTokens;
 
-    if (synthesisRescue.findings) {
-        findings = mergeFindings(findings, synthesisRescue.findings);
-        if (source === 'empty' && synthesisRescue.findings.suggestions.length) {
-            source = 'json-parse';
+        if (synthesisRescue.findings) {
+            findings = mergeFindings(findings, synthesisRescue.findings);
+            if (
+                source === 'empty' &&
+                synthesisRescue.findings.suggestions.length
+            ) {
+                source = 'json-parse';
+            }
         }
     }
 
@@ -1029,7 +1064,11 @@ Respond with ONLY the JSON:
     };
     let droppedByVerify: FindingsOutput['suggestions'] = [];
 
-    if (findings.suggestions.length > 0) {
+    // Verify runs in normal, deep, and fast modes — dropping false
+    // positives is worth the 10-30s it costs. It does NOT run in
+    // self-contained mode because the verifier needs tools to inspect
+    // code around each finding, and we don't have a sandbox there.
+    if (!isSelfContained && findings.suggestions.length > 0) {
         const verificationResult = await verifyFindingsWithTools({
             findings,
             input,

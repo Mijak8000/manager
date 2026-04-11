@@ -92,6 +92,8 @@ export class ExecuteCliReviewUseCase implements IUseCase {
         let execution: IAutomationExecution | null = null;
 
         try {
+            const isFastMode = input.config?.fast === true;
+
             this.logger.log({
                 message: 'Starting CLI review',
                 context: ExecuteCliReviewUseCase.name,
@@ -100,7 +102,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                     teamId: organizationAndTeamData.teamId,
                     correlationId,
                     isTrialMode,
-                    isFastMode: input.config?.fast,
+                    isFastMode,
                     filesCount: input.config?.files?.length || 0,
                 },
             });
@@ -151,16 +153,23 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                   );
 
             // 4. Create pipeline context
+            //    When --fast is set, force the CLI-specific fast review mode
+            //    on the resolved config so the agent orchestrator uses the
+            //    capped step budget and skips heavy passes.
+            const effectiveConfig = isFastMode
+                ? { ...codeReviewConfig, reviewMode: 'fast' as const }
+                : codeReviewConfig;
+
             const context: CliReviewPipelineContext = {
                 // CLI-specific fields
-                isFastMode: input.config?.fast || !input.config?.files,
+                isFastMode,
                 isTrialMode,
                 startTime,
                 correlationId,
 
                 // Required by CodeReviewPipelineContext (dummy values for CLI)
                 organizationAndTeamData,
-                codeReviewConfig,
+                codeReviewConfig: effectiveConfig,
                 changedFiles,
                 validSuggestions: [],
                 discardedSuggestions: [],
@@ -211,12 +220,23 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                       }
                     : undefined,
 
-                // Pipeline metadata
+                // Pipeline metadata — populate lastExecution with the real
+                // AutomationExecution uuid so the pipeline observer uses
+                // that (a valid uuid) instead of falling back to
+                // `correlationId`, which for CLI is a `corr_xxx` string
+                // and breaks uuid-typed queries.
                 pipelineVersion: '1.0',
                 errors: [] as PipelineError[],
                 statusInfo: {
                     status: AutomationStatus.IN_PROGRESS,
                 },
+                pipelineMetadata: execution?.uuid
+                    ? {
+                          lastExecution: {
+                              uuid: execution.uuid,
+                          },
+                      }
+                    : undefined,
 
                 // Analysis tasks metadata
                 tasks: {
