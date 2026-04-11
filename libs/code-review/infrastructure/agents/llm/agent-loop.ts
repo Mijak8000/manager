@@ -119,6 +119,11 @@ import {
     getCoverageSummary,
     markCoverageFromToolCall,
 } from './coverage-ledger';
+import {
+    compressMessages,
+    estimateMessagesTokens,
+    shouldCompress,
+} from './context-compressor';
 
 const logger = createLogger('AgentLoop');
 
@@ -206,6 +211,8 @@ export interface AgentLoopInput {
     reviewMode?: 'normal' | 'deep';
     /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
     severityLevelFilter?: string;
+    /** Model context window in tokens. Used to trigger context compression when the message history grows too large. */
+    contextWindowTokens?: number;
 }
 
 /**
@@ -366,7 +373,7 @@ export async function runAgentLoop(
                     // Last 2 steps: remove tools entirely to force text response.
                     // toolChoice: 'none' doesn't work with all providers (e.g., Gemini ignores it).
                     // Removing tools entirely guarantees the model can only respond with text.
-                    prepareStep: ({ stepNumber }: any) => {
+                    prepareStep: ({ stepNumber, messages }: any) => {
                         const maxSteps =
                             input.maxSteps ||
                             (input.reviewMode === 'deep'
@@ -375,6 +382,58 @@ export async function runAgentLoop(
                         const forceTextAfter = maxSteps - 2;
                         const coverageDebt =
                             formatCoverageDebt(coverageTargets);
+
+                        // Context compression: if the message history is
+                        // approaching the model's context window, truncate
+                        // older tool-result content (aggressively) while
+                        // preserving the head (system + user with <Diffs>)
+                        // and the most recent tool exchanges. Injects a
+                        // recap system message built from allToolCalls —
+                        // our own tracking array, preserved intact so
+                        // downstream passes keep full investigation history.
+                        let compressedMessages: any[] | undefined;
+                        if (
+                            input.contextWindowTokens &&
+                            messages &&
+                            messages.length > 0
+                        ) {
+                            const check = shouldCompress(
+                                messages,
+                                input.contextWindowTokens,
+                            );
+                            if (check.should) {
+                                const attempt = compressMessages(
+                                    messages,
+                                    allToolCalls,
+                                );
+                                const afterTokens =
+                                    estimateMessagesTokens(attempt);
+                                const savedTokens =
+                                    check.currentTokens - afterTokens;
+                                // Only use the compressed version if it actually saved tokens
+                                if (savedTokens > 0) {
+                                    compressedMessages = attempt;
+                                    logger.log({
+                                        message: `[AGENT-COMPRESS] step=${stepNumber} ${check.currentTokens} → ${afterTokens} tokens (saved ${savedTokens}), ${messages.length} → ${attempt.length} messages`,
+                                        context: 'AgentLoop',
+                                        metadata: {
+                                            stepNumber,
+                                            beforeTokens: check.currentTokens,
+                                            afterTokens,
+                                            savedTokens,
+                                            beforeMessages: messages.length,
+                                            afterMessages: attempt.length,
+                                            thresholdTokens:
+                                                check.thresholdTokens,
+                                            contextWindowTokens:
+                                                input.contextWindowTokens,
+                                        },
+                                    });
+                                }
+                                // If nothing could be truncated, fall through silently — the
+                                // threshold check will re-run on the next step anyway.
+                            }
+                        }
 
                         if (coverageDebt) {
                             if (stepNumber >= forceTextAfter) {
@@ -385,6 +444,9 @@ export async function runAgentLoop(
                             }
 
                             return {
+                                ...(compressedMessages
+                                    ? { messages: compressedMessages }
+                                    : {}),
                                 system:
                                     input.systemPrompt +
                                     '\n\nIMPORTANT: Coverage debt is still open.\n' +
@@ -399,6 +461,9 @@ export async function runAgentLoop(
                                 context: 'AgentLoop',
                             });
                             return {
+                                ...(compressedMessages
+                                    ? { messages: compressedMessages }
+                                    : {}),
                                 toolChoice: 'none' as const,
                                 activeTools: [],
                                 system:
@@ -420,7 +485,9 @@ export async function runAgentLoop(
                         // (e.g. Moonshot) reject it with "incompatible with thinking enabled".
                         // The prompt already instructs "Your first action must be a tool call".
 
-                        return {};
+                        return compressedMessages
+                            ? { messages: compressedMessages }
+                            : {};
                     },
                     onStepFinish: (event: any) => {
                         stepCount++;

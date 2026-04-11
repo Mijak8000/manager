@@ -14,6 +14,7 @@ import { PermissionValidationService } from '@libs/ee/shared/services/permission
 import { IKodyRule } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { convertTiptapJSONToText } from '@libs/common/utils/tiptap-json';
 import { byokToVercelModel, getModelName } from './llm/byok-to-vercel';
+import { resolveContextWindow } from './llm/model-context-window';
 import {
     runAgentLoop,
     type AgentLoopSecrets,
@@ -24,6 +25,65 @@ import {
     CoverageSummary,
     formatCoverageTargetsForPrompt,
 } from './llm/coverage-ledger';
+
+/** Rough token estimate: 1 token ≈ 4 characters */
+const CHARS_PER_TOKEN = 4;
+/** Use at most 60% of the context window for diffs */
+const DIFF_BUDGET_RATIO = 0.6;
+
+function estimateDiffTokens(files: FileChange[]): number {
+    return files.reduce((sum, f) => {
+        const diff = f.patchWithLinesStr ?? f.patch ?? '';
+        return sum + Math.ceil(diff.length / CHARS_PER_TOKEN);
+    }, 0);
+}
+
+function chunkFilesByTokenBudget(files: FileChange[], budgetTokens: number): FileChange[][] {
+    if (files.length === 0) return [[]];
+
+    const chunks: FileChange[][] = [];
+    let currentChunk: FileChange[] = [];
+    let currentTokens = 0;
+
+    for (const file of files) {
+        const diff = file.patchWithLinesStr ?? file.patch ?? '';
+        const fileTokens = Math.ceil(diff.length / CHARS_PER_TOKEN);
+
+        // If a single file exceeds the budget, give it its own chunk
+        if (fileTokens > budgetTokens) {
+            if (currentChunk.length > 0) {
+                chunks.push(currentChunk);
+                currentChunk = [];
+                currentTokens = 0;
+            }
+            chunks.push([file]);
+            continue;
+        }
+
+        if (currentTokens + fileTokens > budgetTokens && currentChunk.length > 0) {
+            chunks.push(currentChunk);
+            currentChunk = [];
+            currentTokens = 0;
+        }
+
+        currentChunk.push(file);
+        currentTokens += fileTokens;
+    }
+
+    if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+    }
+
+    return chunks;
+}
+
+function formatOtherFilesSummary(allFiles: FileChange[], batchFiles: Set<string>): string {
+    const others = allFiles.filter(f => !batchFiles.has(f.filename));
+    if (others.length === 0) return '';
+
+    const lines = others.map(f => `  - ${f.filename} (+${f.additions} -${f.deletions})`).join('\n');
+    return `\n  <OtherFilesInThisPR count="${others.length}">\n    The following files are also changed in this PR but reviewed in a separate batch:\n${lines}\n  </OtherFilesInThisPR>`;
+}
 
 const DEFAULT_SEVERITY_FLAGS = {
     critical:
@@ -231,6 +291,37 @@ export abstract class BaseCodeReviewAgentProvider {
             context: identity.name,
         });
 
+        // Check if diffs exceed the context window budget and need chunking
+        const contextWindow = resolveContextWindow({
+            byokMaxInputTokens: byokConfig?.main?.maxInputTokens,
+            modelName,
+        });
+        const diffBudget = Math.floor(contextWindow * DIFF_BUDGET_RATIO);
+        const totalDiffTokens = estimateDiffTokens(input.changedFiles);
+
+        if (totalDiffTokens > diffBudget && input.changedFiles.length > 1) {
+            this.agentLogger.warn({
+                message: `[AGENT] ${identity.name} diffs exceed context budget (${totalDiffTokens} tokens > ${diffBudget} budget), splitting into batches`,
+                context: identity.name,
+                metadata: {
+                    totalDiffTokens,
+                    diffBudget,
+                    contextWindow,
+                    filesCount: input.changedFiles.length,
+                },
+            });
+
+            return this.executeChunked(input, {
+                identity,
+                agentCategory,
+                byokConfig,
+                model,
+                modelName,
+                startTime,
+                diffBudget,
+            });
+        }
+
         const systemPrompt = this.buildSystemPrompt(input);
         const userPrompt = this.buildUserPrompt(input);
 
@@ -284,6 +375,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 reviewMode: input.reviewMode,
                 severityLevelFilter: input.severityLevelFilter,
                 maxSteps: input.maxSteps,
+                contextWindowTokens: contextWindow,
 
                 onStepFinish: (step: any) => {
                     stepCount++;
@@ -591,6 +683,115 @@ export abstract class BaseCodeReviewAgentProvider {
                 durationMs,
             };
         }
+    }
+
+    /**
+     * Runs the agent in multiple batches when the total diff size exceeds
+     * the model's context window budget. Each batch gets a subset of files
+     * with their full diffs, plus a summary of the other files in the PR.
+     */
+    private async executeChunked(
+        input: ReviewAgentInput,
+        ctx: {
+            identity: ReviewAgentIdentity;
+            agentCategory: string;
+            byokConfig: any;
+            model: any;
+            modelName: string;
+            startTime: number;
+            diffBudget: number;
+        },
+    ): Promise<ReviewAgentOutput> {
+        const { identity, agentCategory, byokConfig, model, modelName, startTime, diffBudget } = ctx;
+        const chunks = chunkFilesByTokenBudget(input.changedFiles, diffBudget);
+
+        this.agentLogger.log({
+            message: `[AGENT] ${identity.name} PR#${input.prNumber}: reviewing ${input.changedFiles.length} files in ${chunks.length} batch(es)`,
+            context: identity.name,
+            metadata: {
+                batches: chunks.map((c, i) => ({
+                    batch: i + 1,
+                    files: c.length,
+                    tokens: estimateDiffTokens(c),
+                })),
+            },
+        });
+
+        const allSuggestions: Partial<CodeSuggestion>[] = [];
+        const allDiscardedBySeverity: Partial<CodeSuggestion>[] = [];
+        const allDiscardedByVerify: Partial<CodeSuggestion>[] = [];
+        let totalTurns = 0;
+
+        for (let i = 0; i < chunks.length; i++) {
+            const batchFiles = chunks[i];
+            const batchFileSet = new Set(batchFiles.map(f => f.filename));
+            const batchLabel = `${identity.name} batch ${i + 1}/${chunks.length}`;
+
+            this.agentLogger.log({
+                message: `[AGENT] ${batchLabel} starting: ${batchFiles.length} files`,
+                context: identity.name,
+                metadata: { files: batchFiles.map(f => f.filename) },
+            });
+
+            try {
+                const batchInput: ReviewAgentInput = {
+                    ...input,
+                    changedFiles: batchFiles,
+                    agentRuntimeName: batchLabel,
+                };
+
+                const batchResult = await this.execute(batchInput);
+
+                allSuggestions.push(...batchResult.suggestions);
+                if (batchResult.discardedBySeverity) {
+                    allDiscardedBySeverity.push(...batchResult.discardedBySeverity);
+                }
+                if (batchResult.discardedByVerify) {
+                    allDiscardedByVerify.push(...batchResult.discardedByVerify);
+                }
+                totalTurns += batchResult.turnsUsed;
+
+                this.agentLogger.log({
+                    message: `[AGENT] ${batchLabel} completed: ${batchResult.suggestions.length} findings`,
+                    context: identity.name,
+                });
+            } catch (error) {
+                this.agentLogger.error({
+                    message: `[AGENT] ${batchLabel} failed: ${error instanceof Error ? error.message : String(error)}`,
+                    context: identity.name,
+                    error,
+                });
+            }
+        }
+
+        const durationMs = Date.now() - startTime;
+
+        this.agentLogger.log({
+            message: `[AGENT] ${identity.name} PR#${input.prNumber} all batches done: ${allSuggestions.length} total findings in ${durationMs}ms`,
+            context: identity.name,
+        });
+
+        input.onAgentProgress?.({
+            agentName: identity.name,
+            agentCategory,
+            agentReplicaIndex: input.agentReplicaIndex,
+            agentReplicaTotal: input.agentReplicaTotal,
+            status: 'completed',
+            findings: allSuggestions.length,
+            durationMs,
+        });
+
+        return {
+            suggestions: allSuggestions,
+            discardedBySeverity: allDiscardedBySeverity,
+            discardedByVerify: allDiscardedByVerify,
+            agentName: identity.name,
+            agentCategory,
+            agentReplicaIndex: input.agentReplicaIndex,
+            agentReplicaTotal: input.agentReplicaTotal,
+            turnsUsed: totalTurns,
+            durationMs,
+        };
     }
 
     private buildSystemPrompt(input: ReviewAgentInput): string {
