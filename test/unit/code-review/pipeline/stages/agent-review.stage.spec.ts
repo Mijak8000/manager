@@ -171,15 +171,21 @@ describe('AgentReviewStage', () => {
             expect(result.fileAnalysisResults).toBeUndefined();
         });
 
-        it('should skip when no sandbox handle', async () => {
+        it('should run self-contained (no tools) when no sandbox handle', async () => {
+            // Previously this stage short-circuited when the sandbox was
+            // missing. It now falls back to self-contained mode so trial
+            // reviews and accounts without a GitHub integration still get
+            // a (reduced-context) review instead of being silently skipped.
             const context = createBaseContext({
                 changedFiles: [{ filename: 'src/index.ts' } as any],
                 sandboxHandle: undefined,
             });
 
-            const _result = await (stage as any).executeStage(context);
+            await (stage as any).executeStage(context);
 
-            expect(mockOrchestrator.execute).not.toHaveBeenCalled();
+            expect(mockOrchestrator.execute).toHaveBeenCalledTimes(1);
+            const call = mockOrchestrator.execute.mock.calls[0][0];
+            expect(call.remoteCommands).toBeUndefined();
         });
     });
 
