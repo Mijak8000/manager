@@ -212,7 +212,6 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
         );
 
         // Step 2: LLM validation for syntax-valid candidates
-        const candidateMap = new Map(candidates.map((c) => [c.id, c]));
         const limit = pLimit(this.CONCURRENCY_LIMIT);
 
         const llmValidations = syntaxValidCandidates.map((candidate) =>
