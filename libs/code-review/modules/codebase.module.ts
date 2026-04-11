@@ -64,15 +64,11 @@ import { SuggestionService } from '../infrastructure/adapters/services/suggestio
 
 import { OrganizationParametersModule } from '@libs/organization/modules/organizationParameters.module';
 
-import { KodyASTModule } from '@libs/ee/kodyAST/kodyAST.module';
-
 import { codeReviewPipelineProvider } from '@libs/core/providers/code-review-pipeline.provider.ee';
 import { pipelineProvider } from '@libs/core/providers/pipeline.provider.ee';
 
 import { GlobalCacheModule } from '@libs/core/cache/cache.module';
 import { DryRunModule } from '@libs/dryRun/dry-run.module';
-import { CodeAstAnalysisService } from '@libs/ee/kodyAST/codeASTAnalysis.service';
-import { AST_ANALYSIS_SERVICE_TOKEN } from '../domain/contracts/ASTAnalysisService.contract';
 import { SafeguardPipelineService } from '../infrastructure/adapters/services/safeguardPipeline.service';
 import { AstGraphModule } from './ast-graph.module';
 import { DocumentationContextModule } from './documentation-context.module';
@@ -99,7 +95,6 @@ import { DocumentationContextModule } from './documentation-context.module';
         forwardRef(() => PermissionValidationModule),
         forwardRef(() => AIEngineModule),
         forwardRef(() => OrganizationParametersModule),
-        forwardRef(() => KodyASTModule),
         forwardRef(() => DryRunModule),
         forwardRef(() => DocumentationContextModule),
         AstGraphModule,
@@ -173,10 +168,6 @@ import { DocumentationContextModule } from './documentation-context.module';
         MessageTemplateProcessor,
         pipelineProvider,
         codeReviewPipelineProvider,
-        {
-            provide: AST_ANALYSIS_SERVICE_TOKEN,
-            useClass: CodeAstAnalysisService,
-        },
         SafeguardPipelineService,
     ],
     exports: [
@@ -196,7 +187,6 @@ import { DocumentationContextModule } from './documentation-context.module';
         CommentAnalysisService,
         MessageTemplateProcessor,
         pipelineProvider,
-        AST_ANALYSIS_SERVICE_TOKEN,
         SafeguardPipelineService,
         AstGraphModule,
     ],

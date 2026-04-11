@@ -34,11 +34,8 @@ import { WorkflowCoreModule } from '@libs/core/workflow/modules/workflow-core.mo
 import { DistributedLockService } from '@libs/core/workflow/infrastructure/distributed-lock.service';
 import { DryRunCoreModule } from '@libs/dryRun/dry-run-core.module';
 import { FileReviewModule } from '@libs/ee/codeReview/fileReviewContextPreparation/fileReview.module';
-import { CodeAnalysisASTCleanupStage } from '@libs/ee/codeReview/stages/code-analysis-ast-cleanup.stage';
-import { CodeAnalysisASTStage } from '@libs/ee/codeReview/stages/code-analysis-ast.stage';
 import { KodyFineTuningStage } from '@libs/ee/codeReview/stages/kody-fine-tuning.stage';
 import { CodeReviewPipelineStrategyEE } from '@libs/ee/codeReview/strategies/code-review-pipeline.strategy.ee';
-import { KodyASTModule } from '@libs/ee/kodyAST/kodyAST.module';
 import { KodyASTAnalyzeContextModule } from '@libs/ee/kodyASTAnalyze/kodyAstAnalyzeContext.module';
 import { LicenseModule } from '@libs/ee/license/license.module';
 import { PermissionValidationModule } from '@libs/ee/shared/permission-validation.module';
@@ -48,7 +45,9 @@ import { ParametersModule } from '@libs/organization/modules/parameters.module';
 import { GithubChecksService } from '@libs/platform/infrastructure/adapters/services/github/github-checks.service';
 import { GithubModule } from '@libs/platform/modules/github.module';
 import { PlatformModule } from '@libs/platform/modules/platform.module';
-import { ASTContentFormatterService } from '../infrastructure/adapters/services/astContentFormatter.service';
+import { SandboxSyntaxValidator } from '../infrastructure/adapters/services/sandboxSyntaxValidator.service';
+import { GraphContentFormatter } from '../infrastructure/adapters/services/graphContentFormatter.service';
+import { SuggestionLLMValidator } from '../infrastructure/adapters/services/suggestionLLMValidator.service';
 import { CodeReviewPipelineObserver } from '../infrastructure/observers/code-review-pipeline.observer';
 import { AstGraphModule } from '../modules/ast-graph.module';
 import { CodebaseModule } from '../modules/codebase.module';
@@ -88,7 +87,6 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
         forwardRef(() => PlatformModule),
         forwardRef(() => KodyFineTuningContextModule),
         forwardRef(() => KodyASTAnalyzeContextModule),
-        forwardRef(() => KodyASTModule),
         forwardRef(() => AutomationModule),
         forwardRef(() => GithubModule),
         forwardRef(() => PermissionValidationModule),
@@ -128,7 +126,9 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
         CollectCrossFileContextStage,
         ProcessFilesPrLevelReviewStage,
         ProcessFilesReview,
-        ASTContentFormatterService,
+        SandboxSyntaxValidator,
+        GraphContentFormatter,
+        SuggestionLLMValidator,
         CreatePrLevelCommentsStage,
         CreateFileCommentsStage,
         AggregateResultsStage,
@@ -149,8 +149,6 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
 
         // EE Stages
         KodyFineTuningStage,
-        CodeAnalysisASTStage,
-        CodeAnalysisASTCleanupStage,
 
         // For GitHub Checks
         GithubChecksService,
