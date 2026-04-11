@@ -12,7 +12,6 @@ import {
 } from '@libs/analytics/domain/token-usage/types/tokenUsage.types';
 
 import { ObservabilityTelemetryModel } from './schemas/observabilityTelemetry.model';
-import { CodeAstAnalysisService } from '@libs/ee/kodyAST/codeASTAnalysis.service';
 import { LLMAnalysisService } from '@libs/code-review/infrastructure/adapters/services/llmAnalysis.service';
 
 @Injectable()
@@ -132,8 +131,7 @@ export class TokenUsageRepository implements ITokenUsageRepository {
                                           .validateImplementedSuggestions.name,
                                       LLMAnalysisService.prototype
                                           .generateCodeSuggestions.name,
-                                      CodeAstAnalysisService.prototype
-                                          .analyzeASTWithAI.name,
+                                      'analyzeASTWithAI',
                                   ], // These runs will never be called with BYOK
                               ],
                           },

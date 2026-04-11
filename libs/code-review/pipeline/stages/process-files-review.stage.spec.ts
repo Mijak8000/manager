@@ -1,5 +1,4 @@
 import { SUGGESTION_SERVICE_TOKEN } from '@libs/code-review/domain/contracts/SuggestionService.contract';
-import { ASTContentFormatterService } from '@libs/code-review/infrastructure/adapters/services/astContentFormatter.service';
 import { FILE_REVIEW_CONTEXT_PREPARATION_TOKEN } from '@libs/core/domain/interfaces/file-review-context-preparation.interface';
 import { KODY_AST_ANALYZE_CONTEXT_PREPARATION_TOKEN } from '@libs/core/domain/interfaces/kody-ast-analyze-context-preparation.interface';
 import { KODY_FINE_TUNING_CONTEXT_PREPARATION_TOKEN } from '@libs/core/domain/interfaces/kody-fine-tuning-context-preparation.interface';
@@ -74,14 +73,6 @@ describe('ProcessFilesReview', () => {
                 {
                     provide: CodeAnalysisOrchestrator,
                     useValue: mockCodeAnalysisOrchestrator,
-                },
-                {
-                    provide: ASTContentFormatterService,
-                    useValue: {
-                        fetchFormattedContent: jest
-                            .fn()
-                            .mockResolvedValue(new Map()),
-                    },
                 },
             ],
         }).compile();

@@ -6,7 +6,6 @@ import { FILE_REVIEW_CONTEXT_PREPARATION_TOKEN } from '@/core/domain/interfaces/
 import { KODY_FINE_TUNING_CONTEXT_PREPARATION_TOKEN } from '@/core/domain/interfaces/kody-fine-tuning-context-preparation.interface';
 import { KODY_AST_ANALYZE_CONTEXT_PREPARATION_TOKEN } from '@/core/domain/interfaces/kody-ast-analyze-context-preparation.interface';
 import { CodeAnalysisOrchestrator } from '@/ee/codeBase/codeAnalysisOrchestrator.service';
-import { ASTContentFormatterService } from '@/code-review/infrastructure/adapters/services/astContentFormatter.service';
 import { PriorityStatus } from '@/platformData/domain/pullRequests/enums/priorityStatus.enum';
 import { DeliveryStatus } from '@/platformData/domain/pullRequests/enums/deliveryStatus.enum';
 import {
@@ -62,10 +61,6 @@ describe('ProcessFilesReview', () => {
         executeKodyRulesAnalysis: jest.fn(),
     };
 
-    const mockAstContentFormatter = {
-        fetchFormattedContent: jest.fn(),
-    };
-
     const mockOrganizationAndTeamData = {
         organizationId: 'org-123',
         teamId: 'team-456',
@@ -98,10 +93,6 @@ describe('ProcessFilesReview', () => {
                 {
                     provide: CodeAnalysisOrchestrator,
                     useValue: mockCodeAnalysisOrchestrator,
-                },
-                {
-                    provide: ASTContentFormatterService,
-                    useValue: mockAstContentFormatter,
                 },
             ],
         }).compile();

@@ -6,7 +6,6 @@ import { FILE_REVIEW_CONTEXT_PREPARATION_TOKEN } from '@libs/core/domain/interfa
 import { KODY_FINE_TUNING_CONTEXT_PREPARATION_TOKEN } from '@libs/core/domain/interfaces/kody-fine-tuning-context-preparation.interface';
 import { KODY_AST_ANALYZE_CONTEXT_PREPARATION_TOKEN } from '@libs/core/domain/interfaces/kody-ast-analyze-context-preparation.interface';
 import { CodeAnalysisOrchestrator } from '@libs/ee/codeBase/codeAnalysisOrchestrator.service';
-import { ASTContentFormatterService } from '@libs/code-review/infrastructure/adapters/services/astContentFormatter.service';
 import {
     AnalysisContext,
     CodeSuggestion,
@@ -106,10 +105,6 @@ const mockKodyAstAnalyzeContextPreparation = {
     prepareKodyASTAnalyzeContext: jest.fn(() => ({ codeSuggestions: [] })),
 };
 
-const mockAstContentFormatter = {
-    fetchFormattedContent: jest.fn(() => new Map()),
-};
-
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -147,10 +142,6 @@ describe('ProcessFilesReview – file content chunking', () => {
                 {
                     provide: CodeAnalysisOrchestrator,
                     useValue: mockCodeAnalysisOrchestrator,
-                },
-                {
-                    provide: ASTContentFormatterService,
-                    useValue: mockAstContentFormatter,
                 },
             ],
         }).compile();

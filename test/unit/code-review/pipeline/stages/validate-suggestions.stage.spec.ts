@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ValidateSuggestionsStage } from '@/code-review/pipeline/stages/validate-suggestions.stage';
-import { AST_ANALYSIS_SERVICE_TOKEN } from '@/code-review/domain/contracts/ASTAnalysisService.contract';
+import { SandboxSyntaxValidator } from '@/code-review/infrastructure/adapters/services/sandboxSyntaxValidator.service';
+import { SuggestionLLMValidator } from '@/code-review/infrastructure/adapters/services/suggestionLLMValidator.service';
 import { CodeReviewPipelineContext } from '@/code-review/pipeline/context/code-review-pipeline.context';
 import { PlatformType } from '@/core/domain/enums';
-import { TaskStatus } from '@/ee/kodyAST/interfaces/code-ast-analysis.interface';
 
 // Mock logger to silence logs during tests
 jest.mock('@kodus/flow', () => ({
@@ -38,12 +38,12 @@ import { applyEdit } from '@morphllm/morphsdk';
 describe('ValidateSuggestionsStage', () => {
     let stage: ValidateSuggestionsStage;
 
-    const mockAstAnalysisService = {
-        checkSuggestionSimplicity: jest.fn(),
-        startValidate: jest.fn(),
-        awaitTask: jest.fn(),
-        getValidate: jest.fn(),
-        validateWithLLM: jest.fn(),
+    const mockSandboxSyntaxValidator = {
+        validate: jest.fn().mockResolvedValue({ isValid: true, errors: [] }),
+    };
+
+    const mockSuggestionLLMValidator = {
+        validate: jest.fn().mockResolvedValue({ isValid: true }),
     };
 
     const mockOrganizationAndTeamData = {
@@ -95,8 +95,12 @@ describe('ValidateSuggestionsStage', () => {
             providers: [
                 ValidateSuggestionsStage,
                 {
-                    provide: AST_ANALYSIS_SERVICE_TOKEN,
-                    useValue: mockAstAnalysisService,
+                    provide: SandboxSyntaxValidator,
+                    useValue: mockSandboxSyntaxValidator,
+                },
+                {
+                    provide: SuggestionLLMValidator,
+                    useValue: mockSuggestionLLMValidator,
                 },
             ],
         }).compile();
