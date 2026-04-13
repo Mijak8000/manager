@@ -17,6 +17,8 @@ import {
 } from '@libs/code-review/domain/contracts/sandbox.provider';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { AstGraphBuildService } from '@libs/code-review/infrastructure/adapters/services/astGraphBuild.service';
+import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 
 interface AstGraphBuildJobPayload {
@@ -39,6 +41,7 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
         private readonly sandboxProvider: ISandboxProvider,
         private readonly codeManagementService: CodeManagementService,
         private readonly astGraphBuildService: AstGraphBuildService,
+        private readonly repositoryRepo: RepositoryRepository,
     ) {}
 
     async process(jobId: string): Promise<void> {
@@ -199,11 +202,17 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
                 },
             });
 
-            await this.handleFailure(jobId, error, classification, sandboxId);
+            await this.handleFailure(
+                jobId,
+                error,
+                classification,
+                sandboxId,
+                payload.repositoryId,
+            );
 
             // Only re-throw TRANSIENT errors so RabbitMQ retries.
             // PERMANENT errors are already marked FAILED — retrying would just overwrite the status.
-            if (classification === ErrorClassification.TRANSIENT) {
+            if (classification === ErrorClassification.RETRYABLE) {
                 throw error;
             }
         } finally {
@@ -263,7 +272,7 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
             combined.includes('502') ||
             combined.includes('temporarily unavailable')
         ) {
-            return ErrorClassification.TRANSIENT;
+            return ErrorClassification.RETRYABLE;
         }
 
         return ErrorClassification.PERMANENT;
@@ -274,6 +283,7 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
         error: Error,
         classification: ErrorClassification = ErrorClassification.PERMANENT,
         sandboxId?: string,
+        repositoryId?: string,
     ): Promise<void> {
         await this.jobRepository.update(jobId, {
             status: JobStatus.FAILED,
@@ -282,6 +292,23 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
             failedAt: new Date(),
             metadata: { sandboxId, stage: 'FAILED' },
         });
+
+        // Ensure repository status is updated to FAILED so it doesn't stay stuck in PENDING/BUILDING
+        if (repositoryId) {
+            try {
+                await this.repositoryRepo.updateGraphStatus(
+                    repositoryId,
+                    AstGraphStatus.FAILED,
+                );
+            } catch (statusError) {
+                this.logger.warn({
+                    message: `[AST-GRAPH-JOB] Failed to update repository status to FAILED`,
+                    context: AstGraphBuildJobProcessor.name,
+                    error: statusError,
+                    metadata: { jobId, repositoryId },
+                });
+            }
+        }
     }
 
     async markCompleted(jobId: string, result?: unknown): Promise<void> {

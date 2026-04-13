@@ -336,6 +336,13 @@ export function RichTextEditor(props: RichTextEditorProps) {
         },
     });
 
+    // Keep editable state in sync when disabled prop changes after creation
+    React.useEffect(() => {
+        if (editor && !editor.isDestroyed) {
+            editor.setEditable(!disabled);
+        }
+    }, [editor, disabled]);
+
     React.useEffect(() => {
         if (editor) {
             editorInstanceRef.current = editor;

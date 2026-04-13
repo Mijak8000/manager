@@ -17,6 +17,8 @@ import {
 } from '@libs/code-review/domain/contracts/sandbox.provider';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { AstGraphBuildService } from '@libs/code-review/infrastructure/adapters/services/astGraphBuild.service';
+import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 
 interface AstGraphIncrementalJobPayload {
@@ -43,6 +45,7 @@ export class AstGraphIncrementalJobProcessor implements IJobProcessorService {
         private readonly sandboxProvider: ISandboxProvider,
         private readonly codeManagementService: CodeManagementService,
         private readonly astGraphBuildService: AstGraphBuildService,
+        private readonly repositoryRepo: RepositoryRepository,
     ) {}
 
     async process(jobId: string): Promise<void> {
@@ -195,9 +198,9 @@ export class AstGraphIncrementalJobProcessor implements IJobProcessorService {
                 },
             });
 
-            await this.handleFailure(jobId, error, classification, sandboxId);
+            await this.handleFailure(jobId, error, classification, sandboxId, payload.repositoryId);
 
-            if (classification === ErrorClassification.TRANSIENT) {
+            if (classification === ErrorClassification.RETRYABLE) {
                 throw error;
             }
         } finally {
@@ -257,7 +260,7 @@ export class AstGraphIncrementalJobProcessor implements IJobProcessorService {
             combined.includes('502') ||
             combined.includes('temporarily unavailable')
         ) {
-            return ErrorClassification.TRANSIENT;
+            return ErrorClassification.RETRYABLE;
         }
 
         return ErrorClassification.PERMANENT;
@@ -268,6 +271,7 @@ export class AstGraphIncrementalJobProcessor implements IJobProcessorService {
         error: Error,
         classification: ErrorClassification = ErrorClassification.PERMANENT,
         sandboxId?: string,
+        repositoryId?: string,
     ): Promise<void> {
         await this.jobRepository.update(jobId, {
             status: JobStatus.FAILED,
@@ -276,6 +280,25 @@ export class AstGraphIncrementalJobProcessor implements IJobProcessorService {
             failedAt: new Date(),
             metadata: { sandboxId, stage: 'FAILED' },
         });
+
+        // Incremental runs when status=READY. On failure, keep it READY
+        // so future incremental updates are not blocked.
+        // The stale graph is still usable.
+        if (repositoryId) {
+            try {
+                await this.repositoryRepo.updateGraphStatus(
+                    repositoryId,
+                    AstGraphStatus.READY,
+                );
+            } catch (statusError) {
+                this.logger.warn({
+                    message: `[AST-GRAPH-INCR] Failed to restore repository status to READY`,
+                    context: AstGraphIncrementalJobProcessor.name,
+                    error: statusError,
+                    metadata: { jobId, repositoryId },
+                });
+            }
+        }
     }
 
     async markCompleted(jobId: string, result?: unknown): Promise<void> {
