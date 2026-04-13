@@ -1026,7 +1026,10 @@ Respond with ONLY the JSON:
         }
     }
 
-    // Filter by minimum severity level BEFORE verify (saves verify tokens)
+    // Pre-filter by severity to save verify tokens. This uses the LLM's
+    // preliminary severity which may be overridden by the SeverityClassifier
+    // later. The definitive filter runs in agent-review.stage.ts AFTER
+    // reclassification.
     let discardedBySeverity: FindingsOutput['suggestions'] = [];
     const severityLevelFilter = input.severityLevelFilter;
     if (
@@ -1054,7 +1057,7 @@ Respond with ONLY the JSON:
         };
         if (discardedBySeverity.length > 0) {
             logger.log({
-                message: `[AGENT-SEVERITY-FILTER] Filtered ${discardedBySeverity.length}/${before} findings below ${severityLevelFilter} threshold`,
+                message: `[AGENT-SEVERITY-FILTER] Pre-filtered ${discardedBySeverity.length}/${before} findings below ${severityLevelFilter} threshold (definitive filter runs after reclassification)`,
                 context: 'AgentLoop',
             });
         }

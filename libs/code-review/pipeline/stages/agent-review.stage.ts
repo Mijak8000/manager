@@ -594,7 +594,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 };
             }
 
-            const deduped = [...dedupedNonRules, ...kodyRulesForDedup];
+            let deduped = [...dedupedNonRules, ...kodyRulesForDedup];
 
             // Enrich kody_rules suggestions with links to the rule page
             const baseUrl = process.env.API_USER_INVITE_BASE_URL || '';
@@ -662,6 +662,42 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     message: `[AGENT] Severity classification failed, keeping agent-assigned severity: ${err instanceof Error ? err.message : String(err)}`,
                     context: this.stageName,
                 });
+            }
+
+            // Re-apply severity filter AFTER reclassification.
+            // The agent loop already filters once (to save verify tokens),
+            // but the SeverityClassifier can change the final severity.
+            // Without this second pass, a finding the LLM initially tagged
+            // as HIGH would pass the early filter, get reclassified to LOW,
+            // and appear on the PR below the user's configured threshold.
+            const severityFilter =
+                context.codeReviewConfig?.suggestionControl
+                    ?.severityLevelFilter;
+            if (
+                severityFilter &&
+                severityFilter !== 'low' &&
+                deduped.length > 0
+            ) {
+                const acceptedLevels: Record<string, string[]> = {
+                    critical: ['critical'],
+                    high: ['critical', 'high'],
+                    medium: ['critical', 'high', 'medium'],
+                    low: ['critical', 'high', 'medium', 'low'],
+                };
+                const accepted =
+                    acceptedLevels[severityFilter] || acceptedLevels.low;
+                const before = deduped.length;
+                deduped = deduped.filter((s) =>
+                    accepted.includes(
+                        (s.severity || 'medium').toLowerCase(),
+                    ),
+                );
+                if (deduped.length < before) {
+                    this.logger.log({
+                        message: `[AGENT] Post-classification severity filter: ${before - deduped.length} suggestions below ${severityFilter} threshold removed`,
+                        context: this.stageName,
+                    });
+                }
             }
 
             // Clean up suggestion text: remove WHAT/WHY/HOW labels, merge into natural prose
