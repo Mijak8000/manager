@@ -141,12 +141,12 @@ export interface AgentProgressEvent {
     agentReplicaIndex?: number;
     agentReplicaTotal?: number;
     status:
-        | 'started'
-        | 'investigating'
-        | 'completed'
-        | 'error'
-        | 'batch_started'
-        | 'batch_completed';
+    | 'started'
+    | 'investigating'
+    | 'completed'
+    | 'error'
+    | 'batch_started'
+    | 'batch_completed';
     step?: number;
     toolCalls?: Array<{ tool: string; args: string; durationMs?: number }>;
     findings?: number;
@@ -219,6 +219,9 @@ export interface ReviewAgentInput {
     reviewMode?: 'fast' | 'normal' | 'deep';
     /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
     severityLevelFilter?: string;
+    /** When true, the severity filter also applies to Kody Rules findings.
+     *  Default (undefined / false): kody rules are exempt. */
+    applyFiltersToKodyRules?: boolean;
     /** Optional per-agent step budget for the main investigation loop. */
     maxSteps?: number;
     /** Categories allowed for this run when using a mixed/generalist reviewer. */
@@ -265,7 +268,7 @@ export abstract class BaseCodeReviewAgentProvider {
          *  agent loop. Falsy when API_EXA_KEY is not configured. */
         @Optional()
         protected readonly documentationSearchService?: DocumentationSearchExaService,
-    ) {}
+    ) { }
 
     protected abstract getIdentity(): ReviewAgentIdentity;
     protected abstract getCategoryPrompt(): string;
@@ -440,6 +443,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 callGraph: input.callGraph,
                 reviewMode: input.reviewMode,
                 severityLevelFilter: input.severityLevelFilter,
+                applyFiltersToKodyRules: input.applyFiltersToKodyRules,
                 maxSteps: input.maxSteps,
                 contextWindowTokens: contextWindow,
                 reasoningEffort: byokConfig?.main?.reasoningEffort,
@@ -597,22 +601,57 @@ export abstract class BaseCodeReviewAgentProvider {
                 input.changedFiles.map((f) => f.filename),
             );
             const isKodyRules = this.getCategoryLabel() === 'kody_rules';
-            const rawSuggestions = (
-                agentResult.findings?.suggestions || []
-            ).filter(
-                (s) =>
-                    s.suggestionContent &&
-                    // Kody Rules PR-level suggestions may not have a relevantFile
-                    (isKodyRules
-                        ? !s.relevantFile || validFiles.has(s.relevantFile)
-                        : s.relevantFile && validFiles.has(s.relevantFile)),
-            );
-
             const kodyRulesByUuid = new Map(
                 (input.kodyRules || [])
                     .filter((r) => r.uuid)
                     .map((r) => [r.uuid!, r]),
             );
+
+            const rawSuggestions = (
+                agentResult.findings?.suggestions || []
+            ).filter((s) => {
+                if (!s.suggestionContent) return false;
+
+                if (isKodyRules) {
+                    // Kody Rules suggestions MUST carry a ruleUuid that maps
+                    // to one of the rules we actually sent to the agent. The
+                    // prompt enforces this, but we guard here too: without a
+                    // valid ruleUuid we cannot render the rule link and the
+                    // finding would be mis-attributed to kody_rules while
+                    // being something else (e.g. a hallucinated generic
+                    // finding the kody-rules agent should not be reporting).
+                    const ruleUuid =
+                        typeof s.ruleUuid === 'string'
+                            ? s.ruleUuid.trim()
+                            : '';
+                    if (!ruleUuid) {
+                        this.agentLogger.warn({
+                            message: `[AGENT] Dropping kody_rules suggestion without ruleUuid: "${(s.oneSentenceSummary || s.suggestionContent).slice(0, 140)}"`,
+                            context: this.getIdentity().name,
+                            metadata: { prNumber: input.prNumber },
+                        });
+                        return false;
+                    }
+                    if (!kodyRulesByUuid.has(ruleUuid)) {
+                        this.agentLogger.warn({
+                            message: `[AGENT] Dropping kody_rules suggestion with unknown ruleUuid=${ruleUuid}: "${(s.oneSentenceSummary || s.suggestionContent).slice(0, 140)}"`,
+                            context: this.getIdentity().name,
+                            metadata: {
+                                prNumber: input.prNumber,
+                                ruleUuid,
+                                knownRuleCount: kodyRulesByUuid.size,
+                            },
+                        });
+                        return false;
+                    }
+                    // PR-level kody_rules omit relevantFile by design.
+                    return (
+                        !s.relevantFile || validFiles.has(s.relevantFile)
+                    );
+                }
+
+                return !!s.relevantFile && validFiles.has(s.relevantFile);
+            });
 
             const suggestions = rawSuggestions.map((s) => {
                 const matchedRule = s.ruleUuid
@@ -662,8 +701,8 @@ export abstract class BaseCodeReviewAgentProvider {
                     agentResult.finishReason === 'timeout'
                         ? 'timeout'
                         : hitHardLimit
-                          ? 'max-steps'
-                          : 'stop',
+                            ? 'max-steps'
+                            : 'stop',
                 source: agentResult.source,
                 coverage: agentResult.coverage,
                 verification: agentResult.verification,
@@ -1090,7 +1129,7 @@ ${memoryRulesSection}
             categoryLabel === 'generalist'
                 ? `real ${allowedSuggestionLabels.join(', ')} issues introduced, exposed, or made worse by these changes`
                 : (taskDescriptions[categoryLabel] ??
-                  'issues introduced by these changes');
+                    'issues introduced by these changes');
 
         return (
             `<ReviewTask>
@@ -1286,7 +1325,7 @@ ${memoryRulesSection}
             categoryLabel === 'generalist'
                 ? `real ${allowedSuggestionLabels.join(', ')} issues self-evident from these diffs`
                 : (taskDescriptions[categoryLabel] ??
-                  'issues introduced by these changes');
+                    'issues introduced by these changes');
 
         return (
             `<ReviewTask mode="self-contained">
