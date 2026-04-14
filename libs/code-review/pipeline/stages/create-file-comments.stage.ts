@@ -260,7 +260,26 @@ export class CreateFileCommentsStage extends BasePipelineStage<CodeReviewPipelin
 
         // v3 pipeline: suggestions are already severity-normalized and deduplicated
         // by agent-review.stage. No additional severity/quantity filtering needed.
-        const sortedPrioritizedSuggestions = validSuggestionsToAnalyze;
+        //
+        // Sort before posting so all comments for the same file land together on
+        // GitHub, and within a file the most severe ones surface first.
+        const severityOrder: Record<string, number> = {
+            critical: 4,
+            high: 3,
+            medium: 2,
+            low: 1,
+        };
+        const sortedPrioritizedSuggestions = [...validSuggestionsToAnalyze].sort(
+            (a, b) => {
+                const fileA = a.relevantFile || '';
+                const fileB = b.relevantFile || '';
+                if (fileA < fileB) return -1;
+                if (fileA > fileB) return 1;
+                const rankA = severityOrder[(a.severity || '').toLowerCase()] ?? 0;
+                const rankB = severityOrder[(b.severity || '').toLowerCase()] ?? 0;
+                return rankB - rankA;
+            },
+        );
         const allDiscardedSuggestions = [...discardedSuggestionsBySafeGuard];
 
         const fallbackSuggestionsBySeverity =
