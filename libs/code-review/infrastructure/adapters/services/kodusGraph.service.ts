@@ -381,27 +381,29 @@ export class KodusGraphService {
     }
 
     private async installKodusGraph(sandbox: SandboxInstance): Promise<void> {
-        // Check if kodus-graph is already available (pre-installed in Docker image for local mode).
+        // Check if kodus-graph binary exists (pre-installed in Docker image for local mode).
+        // We use `which` instead of `--version` because the version command may
+        // fail or produce empty output depending on the bun runtime state.
         const check = await sandbox.run(
-            'kodus-graph --version 2>/dev/null || true',
+            'which kodus-graph 2>/dev/null && kodus-graph --version 2>/dev/null || true',
             { timeoutMs: 5_000 },
         );
 
-        const installedVersion = (check.stdout || '').trim();
+        const output = (check.stdout || '').trim();
+        const binaryFound = output.includes('/kodus-graph');
+        const installedVersion = output.split('\n').pop()?.trim() || '';
 
-        if (installedVersion && installedVersion === KODUS_GRAPH_VERSION) {
+        if (binaryFound && KODUS_GRAPH_VERSION === 'latest') {
             this.logger.log({
-                message: `[KODUS-GRAPH] Version ${installedVersion} matches target ${KODUS_GRAPH_VERSION}, skipping install`,
+                message: `[KODUS-GRAPH] Found pre-installed binary (version: ${installedVersion || 'unknown'}), skipping runtime install`,
                 context: KodusGraphService.name,
             });
             return;
         }
 
-        // If already installed (any version) and target is "latest", skip — the
-        // baked image version is good enough and avoids a runtime network call.
-        if (installedVersion && KODUS_GRAPH_VERSION === 'latest') {
+        if (installedVersion && installedVersion === KODUS_GRAPH_VERSION) {
             this.logger.log({
-                message: `[KODUS-GRAPH] Found pre-installed version ${installedVersion}, skipping runtime install`,
+                message: `[KODUS-GRAPH] Version ${installedVersion} matches target ${KODUS_GRAPH_VERSION}, skipping install`,
                 context: KodusGraphService.name,
             });
             return;
@@ -412,11 +414,11 @@ export class KodusGraphService {
             context: KodusGraphService.name,
         });
 
-        // Local sandbox: bun is pre-installed in the Docker image.
+        // Local sandbox: bun is pre-installed in the Docker image. --force avoids EEXIST on re-link.
         // E2B sandbox: install bun on-the-fly (ephemeral sandbox).
         const installCmd =
             sandbox.type === 'local'
-                ? `bun install -g @kodus/kodus-graph@${KODUS_GRAPH_VERSION} 2>&1`
+                ? `bun install -g --force @kodus/kodus-graph@${KODUS_GRAPH_VERSION} 2>&1`
                 : [
                       'which bun > /dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1)',
                       'export PATH="$HOME/.bun/bin:$PATH"',
