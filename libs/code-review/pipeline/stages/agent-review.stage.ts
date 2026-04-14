@@ -1273,7 +1273,17 @@ ${summaries}`,
                 if (event.finishReason === 'max-steps') {
                     return `${icon} Agent${replicaSuffix}${batchSuffix} — hit step limit (${event.step ?? 0} steps, no findings)`;
                 }
-                return `${icon} Agent${replicaSuffix}${batchSuffix} — failed ${duration}`;
+                // Surface the actual error so users can self-diagnose from
+                // the PR logs instead of digging through docker logs.
+                // Truncate to keep the label readable — full message is
+                // also available via the observer's stage metadata.
+                const errSummary = event.errorMessage
+                    ? `: ${event.errorMessage.substring(0, 180)}${event.errorMessage.length > 180 ? '…' : ''}`
+                    : '';
+                const errNameLabel = event.errorName
+                    ? ` (${event.errorName})`
+                    : '';
+                return `${icon} Agent${replicaSuffix}${batchSuffix} — failed ${duration}${errNameLabel}${errSummary}`;
             }
             default:
                 return `${icon} Agent${replicaSuffix}`;
@@ -1327,6 +1337,16 @@ ${summaries}`,
                 coverage: event.coverage,
                 verification: event.verification,
                 anomalies: event.anomalies,
+                // Error details surfaced so the UI (or a copy-paste into a
+                // bug report) has the failure reason without needing docker
+                // logs access.
+                ...(event.status === 'error' && {
+                    error: {
+                        name: event.errorName,
+                        message: event.errorMessage,
+                        finishReason: event.finishReason,
+                    },
+                }),
             };
         }
 

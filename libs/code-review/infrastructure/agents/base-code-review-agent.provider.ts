@@ -157,6 +157,12 @@ export interface AgentProgressEvent {
     batchIndex?: number;
     batchTotal?: number;
     batchFiles?: number;
+    /** Error detail surfaced in the PR logs UI when status === 'error'.
+     *  Short, single-line (full stack goes in the server logs). */
+    errorMessage?: string;
+    /** Error class/name when available (e.g. "TypeError", "AbortError",
+     *  "HARD-TIMEOUT"). Helps users recognize failure categories. */
+    errorName?: string;
     /** How the agent finished — helps surface timeouts and max-steps in the UI */
     finishReason?: 'stop' | 'timeout' | 'max-steps' | 'error';
     /** How findings were obtained — 'json-parse' (normal), 'second-chance', 'generate-object' (fallback LLM), 'empty' */
@@ -728,6 +734,10 @@ export abstract class BaseCodeReviewAgentProvider {
             };
         } catch (error) {
             const durationMs = Date.now() - startTime;
+            const errMsg =
+                error instanceof Error ? error.message : String(error);
+            const errName =
+                error instanceof Error ? error.name : undefined;
             input.onAgentProgress?.({
                 agentName: identity.name,
                 agentCategory,
@@ -735,15 +745,18 @@ export abstract class BaseCodeReviewAgentProvider {
                 agentReplicaTotal: input.agentReplicaTotal,
                 status: 'error',
                 durationMs,
+                errorMessage: errMsg.substring(0, 500),
+                errorName: errName,
             });
             this.agentLogger.error({
-                message: `[AGENT] ${identity.name} failed for PR#${input.prNumber} after ${durationMs}ms: ${error instanceof Error ? error.message : String(error)}`,
+                message: `[AGENT] ${identity.name} failed for PR#${input.prNumber} after ${durationMs}ms: ${errMsg}`,
                 context: identity.name,
                 error,
                 metadata: {
                     prNumber: input.prNumber,
                     durationMs,
                     model: modelName,
+                    errorName: errName,
                     errorStack:
                         error instanceof Error
                             ? error.stack?.substring(0, 500)
@@ -868,8 +881,12 @@ export abstract class BaseCodeReviewAgentProvider {
                     durationMs: Date.now() - batchStartedAt,
                 });
             } catch (error) {
+                const errMsg =
+                    error instanceof Error ? error.message : String(error);
+                const errName =
+                    error instanceof Error ? error.name : undefined;
                 this.agentLogger.error({
-                    message: `[AGENT] ${batchLabel} failed: ${error instanceof Error ? error.message : String(error)}`,
+                    message: `[AGENT] ${batchLabel} failed: ${errMsg}`,
                     context: identity.name,
                     error,
                 });
@@ -884,6 +901,8 @@ export abstract class BaseCodeReviewAgentProvider {
                     batchTotal,
                     batchFiles: batchFiles.length,
                     durationMs: Date.now() - batchStartedAt,
+                    errorMessage: errMsg.substring(0, 500),
+                    errorName: errName,
                 });
             }
         }
