@@ -119,6 +119,30 @@ describe('FetchChangedFilesStage', () => {
         expect(result.statusInfo.message).toBe(expectedMessage);
     });
 
+    it('should accept exactly 500 files (boundary)', async () => {
+        // Boundary guard: limit=500, so 500 is allowed and 501 is rejected.
+        const files = Array(500)
+            .fill(null)
+            .map((_, i) => ({
+                filename: `file${i}.ts`,
+                patch: 'p',
+                status: 'modified',
+            }));
+
+        mockPullRequestManagerService.getChangedFilesMetadata.mockResolvedValue(
+            files,
+        );
+        mockPullRequestManagerService.enrichFilesWithContent.mockResolvedValue(
+            files,
+        );
+
+        const result = await stage.execute(context);
+
+        // Did NOT skip — proceeded
+        expect(result.statusInfo).toBeUndefined();
+        expect(result.changedFiles).toHaveLength(500);
+    });
+
     it('should ignore lastAnalyzedCommit when forceFullRerun is enabled', async () => {
         context.lastExecution = { lastAnalyzedCommit: 'sha-prev' };
         context.pipelineMetadata = { forceFullRerun: true } as any;

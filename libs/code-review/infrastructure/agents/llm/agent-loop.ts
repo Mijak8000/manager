@@ -107,7 +107,7 @@ export function buildLangSmithProviderOptions(
  * Used by all generateText calls in the agent loop to ensure consistent
  * provider options across main loop, recovery, rescue, and verify passes.
  */
-function buildProviderOptions(
+export function buildProviderOptions(
     runName: string,
     meta?: LangSmithTelemetryMetadata,
     input?: {
@@ -153,9 +153,9 @@ import { z } from 'zod';
 import { BYOKProvider } from '@kodus/kodus-common/llm';
 import { createLogger } from '@kodus/flow';
 
-type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
 
-const EFFORT_TO_BUDGET: Record<ReasoningEffort, number> = {
+export const EFFORT_TO_BUDGET: Record<ReasoningEffort, number> = {
     none: 0,
     low: 5_000,
     medium: 15_000,
@@ -182,7 +182,7 @@ const EFFORT_TO_BUDGET: Record<ReasoningEffort, number> = {
  *   Gemini: https://ai.google.dev/gemini-api/docs/thinking
  *   OpenRouter: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
  */
-function buildReasoningProviderOptions(
+export function buildReasoningProviderOptions(
     provider?: BYOKProvider | string,
     effort?: ReasoningEffort,
     modelName?: string,
@@ -300,11 +300,11 @@ const logger = createLogger('AgentLoop');
 
 const MAX_STEPS_NORMAL = 15;
 const MAX_STEPS_DEEP = 100;
-const AGENT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes max per agent
-const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per individual LLM call
+export const AGENT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes max per agent
+export const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per individual LLM call
 
 /** Create an AbortSignal that fires after the given ms. */
-function timeoutSignal(ms: number): AbortSignal {
+export function timeoutSignal(ms: number): AbortSignal {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), ms);
     return controller.signal;
@@ -318,7 +318,7 @@ function timeoutSignal(ms: number): AbortSignal {
  * but some providers (OpenAI-compatible proxies like Synthetic, Z.AI) ignore it.
  * This is the safety net.
  */
-function hardTimeout<T>(
+export function hardTimeout<T>(
     promise: Promise<T>,
     ms: number,
     label: string,
