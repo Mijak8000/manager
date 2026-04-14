@@ -53,13 +53,26 @@ describe('KodyRulesPrLevelAnalysisService — Kody Rule link generation', () => 
         const content = `This violates rule ${ruleId} in your file.`;
         const result = await buildLinks([ruleId], content);
 
-        // Markdown link present, points to /global/kody-rules/<id>
-        expect(result).toContain('[Avoid console log]');
+        const expectedLink = `[Avoid console log](https://app.kodus.io/settings/code-review/global/kody-rules/${ruleId})`;
+        expect(result).toBe(`This violates rule ${expectedLink} in your file.`);
+    });
+
+    it('escapes special markdown characters in the rule title', async () => {
+        const ruleId = 'cccccccc-dddd-eeee-ffff-000000000000';
+        kodyRulesService.findById.mockResolvedValue({
+            uuid: ruleId,
+            title: 'Avoid console.log() and `eval`',
+            repositoryId: 'global',
+        });
+
+        const content = `Rule: ${ruleId}`;
+        const result = await buildLinks([ruleId], content);
+
+        // Dot, parens, and backticks are escaped so they render as literals,
+        // not as markdown syntax that breaks the link.
         expect(result).toContain(
-            `(https://app.kodus.io/settings/code-review/global/kody-rules/${ruleId})`,
+            '[Avoid console\\.log\\(\\) and \\`eval\\`]',
         );
-        // Original raw UUID is gone
-        expect(result).not.toContain(`rule ${ruleId} in`);
     });
 
     it('uses the repository-scoped URL when the rule has a non-global repositoryId', async () => {

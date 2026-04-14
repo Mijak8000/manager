@@ -296,12 +296,14 @@ If no violations found, respond with \`{"reasoning": "Checked all rules, no viol
         // Directory prefix (e.g., "src/controllers/")
         if (pattern.endsWith('/') && filePath.startsWith(pattern)) return true;
 
-        // Simple glob: convert * to regex
+        // Simple glob: convert * to regex.
+        // Escape literal dots BEFORE expanding stars — otherwise the `.*` from `**`
+        // gets escaped into `\.*` (zero-or-more literal dots) and stops matching.
         const regexStr = pattern
+            .replace(/\./g, '\\.')
             .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
             .replace(/\*/g, '[^/]*')
-            .replace(/<<<DOUBLESTAR>>>/g, '.*')
-            .replace(/\./g, '\\.');
+            .replace(/<<<DOUBLESTAR>>>/g, '.*');
 
         try {
             return new RegExp(`^${regexStr}$`).test(filePath);

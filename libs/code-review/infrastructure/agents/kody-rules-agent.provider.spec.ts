@@ -189,31 +189,36 @@ describe('KodyRulesAgentProvider — rule formatting and applicability', () => {
         });
     });
 
-    describe('matchesPathPattern — current behavior contract', () => {
-        // NOTE: The implementation has a bug — `**` patterns do not work
-        // because the dot-escape pass runs AFTER `**` is converted to `.*`,
-        // turning `.*` into the literal `\.*`. These tests document the
-        // CURRENT behavior, not the intended behavior. When the bug is
-        // fixed (move the dot-escape BEFORE the star expansions), update
-        // the expectations for the **/* cases.
+    describe('matchesPathPattern', () => {
         it.each([
-            // Working cases:
-            { path: 'src/foo.ts', pattern: 'src/foo.ts', expected: true }, // exact
-            { path: 'foo.ts', pattern: '*.ts', expected: true }, // single star
-            { path: 'src/foo.ts', pattern: 'src/*.ts', expected: true },
-            {
-                path: 'src/sub/foo.ts',
-                pattern: 'src/*.ts',
-                expected: false, // single * doesn't cross /
-            },
+            // Exact match
+            { path: 'src/foo.ts', pattern: 'src/foo.ts', expected: true },
+            // Directory prefix
             {
                 path: 'src/controllers/x.ts',
                 pattern: 'src/controllers/',
-                expected: true, // directory prefix
+                expected: true,
             },
-            // Broken `**` cases (locked at current buggy behavior):
-            { path: 'src/foo.ts', pattern: '**/*.ts', expected: false },
-            { path: 'src/sub/foo.ts', pattern: 'src/**/*.ts', expected: false },
+            // Single * — does not cross /
+            { path: 'foo.ts', pattern: '*.ts', expected: true },
+            { path: 'src/foo.ts', pattern: 'src/*.ts', expected: true },
+            { path: 'src/sub/foo.ts', pattern: 'src/*.ts', expected: false },
+            // Double ** — crosses /
+            { path: 'src/foo.ts', pattern: '**/*.ts', expected: true },
+            { path: 'src/sub/foo.ts', pattern: '**/*.ts', expected: true },
+            { path: 'src/foo.py', pattern: '**/*.ts', expected: false },
+            { path: 'src/sub/foo.ts', pattern: 'src/**/*.ts', expected: true },
+            // Dots in the path stay literal (not regex any-char)
+            {
+                path: 'src.with.dots/x.ts',
+                pattern: '**/x.ts',
+                expected: true,
+            },
+            {
+                path: 'srcXwithXdots/x.ts',
+                pattern: 'src.with.dots/x.ts',
+                expected: false, // literal dots in pattern, not regex .
+            },
         ])(
             '$path matches $pattern → $expected',
             ({ path, pattern, expected }) => {

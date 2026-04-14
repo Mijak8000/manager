@@ -94,6 +94,10 @@ export interface CodeReviewPipelineContext extends PipelineContext {
         notificationHandled?: boolean;
         showStatusFeedback?: boolean;
         forceFullRerun?: boolean;
+        /** Set by the pipeline provider before execution. When true, the
+         *  agent (v4) engine will run, which has its own token-budget chunking
+         *  and tolerates much larger PRs than the legacy engine. */
+        useAgentEngine?: boolean;
     };
 
     initialCommentData?: {
