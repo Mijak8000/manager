@@ -106,9 +106,15 @@ else
   exit 1
 fi
 
-# Close ALL open PRs in benchmark repos first
+# Close ALL open PRs in benchmark repos first, then verify they actually
+# closed before bumping. If a PR stays open when bump-benchmark-heads pushes
+# an empty commit to its head branch, GitHub fires a `synchronize` webhook
+# and the worker picks up a spurious review — doubling (or worse) the
+# number of jobs enqueued for the run.
+BENCHMARK_REPOS="sentry grafana-codex discourse-cursor cal.com keycloak"
+
 echo "▸ Closing all open PRs..."
-for repo in sentry grafana-codex discourse-cursor cal.com keycloak; do
+for repo in $BENCHMARK_REPOS; do
   OPEN_PRS=$(gh api "repos/$BENCHMARK_OWNER/$repo/pulls?state=open&per_page=100" --jq '.[].number' 2>/dev/null || true)
   for pr in $OPEN_PRS; do
     gh api "repos/$BENCHMARK_OWNER/$repo/pulls/$pr" -X PATCH -f state=closed --silent 2>/dev/null || true
@@ -117,7 +123,35 @@ for repo in sentry grafana-codex discourse-cursor cal.com keycloak; do
   COUNT=${COUNT:-0}
   [ "$COUNT" -gt 0 ] && echo "  $repo: closed $COUNT PRs"
 done
-echo "  ✓ All PRs closed"
+
+echo "▸ Verifying all PRs are closed (GitHub needs a moment to propagate)..."
+CLOSE_TIMEOUT="${BENCHMARK_CLOSE_TIMEOUT_SEC:-45}"
+CLOSE_POLL_INTERVAL=2
+CLOSE_ELAPSED=0
+while :; do
+  PENDING=""
+  for repo in $BENCHMARK_REPOS; do
+    STILL_OPEN=$(gh api "repos/$BENCHMARK_OWNER/$repo/pulls?state=open&per_page=100" --jq '.[].number' 2>/dev/null || true)
+    [ -n "$STILL_OPEN" ] && PENDING="$PENDING $repo($(echo "$STILL_OPEN" | tr '\n' ',' | sed 's/,$//'))"
+  done
+  if [ -z "$PENDING" ]; then
+    echo "  ✓ All PRs confirmed closed"
+    break
+  fi
+  if [ "$CLOSE_ELAPSED" -ge "$CLOSE_TIMEOUT" ]; then
+    echo "  ⚠️ Still open after ${CLOSE_TIMEOUT}s:$PENDING"
+    echo "  Retrying close on stragglers and continuing anyway..."
+    for repo in $BENCHMARK_REPOS; do
+      STILL_OPEN=$(gh api "repos/$BENCHMARK_OWNER/$repo/pulls?state=open&per_page=100" --jq '.[].number' 2>/dev/null || true)
+      for pr in $STILL_OPEN; do
+        gh api "repos/$BENCHMARK_OWNER/$repo/pulls/$pr" -X PATCH -f state=closed --silent 2>/dev/null || true
+      done
+    done
+    break
+  fi
+  sleep "$CLOSE_POLL_INTERVAL"
+  CLOSE_ELAPSED=$((CLOSE_ELAPSED + CLOSE_POLL_INTERVAL))
+done
 
 # Bump HEAD of benchmark branches so GitHub allows new PRs
 # (GitHub caps at 100 PRs per identical head_sha).

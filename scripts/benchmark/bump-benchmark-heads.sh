@@ -72,11 +72,24 @@ for (const p of selected) process.stdout.write(p.repo + '|' + p.head + '\n');
 TOTAL=$(printf '%s\n' "$PAIRS" | grep -c '|' || true)
 OK=0
 FAIL=0
+SKIPPED=0
 IDX=0
 
 while IFS='|' read -r REPO BRANCH; do
   [ -z "$REPO" ] && continue
   IDX=$((IDX + 1))
+
+  # Defensive: if the branch still has an open PR, skip the bump. Pushing
+  # an empty commit would fire a `synchronize` webhook and trigger a
+  # spurious review (we already saw this double the queue depth on runs
+  # where benchmark-create.sh's close step did not fully propagate).
+  OWNER="${REPO%%/*}"
+  OPEN_COUNT=$(gh api "repos/$REPO/pulls?state=open&head=$OWNER:$BRANCH&per_page=1" --jq 'length' 2>/dev/null || echo "0")
+  if [ "${OPEN_COUNT:-0}" -gt 0 ]; then
+    echo "  [$IDX/$TOTAL] ⊘ $REPO#$BRANCH — skipped (PR still open, bump would fire synchronize)"
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
 
   # 1. Get current ref SHA
   REF_SHA=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq '.object.sha' 2>/dev/null || echo "")
@@ -119,9 +132,10 @@ while IFS='|' read -r REPO BRANCH; do
   fi
 done <<< "$PAIRS"
 
-echo "  ✓ Bumped $OK/$TOTAL branches ($FAIL failed)"
+echo "  ✓ Bumped $OK/$TOTAL branches ($FAIL failed, $SKIPPED skipped due to open PRs)"
 
-# Only hard-fail if nothing bumped; orphan branches in prs.json can be ignored.
-if [ "$OK" -eq 0 ]; then
+# Only hard-fail if nothing bumped AND nothing was skipped — skips are fine
+# (branch already has a PR queued for review, no need to bump it).
+if [ "$OK" -eq 0 ] && [ "$SKIPPED" -eq 0 ]; then
   exit 1
 fi
