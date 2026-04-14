@@ -1246,6 +1246,12 @@ Respond with ONLY the JSON:
     // base provider resolves it after this loop returns), so we use the
     // presence of `ruleUuid` as the signal: only the KodyRulesAgent emits
     // ruleUuid in its output schema.
+    const isKodyRuleFinding = (
+        s: (typeof findings.suggestions)[number],
+    ) =>
+        typeof (s as any).ruleUuid === 'string' &&
+        (s as any).ruleUuid.trim().length > 0;
+
     let discardedBySeverity: FindingsOutput['suggestions'] = [];
     const severityLevelFilter = input.severityLevelFilter;
     const applyFiltersToKodyRules = input.applyFiltersToKodyRules === true;
@@ -1263,11 +1269,6 @@ Respond with ONLY the JSON:
         const accepted =
             acceptedLevels[severityLevelFilter] || acceptedLevels.low;
         const before = findings.suggestions.length;
-        const isKodyRuleFinding = (
-            s: (typeof findings.suggestions)[number],
-        ) =>
-            typeof (s as any).ruleUuid === 'string' &&
-            (s as any).ruleUuid.trim().length > 0;
         const keeps = (s: (typeof findings.suggestions)[number]) => {
             if (isKodyRuleFinding(s) && !applyFiltersToKodyRules) return true;
             return accepted.includes((s.severity || 'medium').toLowerCase());
@@ -1296,26 +1297,61 @@ Respond with ONLY the JSON:
     // positives is worth the 10-30s it costs. It does NOT run in
     // self-contained mode because the verifier needs tools to inspect
     // code around each finding, and we don't have a sandbox there.
+    //
+    // Kody-rule findings bypass verify: they are deterministic user-authored
+    // rules, so if the agent matched a ruleUuid the violation should surface.
+    // The verifier is a false-positive guard for heuristic findings, not for
+    // user-configured rules.
     if (!isSelfContained && findings.suggestions.length > 0) {
-        const verificationResult = await verifyFindingsWithTools({
-            findings,
-            input,
-            secrets,
-            allToolCalls,
-            tools: pickVerificationTools(tools),
-        });
+        const kodyRuleSuggestions = findings.suggestions.filter((s) =>
+            isKodyRuleFinding(s),
+        );
+        const nonKodyRuleSuggestions = findings.suggestions.filter(
+            (s) => !isKodyRuleFinding(s),
+        );
 
-        findings = verificationResult.findings;
-        droppedByVerify = verificationResult.droppedByVerify || [];
-        totalInputTokens += verificationResult.usage.inputTokens;
-        totalOutputTokens += verificationResult.usage.outputTokens;
-        totalReasoningTokens += verificationResult.usage.reasoningTokens;
-        verificationTrace = verificationResult.trace;
-        verificationUsage = {
-            inputTokens: verificationResult.usage.inputTokens,
-            outputTokens: verificationResult.usage.outputTokens,
-            reasoningTokens: verificationResult.usage.reasoningTokens,
-        };
+        if (nonKodyRuleSuggestions.length > 0) {
+            const verificationResult = await verifyFindingsWithTools({
+                findings: {
+                    ...findings,
+                    suggestions: nonKodyRuleSuggestions,
+                },
+                input,
+                secrets,
+                allToolCalls,
+                tools: pickVerificationTools(tools),
+            });
+
+            findings = {
+                ...verificationResult.findings,
+                suggestions: [
+                    ...verificationResult.findings.suggestions,
+                    ...kodyRuleSuggestions,
+                ],
+            };
+            droppedByVerify = verificationResult.droppedByVerify || [];
+            totalInputTokens += verificationResult.usage.inputTokens;
+            totalOutputTokens += verificationResult.usage.outputTokens;
+            totalReasoningTokens += verificationResult.usage.reasoningTokens;
+            verificationTrace = verificationResult.trace;
+            verificationUsage = {
+                inputTokens: verificationResult.usage.inputTokens,
+                outputTokens: verificationResult.usage.outputTokens,
+                reasoningTokens: verificationResult.usage.reasoningTokens,
+            };
+
+            if (kodyRuleSuggestions.length > 0) {
+                logger.log({
+                    message: `[AGENT-VERIFY] Bypassed verify for ${kodyRuleSuggestions.length} kody-rule finding(s); verified ${nonKodyRuleSuggestions.length} non-rule finding(s)`,
+                    context: 'AgentLoop',
+                });
+            }
+        } else if (kodyRuleSuggestions.length > 0) {
+            logger.log({
+                message: `[AGENT-VERIFY] Skipped verify — all ${kodyRuleSuggestions.length} finding(s) are kody rules`,
+                context: 'AgentLoop',
+            });
+        }
     }
 
     // Base usage from the main agent loop
