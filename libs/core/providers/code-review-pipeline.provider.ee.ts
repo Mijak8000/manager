@@ -48,7 +48,8 @@ export const codeReviewPipelineProvider: Provider = {
                         repositoryId,
                         repositoryName: context.repository?.name,
                         repositoryFullName: context.repository?.fullName,
-                        organizationId: context.organizationAndTeamData?.organizationId,
+                        organizationId:
+                            context.organizationAndTeamData?.organizationId,
                         teamId: context.organizationAndTeamData?.teamId,
                         posthogInitialized: posthog.isInitialized,
                     },

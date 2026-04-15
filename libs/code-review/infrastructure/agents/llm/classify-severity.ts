@@ -10,7 +10,9 @@ import { generateText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { createLogger } from '@kodus/flow';
+import type { BYOKConfig } from '@kodus/kodus-common/llm';
 import type { CodeReviewConfig } from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { getInternalModel } from './byok-to-vercel';
 
 const logger = createLogger('SeverityClassifier');
 
@@ -41,12 +43,17 @@ export interface SuggestionForClassification {
 }
 
 /**
- * Classify severity for a batch of suggestions using Gemini Flash.
- * Returns a map of index → severity.
+ * Classify severity for a batch of suggestions.
+ *
+ * Model resolution order:
+ * 1. Google AI API key → gemini-3-flash-preview (cloud default)
+ * 2. BYOK config → getInternalModel (selfhosted with client keys)
+ * 3. No model available → default everything to 'medium'
  */
 export async function classifySeverity(
     suggestions: SuggestionForClassification[],
     severityFlags?: CodeReviewConfig['v2PromptOverrides'],
+    byokConfig?: BYOKConfig,
 ): Promise<Map<number, string>> {
     if (suggestions.length === 0) return new Map();
 
@@ -54,10 +61,17 @@ export async function classifySeverity(
         process.env.API_GOOGLE_AI_API_KEY ||
         process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-    if (!apiKey) {
+    let model: any;
+    if (apiKey) {
+        model = createGoogleGenerativeAI({ apiKey })('gemini-3-flash-preview');
+    } else {
+        model = getInternalModel(byokConfig);
+    }
+
+    if (!model) {
         logger.warn({
             message:
-                'No Google AI API key for severity classification, defaulting to medium',
+                'No model available for severity classification, defaulting to medium',
             context: 'SeverityClassifier',
         });
         return new Map(suggestions.map((_, i) => [i, 'medium']));
@@ -73,10 +87,6 @@ export async function classifySeverity(
         .join('\n\n');
 
     try {
-        const model = createGoogleGenerativeAI({ apiKey })(
-            'gemini-3-flash-preview',
-        );
-
         const result: any = await generateText({
             model: model as any,
             prompt: `Classify the severity of each code review suggestion based on these criteria:

@@ -227,7 +227,6 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                 });
             }
 
-            const error = firstError;
             if (cleanup) {
                 try {
                     await cleanup();

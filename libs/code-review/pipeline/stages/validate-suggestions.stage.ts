@@ -198,9 +198,8 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
         prNumber: number,
     ): Promise<Set<string>> {
         // Step 1: Syntax validation via kodus-graph parse in a dedicated sandbox
-        const syntaxValidIds = await this.sandboxSyntaxValidator.validateFiles(
-            candidates,
-        );
+        const syntaxValidIds =
+            await this.sandboxSyntaxValidator.validateFiles(candidates);
 
         const syntaxValidCandidates = candidates.filter((c) =>
             syntaxValidIds.has(c.id),
@@ -547,7 +546,7 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
                 {
                     originalCode,
                     codeEdit: suggestion.improvedCode,
-                    instructions: suggestion.llmPrompt,
+                    instruction: suggestion.llmPrompt,
                     filepath: filePath,
                 },
                 { morphApiKey: process.env.API_MORPHLLM_API_KEY },

@@ -170,7 +170,9 @@ export function getInternalModel(
         process.env.API_GOOGLE_AI_API_KEY ||
         process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-    if (!googleKey) return null;
+    if (!googleKey) {
+        return null;
+    }
 
     return createGoogleGenerativeAI({ apiKey: googleKey })('gemini-2.5-flash');
 }

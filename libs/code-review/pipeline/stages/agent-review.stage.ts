@@ -326,12 +326,11 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     });
 
                     if (repo?.astGraphStatus === AstGraphStatus.READY) {
-                        callGraph =
-                            await this.graphContext.generateContext(
-                                context.sandboxHandle,
-                                changedFiles,
-                                repo.uuid,
-                            );
+                        callGraph = await this.graphContext.generateContext(
+                            context.sandboxHandle,
+                            changedFiles,
+                            repo.uuid,
+                        );
                     } else {
                         this.logger.log({
                             message: `[AGENT] No AST graph in DB for PR#${prNumber} (status=${repo?.astGraphStatus || 'not found'}), falling back to legacy (changed-files only)`,
@@ -494,20 +493,21 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     .filter((r) => r.uuid)
                     .map((r) => [r.uuid!, r]),
             );
-            const kodyRulesWithSeverity: Partial<CodeSuggestion>[] = kodyRulesSuggestions.map((s) => {
-                const ruleUuid = s.brokenKodyRulesIds?.[0];
-                const matchedRule = ruleUuid
-                    ? kodyRulesById.get(ruleUuid)
-                    : undefined;
-                const legacySeverity = matchedRule
-                    ? resolveKodyRuleSeverityLevel(matchedRule)
-                    : SeverityLevel.HIGH;
+            const kodyRulesWithSeverity: Partial<CodeSuggestion>[] =
+                kodyRulesSuggestions.map((s) => {
+                    const ruleUuid = s.brokenKodyRulesIds?.[0];
+                    const matchedRule = ruleUuid
+                        ? kodyRulesById.get(ruleUuid)
+                        : undefined;
+                    const legacySeverity = matchedRule
+                        ? resolveKodyRuleSeverityLevel(matchedRule)
+                        : SeverityLevel.HIGH;
 
-                return {
-                    ...s,
-                    severity: this.normalizeSeverity(legacySeverity),
-                };
-            });
+                    return {
+                        ...s,
+                        severity: this.normalizeSeverity(legacySeverity),
+                    };
+                });
 
             const severityNormalizedNonRules: Partial<CodeSuggestion>[] =
                 nonKodyRulesSuggestions.map((suggestion) => ({
@@ -620,13 +620,18 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                         improvedCode: s.improvedCode || '',
                     })),
                     context.codeReviewConfig?.v2PromptOverrides,
+                    context.codeReviewConfig?.byokConfig,
                 );
                 for (let i = 0; i < deduped.length; i++) {
                     const classified = severityMap.get(i);
-                    if (!classified) continue;
+                    if (!classified) {
+                        continue;
+                    }
                     const hasKodyRuleSeverity =
                         deduped[i].brokenKodyRulesIds?.length > 0;
-                    if (hasKodyRuleSeverity) continue;
+                    if (hasKodyRuleSeverity) {
+                        continue;
+                    }
                     deduped[i].severity = classified;
                 }
                 this.logger.log({
@@ -739,11 +744,14 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             // short PR-level findings).
             const baseUrl = process.env.API_USER_INVITE_BASE_URL || '';
             for (const s of deduped) {
-                if (s.label !== 'kody_rules' || !s.brokenKodyRulesIds?.[0])
+                if (s.label !== 'kody_rules' || !s.brokenKodyRulesIds?.[0]) {
                     continue;
+                }
                 const ruleId = s.brokenKodyRulesIds[0];
                 const rule = kodyRulesById.get(ruleId);
-                if (!rule?.title) continue;
+                if (!rule?.title) {
+                    continue;
+                }
 
                 const repoPath =
                     rule.repositoryId === 'global'
@@ -760,7 +768,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 // Skip if the link is already embedded (shouldn't happen
                 // now that enrichment runs once post-formatter, but stay
                 // idempotent in case this block runs twice).
-                if (content.includes(ruleLink)) continue;
+                if (content.includes(ruleLink)) {
+                    continue;
+                }
 
                 if (content.includes(rule.title)) {
                     // Replace the first occurrence of the title with the link
@@ -801,7 +811,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 // kody_rules always first within the same file
                 const aIsRule = a.label === 'kody_rules' ? 0 : 1;
                 const bIsRule = b.label === 'kody_rules' ? 0 : 1;
-                if (aIsRule !== bIsRule) return aIsRule - bIsRule;
+                if (aIsRule !== bIsRule) {
+                    return aIsRule - bIsRule;
+                }
                 // Then by severity
                 const aSeverity =
                     severityOrder[this.normalizeSeverity(a.severity)];
@@ -814,7 +826,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 const byFile = new Map<string, Partial<CodeSuggestion>[]>();
                 for (const s of fileLevelSuggestions) {
                     const file = s.relevantFile || '';
-                    if (!byFile.has(file)) byFile.set(file, []);
+                    if (!byFile.has(file)) {
+                        byFile.set(file, []);
+                    }
                     byFile.get(file)!.push(s);
                 }
 
@@ -848,7 +862,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             suggestionContent: s.suggestionContent || '',
                             oneSentenceSummary: s.oneSentenceSummary || '',
                             label: (s.label as any) || 'kody_rules',
-                            severity: this.normalizeSeverity(s.severity) as SeverityLevel,
+                            severity: this.normalizeSeverity(
+                                s.severity,
+                            ) as SeverityLevel,
                             brokenKodyRulesIds: s.brokenKodyRulesIds,
                             deliveryStatus: DeliveryStatus.NOT_SENT,
                         })),
@@ -901,7 +917,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         suggestions: Partial<CodeSuggestion>[],
         prNumber: number,
     ): Partial<CodeSuggestion>[] {
-        if (suggestions.length <= 1) return suggestions;
+        if (suggestions.length <= 1) {
+            return suggestions;
+        }
 
         const groupsByRuleUuid = new Map<string, Partial<CodeSuggestion>[]>();
         const passthrough: Partial<CodeSuggestion>[] = [];
@@ -1010,11 +1028,25 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             };
         }
 
-        // Use Gemini 3 Flash for dedup — excellent structured output + code understanding
+        // Model resolution: Google AI key → BYOK via getInternalModel → skip dedup
         const googleKey =
             process.env.API_GOOGLE_AI_API_KEY ||
             process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-        if (!googleKey) {
+
+        let model: any;
+        if (googleKey) {
+            const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+            model = createGoogleGenerativeAI({ apiKey: googleKey })(
+                'gemini-3-flash-preview',
+            );
+        } else {
+            const { getInternalModel } = await import(
+                '@libs/code-review/infrastructure/agents/llm/byok-to-vercel'
+            );
+            model = getInternalModel(byokConfig);
+        }
+
+        if (!model) {
             return {
                 suggestions,
                 trace: {
@@ -1027,18 +1059,13 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     uniqueCount: suggestions.length,
                     groupsCount: 0,
                     removedCount: 0,
-                    errorMessage: 'Missing Google AI API key for dedup',
+                    errorMessage: 'No model available for dedup (no Google key and no BYOK)',
                     unique: suggestions.map((suggestion) =>
                         this.summarizeDedupSuggestion(suggestion),
                     ),
                 },
             };
         }
-
-        const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
-        const model = createGoogleGenerativeAI({ apiKey: googleKey })(
-            'gemini-3-flash-preview',
-        );
 
         try {
             // Build summaries with file + lines for cross-file comparison
@@ -1203,7 +1230,9 @@ ${summaries}`,
                 const keepIdx = group.keep;
                 const dupIndices = group.duplicates || [];
 
-                if (keepIdx < 0 || keepIdx >= suggestions.length) continue;
+                if (keepIdx < 0 || keepIdx >= suggestions.length) {
+                    continue;
+                }
 
                 const kept = { ...suggestions[keepIdx] };
                 const duplicateSummaries: DedupTraceSuggestionSummary[] = [];
@@ -1211,7 +1240,9 @@ ${summaries}`,
                 // Collect locations from duplicates that are in DIFFERENT locations
                 const otherLocations: string[] = [];
                 for (const dupIdx of dupIndices) {
-                    if (dupIdx < 0 || dupIdx >= suggestions.length) continue;
+                    if (dupIdx < 0 || dupIdx >= suggestions.length) {
+                        continue;
+                    }
                     const dup = suggestions[dupIdx];
                     duplicateSummaries.push(this.summarizeDedupSuggestion(dup));
                     const dupLocation = `${dup.relevantFile}:${dup.relevantLinesStart}-${dup.relevantLinesEnd}`;
@@ -1431,7 +1462,9 @@ ${summaries}`,
         label: string,
         agentToolCalls: Map<string, Array<{ tool: string; args: string }>>,
     ): Promise<void> {
-        if (!executionUuid && !prNumber) return;
+        if (!executionUuid && !prNumber) {
+            return;
+        }
 
         // Accumulate tool calls
         if (event.toolCalls) {
