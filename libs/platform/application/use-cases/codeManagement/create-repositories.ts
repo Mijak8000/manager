@@ -230,6 +230,7 @@ export class CreateRepositoriesUseCase implements IUseCase {
                     fullName: repoRecord.fullName,
                     platform: repoRecord.platform,
                     organizationId: orgTeam.organizationId,
+                    agentReviewEnabled: true,
                 });
 
                 // Only enqueue if graph not already ready or building

@@ -116,6 +116,7 @@ class PostHogClient {
         fullName: string;
         platform: string;
         organizationId: string;
+        agentReviewEnabled?: boolean;
     }): void {
         if (!this.posthog) {
             return;
@@ -130,6 +131,7 @@ class PostHogClient {
                 platform: repository.platform,
                 organizationId: repository.organizationId,
                 repositoryId: repository.repositoryId,
+                agentReviewEnabled: repository.agentReviewEnabled ?? false,
             },
         });
 
