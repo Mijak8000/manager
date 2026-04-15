@@ -6,7 +6,7 @@ async function main() {
     const template = await Template.build(kodusTemplate, {
         alias: 'kodus-sandbox-graph',
         cpuCount: 2,
-        memoryMB: 2048,
+        memoryMB: 2560,
         onBuildLogs: defaultBuildLogger(),
     });
 

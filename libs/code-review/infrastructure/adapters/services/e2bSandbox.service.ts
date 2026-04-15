@@ -339,11 +339,11 @@ export class E2BSandboxService implements ISandboxProvider {
 
         // Use dedicated graph template (2 GB) for graph build stages,
         // fall back to the default template (1 GB) for everything else.
-        const templateId = this.configService.get<string>(
-            isGraphStage
-                ? 'API_E2B_TEMPLATE_GRAPH_ID'
-                : 'API_E2B_TEMPLATE_ID',
-        );
+        const templateId =
+            (isGraphStage
+                ? this.configService.get<string>('API_E2B_TEMPLATE_GRAPH_ID')
+                : undefined) ??
+            this.configService.get<string>('API_E2B_TEMPLATE_ID');
 
         if (templateId) {
             try {
