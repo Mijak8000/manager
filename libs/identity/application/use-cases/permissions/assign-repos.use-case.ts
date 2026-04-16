@@ -74,10 +74,13 @@ export class AssignReposUseCase implements IUseCase {
                 (integrationConfigs.configValue as Repositories[]) || [];
             const configuredRepoIds = configuredRepos.map((repo) => repo.id);
 
-            const validRepoIds = repoIds.filter((id) =>
-                configuredRepoIds.includes(id),
-            );
-            if (validRepoIds.length === 0) {
+            const validRepoIds =
+                repoIds.length === 0
+                    ? []
+                    : repoIds.filter((id) =>
+                          configuredRepoIds.includes(id),
+                      );
+            if (repoIds.length > 0 && validRepoIds.length === 0) {
                 throw new Error(
                     'None of the provided repository IDs are valid',
                 );

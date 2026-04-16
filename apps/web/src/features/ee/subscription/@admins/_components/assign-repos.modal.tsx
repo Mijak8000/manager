@@ -209,10 +209,7 @@ export default function AssignReposModal({ userId }: { userId: string }) {
                             variant="primary"
                             loading={isSaving}
                             onClick={saveSelectionAction}
-                            disabled={
-                                isInitializing ||
-                                selectedRepositories.length === 0
-                            }>
+                            disabled={isInitializing}>
                             Save changes
                         </Button>
                     </DialogFooter>
