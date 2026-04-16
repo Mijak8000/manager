@@ -99,7 +99,20 @@ export class AutomationCodeReviewService implements Omit<
         } = payload;
 
         // Acquire distributed lock to prevent concurrent reviews of the same PR
-        const lockKey = `CODE_REVIEW:${organizationAndTeamData?.organizationId}:${repository?.id}:${pullRequest?.number}`;
+        const orgId = organizationAndTeamData?.organizationId;
+        const repoId = repository?.id;
+        const prNumber = pullRequest?.number;
+
+        if (!orgId || !repoId || !prNumber) {
+            this.logger.error({
+                message: 'Cannot generate lock key due to missing identifiers in payload',
+                context: AutomationCodeReviewService.name,
+                metadata: { orgId, repoId, prNumber },
+            });
+            return 'Error: Missing required identifiers for code review';
+        }
+
+        const lockKey = `CODE_REVIEW:${orgId}:${repoId}:${prNumber}`;
         let lock: DistributedLock | null = null;
 
         try {
