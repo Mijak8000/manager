@@ -336,6 +336,16 @@ export interface ReviewAgentInput {
     reviewMode?: 'fast' | 'normal' | 'deep';
     /** Optional per-agent step budget for the main investigation loop. */
     maxSteps?: number;
+    /** When true, skip recovery, second-chance, AND synthesis-rescue
+     *  passes. Used by very-narrow agents (rule checks in fast mode,
+     *  self-contained CLI flow). */
+    skipHeavyPasses?: boolean;
+    /** When true, run recovery + second-chance but skip ONLY the
+     *  synthesis-rescue pass. The rescue pass re-words the same finding
+     *  with different language, which is fine for open-ended bug review
+     *  but produces duplicate comments for explicit-rule agents like
+     *  kody-rules. */
+    skipSynthesisRescue?: boolean;
     /** Categories allowed for this run when using a mixed/generalist reviewer. */
     requestedCategories?: Array<'bug' | 'security' | 'performance'>;
 }
@@ -650,6 +660,12 @@ export abstract class BaseCodeReviewAgentProvider {
                 fileTiers,
                 reviewMode: input.reviewMode,
                 maxSteps: input.maxSteps,
+                // Heavy-pass gating: forwarded explicitly because loopParams
+                // is built field-by-field. Without this line, callers like
+                // KodyRulesAgentProvider that opt out of synthesis-rescue
+                // would have their preference silently dropped here.
+                skipHeavyPasses: input.skipHeavyPasses,
+                skipSynthesisRescue: input.skipSynthesisRescue,
                 contextWindowTokens: contextWindow,
                 reasoningEffort: byokConfig?.main?.reasoningEffort,
                 reasoningConfigOverride:

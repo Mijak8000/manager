@@ -577,6 +577,13 @@ export interface AgentLoopInput {
     contextWindowTokens?: number;
     /** When true, skip recovery/rescue/second-chance passes. Used by rule-checking agents that don't benefit from open-ended exploration. */
     skipHeavyPasses?: boolean;
+    /** When true, skip ONLY the synthesis-rescue pass while still running
+     *  coverage-recovery and coverage-second-chance. Useful for agents
+     *  that benefit from re-investigating uncovered files but don't need
+     *  the open-ended "rethink the review" pass — typically rule-checking
+     *  agents where rules are explicit and synthesis just re-words the
+     *  same findings, leading to dedup churn and duplicate comments. */
+    skipSynthesisRescue?: boolean;
     /** Reasoning effort level from BYOK config. Mapped to provider-specific
      *  providerOptions (anthropic.thinking, google.thinkingConfig, etc). */
     reasoningEffort?: ReasoningEffort;
@@ -1549,7 +1556,7 @@ export async function runAgentLoop(
         coverageSummary = getCoverageSummary(coverageTargets);
     }
 
-    if (!skipHeavyPasses) {
+    if (!skipHeavyPasses && !input.skipSynthesisRescue) {
         const synthesisRescue = await runSynthesisRescuePass({
             input,
             byokConfig: secrets.byokConfig,

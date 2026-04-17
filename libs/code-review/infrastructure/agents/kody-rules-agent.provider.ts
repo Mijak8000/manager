@@ -103,16 +103,27 @@ export class KodyRulesAgentProvider extends BaseCodeReviewAgentProvider {
             };
         }
 
-        // Kody Rules checks explicit user-defined rules — recovery, rescue,
-        // and second-chance passes are designed for open-ended bug discovery
-        // and would just re-find the same rule violations with different
-        // wording, causing duplicate comments.
+        // Kody Rules check explicit user-defined rules. Coverage recovery
+        // and second-chance still help — they push the agent to actually
+        // open the changed files when the main loop didn't reach all of
+        // them, and any new findings they produce keep their `ruleUuid`
+        // because the prompt of those passes carries the rules forward.
+        //
+        // Synthesis-rescue is the one we MUST skip: its prompt is
+        // open-ended ("re-think the review") and emits findings against a
+        // generic schema (`label: bug|security|performance`) without
+        // `ruleUuid`. For a kody-rules run that path produces:
+        //   1. duplicate findings (same violation, re-worded), and
+        //   2. findings that lose `ruleUuid`, so they no longer bypass
+        //      the verifier — and the verifier doesn't have rules in its
+        //      prompt, so it confidently drops them as "hallucinated
+        //      rules". We've seen both happen on PR 25.
         return super.execute({
             ...input,
             // Keep the filtered rules list on the passed-down input so
             // buildUserPrompt / ruleUuid reconciliation still works.
             kodyRules: rules,
-            skipHeavyPasses: true,
+            skipSynthesisRescue: true,
         });
     }
 
