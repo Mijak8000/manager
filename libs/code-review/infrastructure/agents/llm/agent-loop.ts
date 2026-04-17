@@ -1140,8 +1140,14 @@ export async function runAgentLoop(
                             findings = fallbackResult.findings;
                             totalInputTokens +=
                                 fallbackResult.usage.inputTokens;
+                            totalCacheReadTokens +=
+                                fallbackResult.usage.cacheReadTokens;
+                            totalCacheWriteTokens +=
+                                fallbackResult.usage.cacheWriteTokens;
                             totalOutputTokens +=
                                 fallbackResult.usage.outputTokens;
+                            totalReasoningTokens +=
+                                fallbackResult.usage.reasoningTokens;
                             source = 'generate-object';
                             logger.log({
                                 message: `[AGENT-TIMEOUT-RECOVERY] Recovered ${findings.suggestions.length} suggestions via fallback model (${bestText.length} chars)`,
@@ -1353,7 +1359,10 @@ export async function runAgentLoop(
         if (fallbackResult) {
             findings = fallbackResult.findings;
             totalInputTokens += fallbackResult.usage.inputTokens;
+            totalCacheReadTokens += fallbackResult.usage.cacheReadTokens;
+            totalCacheWriteTokens += fallbackResult.usage.cacheWriteTokens;
             totalOutputTokens += fallbackResult.usage.outputTokens;
+            totalReasoningTokens += fallbackResult.usage.reasoningTokens;
             source = 'generate-object';
         } else {
             source = 'empty';
@@ -1427,7 +1436,13 @@ export async function runAgentLoop(
                 if (fallbackResult) {
                     extraFindings = fallbackResult.findings;
                     totalInputTokens += fallbackResult.usage.inputTokens;
+                    totalCacheReadTokens +=
+                        fallbackResult.usage.cacheReadTokens;
+                    totalCacheWriteTokens +=
+                        fallbackResult.usage.cacheWriteTokens;
                     totalOutputTokens += fallbackResult.usage.outputTokens;
+                    totalReasoningTokens +=
+                        fallbackResult.usage.reasoningTokens;
                 }
             }
 
@@ -1481,6 +1496,10 @@ export async function runAgentLoop(
                 if (fallbackResult) {
                     extraFindings = fallbackResult.findings;
                     totalInputTokens += fallbackResult.usage.inputTokens;
+                    totalCacheReadTokens +=
+                        fallbackResult.usage.cacheReadTokens;
+                    totalCacheWriteTokens +=
+                        fallbackResult.usage.cacheWriteTokens;
                     totalOutputTokens += fallbackResult.usage.outputTokens;
                     totalReasoningTokens +=
                         fallbackResult.usage.reasoningTokens;
@@ -1539,6 +1558,10 @@ export async function runAgentLoop(
                 if (fallbackResult) {
                     extraFindings = fallbackResult.findings;
                     totalInputTokens += fallbackResult.usage.inputTokens;
+                    totalCacheReadTokens +=
+                        fallbackResult.usage.cacheReadTokens;
+                    totalCacheWriteTokens +=
+                        fallbackResult.usage.cacheWriteTokens;
                     totalOutputTokens += fallbackResult.usage.outputTokens;
                     totalReasoningTokens +=
                         fallbackResult.usage.reasoningTokens;
@@ -1563,11 +1586,15 @@ export async function runAgentLoop(
             findings,
             allToolCalls,
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         });
 
         totalInputTokens = synthesisRescue.totalInputTokens;
+        totalCacheReadTokens = synthesisRescue.totalCacheReadTokens;
+        totalCacheWriteTokens = synthesisRescue.totalCacheWriteTokens;
         totalOutputTokens = synthesisRescue.totalOutputTokens;
         totalReasoningTokens = synthesisRescue.totalReasoningTokens;
 
@@ -2242,11 +2269,15 @@ async function runSynthesisRescuePass(params: {
     findings: FindingsOutput;
     allToolCalls: AgentLoopOutput['toolCalls'];
     totalInputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
     totalReasoningTokens: number;
 }): Promise<{
     findings: FindingsOutput | null;
     totalInputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
     totalReasoningTokens: number;
 }> {
@@ -2256,10 +2287,14 @@ async function runSynthesisRescuePass(params: {
         findings,
         allToolCalls,
         totalInputTokens: initialTotalInputTokens,
+        totalCacheReadTokens: initialTotalCacheReadTokens,
+        totalCacheWriteTokens: initialTotalCacheWriteTokens,
         totalOutputTokens: initialTotalOutputTokens,
         totalReasoningTokens: initialTotalReasoningTokens,
     } = params;
     let totalInputTokens = initialTotalInputTokens;
+    let totalCacheReadTokens = initialTotalCacheReadTokens;
+    let totalCacheWriteTokens = initialTotalCacheWriteTokens;
     let totalOutputTokens = initialTotalOutputTokens;
     let totalReasoningTokens = initialTotalReasoningTokens;
 
@@ -2381,16 +2416,23 @@ Return ONLY JSON:
             if (fallbackResult) {
                 extraFindings = fallbackResult.findings;
                 totalInputTokens += fallbackResult.usage.inputTokens;
+                totalCacheReadTokens +=
+                    fallbackResult.usage.cacheReadTokens;
+                totalCacheWriteTokens +=
+                    fallbackResult.usage.cacheWriteTokens;
                 totalOutputTokens += fallbackResult.usage.outputTokens;
                 totalReasoningTokens += fallbackResult.usage.reasoningTokens;
             }
         }
 
-        const usage =
-            synthesisResult.usage ?? (synthesisResult as any).totalUsage;
-        totalInputTokens += usage?.inputTokens ?? 0;
-        totalOutputTokens += usage?.outputTokens ?? 0;
-        totalReasoningTokens += usage?.reasoningTokens ?? 0;
+        const usage = extractUsage(
+            synthesisResult.usage ?? (synthesisResult as any).totalUsage ?? null,
+        );
+        totalInputTokens += usage.inputTokens;
+        totalCacheReadTokens += usage.cacheReadTokens;
+        totalCacheWriteTokens += usage.cacheWriteTokens;
+        totalOutputTokens += usage.outputTokens;
+        totalReasoningTokens += usage.reasoningTokens;
 
         logger.log({
             message: `[AGENT-SYNTHESIS-RESCUE] before=${findings.suggestions.length} added=${extraFindings?.suggestions.length ?? 0}`,
@@ -2408,6 +2450,8 @@ Return ONLY JSON:
         return {
             findings: extraFindings,
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         };
@@ -2420,6 +2464,8 @@ Return ONLY JSON:
         return {
             findings: null,
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         };
@@ -3089,18 +3135,16 @@ async function verifySingleFindingWithTools(params: {
             });
 
             verificationText = secondChanceResult.text || verificationText;
-            totalInputTokens +=
-                (secondChanceResult as any).totalUsage?.inputTokens ??
-                secondChanceResult.usage?.inputTokens ??
-                0;
-            totalOutputTokens +=
-                (secondChanceResult as any).totalUsage?.outputTokens ??
-                secondChanceResult.usage?.outputTokens ??
-                0;
-            totalReasoningTokens +=
-                (secondChanceResult as any).totalUsage?.reasoningTokens ??
-                secondChanceResult.usage?.reasoningTokens ??
-                0;
+            const scUsage = extractUsage(
+                (secondChanceResult as any).totalUsage ??
+                    secondChanceResult.usage ??
+                    null,
+            );
+            totalInputTokens += scUsage.inputTokens;
+            totalCacheReadTokens += scUsage.cacheReadTokens;
+            totalCacheWriteTokens += scUsage.cacheWriteTokens;
+            totalOutputTokens += scUsage.outputTokens;
+            totalReasoningTokens += scUsage.reasoningTokens;
 
             if (verificationText) {
                 logger.log({
@@ -3132,6 +3176,8 @@ async function verifySingleFindingWithTools(params: {
             decision = fallbackDecision.decision;
             parseMode = 'fallback-llm';
             totalInputTokens += fallbackDecision.usage.inputTokens;
+            totalCacheReadTokens += fallbackDecision.usage.cacheReadTokens;
+            totalCacheWriteTokens += fallbackDecision.usage.cacheWriteTokens;
             totalOutputTokens += fallbackDecision.usage.outputTokens;
             totalReasoningTokens += fallbackDecision.usage.reasoningTokens;
 
@@ -3622,6 +3668,8 @@ async function structureVerificationDecisionWithFallbackModel(
     decision: SuggestionVerificationDecision;
     usage: {
         inputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
         outputTokens: number;
         reasoningTokens: number;
         totalTokens: number;
@@ -3725,7 +3773,9 @@ Return:
             return null;
         }
 
-        const fallbackUsage = result.usage ?? (result as any).totalUsage;
+        const fallbackUsage = extractUsage(
+            result.usage ?? (result as any).totalUsage ?? null,
+        );
 
         return {
             decision: {
@@ -3735,13 +3785,13 @@ Return:
                 confidence,
             },
             usage: {
-                inputTokens: fallbackUsage?.inputTokens ?? 0,
-                outputTokens: fallbackUsage?.outputTokens ?? 0,
-                reasoningTokens: fallbackUsage?.reasoningTokens ?? 0,
+                inputTokens: fallbackUsage.inputTokens,
+                cacheReadTokens: fallbackUsage.cacheReadTokens,
+                cacheWriteTokens: fallbackUsage.cacheWriteTokens,
+                outputTokens: fallbackUsage.outputTokens,
+                reasoningTokens: fallbackUsage.reasoningTokens,
                 totalTokens:
-                    fallbackUsage?.totalTokens ??
-                    (fallbackUsage?.inputTokens ?? 0) +
-                        (fallbackUsage?.outputTokens ?? 0),
+                    fallbackUsage.inputTokens + fallbackUsage.outputTokens,
             },
         };
     } catch (error) {
@@ -3871,6 +3921,8 @@ async function structureWithFallbackModel(
     findings: FindingsOutput;
     usage: {
         inputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
         outputTokens: number;
         reasoningTokens: number;
         totalTokens: number;
@@ -4032,23 +4084,25 @@ For each issue found, extract: relevantFile, language, label (bug/security/perfo
                 : [],
         };
 
-        const fallbackUsage = result.usage ?? (result as any).totalUsage;
+        const fallbackUsage = extractUsage(
+            result.usage ?? (result as any).totalUsage ?? null,
+        );
 
         logger.log({
-            message: `[AGENT-FALLBACK] structured output returned ${output?.suggestions?.length ?? 0} suggestions (input=${fallbackUsage?.inputTokens ?? 0}, output=${fallbackUsage?.outputTokens ?? 0})`,
+            message: `[AGENT-FALLBACK] structured output returned ${output?.suggestions?.length ?? 0} suggestions (input=${fallbackUsage.inputTokens}, cacheRead=${fallbackUsage.cacheReadTokens}, output=${fallbackUsage.outputTokens})`,
             context: 'AgentLoop',
         });
 
         return {
             findings: output as FindingsOutput,
             usage: {
-                inputTokens: fallbackUsage?.inputTokens ?? 0,
-                outputTokens: fallbackUsage?.outputTokens ?? 0,
-                reasoningTokens: fallbackUsage?.reasoningTokens ?? 0,
+                inputTokens: fallbackUsage.inputTokens,
+                cacheReadTokens: fallbackUsage.cacheReadTokens,
+                cacheWriteTokens: fallbackUsage.cacheWriteTokens,
+                outputTokens: fallbackUsage.outputTokens,
+                reasoningTokens: fallbackUsage.reasoningTokens,
                 totalTokens:
-                    fallbackUsage?.totalTokens ??
-                    (fallbackUsage?.inputTokens ?? 0) +
-                        (fallbackUsage?.outputTokens ?? 0),
+                    fallbackUsage.inputTokens + fallbackUsage.outputTokens,
             },
         };
     } catch (error) {
