@@ -271,6 +271,7 @@ export const ClientSsoOrganizationSettingsPage = (props: {
     const watchedDomains = watch("domains");
     const hasDomainMismatch =
         isEnabled &&
+        !!userDomain &&
         watchedDomains
             ?.filter((d) => d)
             .some((d) => d.toLowerCase() !== userDomain.toLowerCase());
