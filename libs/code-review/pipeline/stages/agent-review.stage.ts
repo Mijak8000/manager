@@ -872,21 +872,43 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     byFile.get(file)!.push(s);
                 }
 
+                // Build the full set of files we need to emit into
+                // `fileAnalysisResults` — one entry per file that has
+                // EITHER a valid suggestion OR a discarded-by-safeguard
+                // suggestion. Previously we only iterated `byFile`, which
+                // meant files where every suggestion was discarded never
+                // reached `CreateFileCommentsStage` and the fallback
+                // comments for those files silently disappeared from the
+                // review.
+                const discardedByFile = new Map<string, Partial<CodeSuggestion>[]>();
+                for (const s of allDiscarded) {
+                    const file = s.relevantFile || '';
+                    if (!file) continue;
+                    if (!discardedByFile.has(file)) {
+                        discardedByFile.set(file, []);
+                    }
+                    discardedByFile.get(file)!.push(s);
+                }
+
+                const allAffectedFiles = new Set<string>([
+                    ...byFile.keys(),
+                    ...discardedByFile.keys(),
+                ]);
+
                 draft.fileAnalysisResults = [];
-                for (const [filename, suggestions] of byFile) {
+                for (const filename of allAffectedFiles) {
+                    const suggestions = byFile.get(filename) ?? [];
                     const file = changedFiles.find(
                         (f) => f.filename === filename,
                     );
                     if (file) {
-                        const discardedForFile = allDiscarded.filter(
-                            (s) => s.relevantFile === filename,
-                        );
                         draft.fileAnalysisResults.push({
                             validSuggestionsToAnalyze: suggestions,
-                            discardedSuggestionsBySafeGuard: discardedForFile,
+                            discardedSuggestionsBySafeGuard:
+                                discardedByFile.get(filename) ?? [],
                             file,
                         });
-                    } else {
+                    } else if (suggestions.length > 0) {
                         // Silent drop guard: the agent produced a finding
                         // for a file that isn't in changedFiles (path
                         // mismatch, filtered-out test/doc, rename, etc.).
@@ -914,6 +936,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             });
                         }
                     }
+                    // Files with only discarded suggestions AND no match in
+                    // changedFiles are silently ignored — they can't
+                    // produce a valid comment anchor either way.
                 }
 
                 // PR-level kody rules go to validSuggestionsByPR for CreatePrLevelCommentsStage

@@ -30,7 +30,14 @@ export const MentionTrigger = Extension.create<MentionTriggerOptions>({
                 const { selection } = state;
                 const pos = selection.$from.pos;
                 const consumed = this.options.onTrigger(pos);
-                return consumed === true;
+                // Treat any non-`false` return value (including `void` /
+                // `undefined`) as "consumed". The option type is
+                // `boolean | void`, so a consumer that performs an action
+                // without explicitly returning true — e.g. `setState` to
+                // open a popup and fall through — still swallows the `@`
+                // keystroke instead of inserting it as literal text. Only
+                // an explicit `false` lets Tiptap insert the character.
+                return consumed !== false;
             },
         };
     },

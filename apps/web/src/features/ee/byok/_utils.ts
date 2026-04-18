@@ -16,6 +16,14 @@ export const isBYOKSubscriptionPlan = (license: OrganizationLicense) => {
     ) {
         return true;
     }
+    // Trial orgs don't carry a planType (they're exploring), but they
+    // should still see the BYOK setup path — previously we required
+    // "active", which blocked trial users from configuring their own
+    // key during the trial. Canceled / expired / payment_failed /
+    // inactive stay excluded.
+    if (license.subscriptionStatus === "trial") {
+        return true;
+    }
     if (license.subscriptionStatus !== "active") {
         return false;
     }
