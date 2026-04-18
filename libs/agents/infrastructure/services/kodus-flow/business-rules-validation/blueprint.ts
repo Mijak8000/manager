@@ -255,10 +255,7 @@ export function createBusinessRulesBlueprint(
                         taskContextNormalized: ctx.taskContextNormalized,
                         prDiff: ctx.prDiff,
                     });
-                return (
-                    eligibility.taskContextStatus === 'usable' ||
-                    eligibility.taskContextStatus === 'weak'
-                );
+                return eligibility.taskContextStatus === 'usable';
             },
             onFail: (ctx): BusinessRulesContext => {
                 const analysisEligibility =
