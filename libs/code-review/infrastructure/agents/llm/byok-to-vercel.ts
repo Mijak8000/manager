@@ -8,9 +8,42 @@ import type { LanguageModel } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { BYOKConfig, BYOKProvider } from '@kodus/kodus-common/llm';
 import { decrypt } from '@libs/common/utils/crypto';
+
+/**
+ * Build a Vercel AI SDK model from a base64-encoded Google Service Account
+ * JSON. Mirrors `packages/kodus-common/src/llm/providerAdapters/vertexAdapter.ts`
+ * so self-hosted deployments using the same `API_VERTEX_AI_API_KEY` env var
+ * format (base64 SA JSON) work on both the v2 engine and the v5 agent.
+ *
+ * Returns null when the value is not a valid base64-encoded JSON with a
+ * `project_id` — the caller should fall back to another provider path.
+ */
+function vertexModelFromSaJson(
+    base64SaJson: string,
+    modelId: string,
+): LanguageModel | null {
+    try {
+        const decoded = Buffer.from(base64SaJson, 'base64').toString('utf-8');
+        const credentials = JSON.parse(decoded) as { project_id?: string };
+        if (!credentials?.project_id) return null;
+        const location =
+            process.env.API_VERTEX_AI_LOCATION || 'us-central1';
+        return createVertex({
+            project: credentials.project_id,
+            location,
+            googleAuthOptions: { credentials: credentials as any },
+        })(modelId);
+    } catch {
+        return null;
+    }
+}
+
+const CLAUDE_MODEL_PATTERN = /^claude[-_]/i;
+const GEMINI_MODEL_PATTERN = /^gemini[-_]/i;
 
 /**
  * Default model config when no BYOK is configured.
@@ -51,28 +84,44 @@ export function byokToVercelModel(
         //   gemini-2.5-pro via `LLMModelProvider` enum in llmAnalysis.service).
         const envMode = process.env.API_LLM_PROVIDER_MODEL ?? 'auto';
         if (envMode !== 'auto') {
-            const vertexKey = process.env.API_VERTEX_AI_API_KEY;
-            if (vertexKey) {
-                try {
-                    return createGoogleGenerativeAI({ apiKey: vertexKey })(
-                        envMode,
-                    );
-                } catch {
-                    // fall through to OpenAI-compatible
-                }
-            }
-
+            // Auto-detect the target provider from the configured model id.
+            // Same envs (`API_LLM_PROVIDER_MODEL` + `API_OPEN_AI_API_KEY` +
+            // `API_OPENAI_FORCE_BASE_URL` + `API_VERTEX_AI_API_KEY`) work for
+            // every supported provider — the prefix of the model name picks
+            // the right SDK so tools/auth/protocol match:
+            //   gemini-*  → Vertex (SA JSON in API_VERTEX_AI_API_KEY)
+            //   claude-*  → Anthropic native Messages API
+            //   any other → OpenAI-compatible (OpenAI, Moonshot, z.AI, etc.)
+            const isGemini = GEMINI_MODEL_PATTERN.test(envMode);
+            const isClaude = CLAUDE_MODEL_PATTERN.test(envMode);
             const openaiKey = process.env.API_OPEN_AI_API_KEY;
             const openaiBaseURL = process.env.API_OPENAI_FORCE_BASE_URL;
+            const vertexKey = process.env.API_VERTEX_AI_API_KEY;
+
+            if (isGemini && vertexKey) {
+                const vertexModel = vertexModelFromSaJson(vertexKey, envMode);
+                if (vertexModel) return vertexModel;
+                // fall through to the Gemini-default path below if the SA
+                // JSON is malformed, so we surface a clearer runtime error.
+            }
+            if (isClaude && openaiKey) {
+                return createAnthropic({
+                    apiKey: openaiKey,
+                    // Anthropic SDK defaults to api.anthropic.com/v1 when
+                    // baseURL is omitted; only pass the env override if the
+                    // user explicitly set it (e.g. a proxy).
+                    ...(openaiBaseURL ? { baseURL: openaiBaseURL } : {}),
+                })(envMode);
+            }
             if (openaiKey) {
                 return createOpenAICompatible({
                     name: 'self-hosted',
                     apiKey: openaiKey,
-                    // `@ai-sdk/openai-compatible` has no default baseURL (unlike
-                    // `@ai-sdk/openai`), so an empty value throws "Invalid URL"
-                    // on the first request. Default to api.openai.com to match
-                    // the legacy v2 getChatGPT behavior when no custom endpoint
-                    // is configured.
+                    // `@ai-sdk/openai-compatible` has no default baseURL
+                    // (unlike `@ai-sdk/openai`), so an empty value throws
+                    // "Invalid URL" on the first request. Default to
+                    // api.openai.com to match the legacy v2 getChatGPT
+                    // behavior when no custom endpoint is configured.
                     baseURL: openaiBaseURL || 'https://api.openai.com/v1',
                 })(envMode);
             }
@@ -133,9 +182,17 @@ export function byokToVercelModel(
                 baseURL: baseURL || 'https://api.novita.ai/v3/openai',
             })(model);
 
-        case BYOKProvider.GOOGLE_VERTEX:
-            // Vertex requires project/location config, fall back to Gemini
+        case BYOKProvider.GOOGLE_VERTEX: {
+            // BYOK Vertex keys are stored as base64-encoded Service Account
+            // JSON (matching the format used by the v2 VertexAdapter).
+            // Use `@ai-sdk/google-vertex` with the SA credentials; only fall
+            // back to AI Studio if the value isn't a valid SA JSON (e.g. the
+            // user typed a plain AIzaSy... key into the Vertex provider
+            // slot — degraded but still usable).
+            const vertexModel = vertexModelFromSaJson(apiKey, model);
+            if (vertexModel) return vertexModel;
             return createGoogleGenerativeAI({ apiKey })(model);
+        }
 
         default:
             // Unknown provider — try as OpenAI-compatible
@@ -159,8 +216,13 @@ export function getModelName(byokConfig?: BYOKConfig): string {
 
     const envMode = process.env.API_LLM_PROVIDER_MODEL ?? 'auto';
     if (envMode !== 'auto') {
-        if (process.env.API_VERTEX_AI_API_KEY) {
+        const isGemini = GEMINI_MODEL_PATTERN.test(envMode);
+        const isClaude = CLAUDE_MODEL_PATTERN.test(envMode);
+        if (isGemini && process.env.API_VERTEX_AI_API_KEY) {
             return `google_vertex:${envMode}`;
+        }
+        if (isClaude && process.env.API_OPEN_AI_API_KEY) {
+            return `anthropic:${envMode}`;
         }
         if (process.env.API_OPEN_AI_API_KEY) {
             return `openai_compatible:${envMode}`;
@@ -191,25 +253,29 @@ export function getInternalModel(
         return byokToVercelModel(byokConfig, 'main');
     }
 
-    // Self-hosted mode: use the configured provider
+    // Self-hosted mode: match byokToVercelModel's provider selection so
+    // main and internal calls route through the same SDK.
     if (envMode !== 'auto') {
-        const vertexKey = process.env.API_VERTEX_AI_API_KEY;
-        if (vertexKey) {
-            try {
-                return createGoogleGenerativeAI({ apiKey: vertexKey })(envMode);
-            } catch {
-                // Fall through
-            }
-        }
-
+        const isGemini = GEMINI_MODEL_PATTERN.test(envMode);
+        const isClaude = CLAUDE_MODEL_PATTERN.test(envMode);
         const openaiKey = process.env.API_OPEN_AI_API_KEY;
         const openaiBaseURL = process.env.API_OPENAI_FORCE_BASE_URL;
+        const vertexKey = process.env.API_VERTEX_AI_API_KEY;
+
+        if (isGemini && vertexKey) {
+            const vertexModel = vertexModelFromSaJson(vertexKey, envMode);
+            if (vertexModel) return vertexModel;
+        }
+        if (isClaude && openaiKey) {
+            return createAnthropic({
+                apiKey: openaiKey,
+                ...(openaiBaseURL ? { baseURL: openaiBaseURL } : {}),
+            })(envMode);
+        }
         if (openaiKey) {
             return createOpenAICompatible({
                 name: 'self-hosted',
                 apiKey: openaiKey,
-                // Match byokToVercelModel: openai-compatible has no default
-                // baseURL, so empty string → "Invalid URL" throw.
                 baseURL: openaiBaseURL || 'https://api.openai.com/v1',
             })(envMode);
         }
