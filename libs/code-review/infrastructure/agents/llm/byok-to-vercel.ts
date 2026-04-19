@@ -46,6 +46,28 @@ const CLAUDE_MODEL_PATTERN = /^claude[-_]/i;
 const GEMINI_MODEL_PATTERN = /^gemini[-_]/i;
 
 /**
+ * When the user sets `API_OPENAI_FORCE_BASE_URL` to a non-native endpoint
+ * (OpenRouter, LiteLLM, Azure, DashScope, etc.), the intent is to route
+ * through an OpenAI-compatible proxy regardless of the model name prefix.
+ * In that case the native SDK auto-detect by model prefix is wrong — the
+ * proxy only speaks the OpenAI Chat Completions protocol and the key the
+ * user supplied belongs to the proxy, not to Anthropic/Google.
+ *
+ * Rule:
+ *   - empty baseURL                            → native auto-detect is safe
+ *   - baseURL contains "api.anthropic.com"     → still Anthropic native (explicit but native)
+ *   - any other non-empty baseURL              → force OpenAI-compatible
+ *
+ * Vertex uses SA JSON auth (no baseURL), so its auto-detect is also gated
+ * here: if the user explicitly overrode the URL, they are not going via
+ * Vertex even if they have a Vertex key configured.
+ */
+function isProxyBaseURL(baseURL: string | undefined): boolean {
+    if (!baseURL) return false;
+    return !/(^|\/\/)api\.anthropic\.com\b/i.test(baseURL);
+}
+
+/**
  * Default model config when no BYOK is configured.
  */
 const DEFAULT_MODEL = {
@@ -97,19 +119,45 @@ export function byokToVercelModel(
             const openaiKey = process.env.API_OPEN_AI_API_KEY;
             const openaiBaseURL = process.env.API_OPENAI_FORCE_BASE_URL;
             const vertexKey = process.env.API_VERTEX_AI_API_KEY;
+            const googleAiStudioKey =
+                process.env.API_GOOGLE_AI_API_KEY ||
+                process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+            const viaProxy = isProxyBaseURL(openaiBaseURL);
 
-            if (isGemini && vertexKey) {
-                const vertexModel = vertexModelFromSaJson(vertexKey, envMode);
-                if (vertexModel) return vertexModel;
-                // fall through to the Gemini-default path below if the SA
-                // JSON is malformed, so we surface a clearer runtime error.
+            if (isGemini && !viaProxy) {
+                // Order of preference:
+                //   1. Explicit AI Studio key (API_GOOGLE_AI_API_KEY) — cheap,
+                //      free-tier style key the user typed on purpose.
+                //   2. Vertex SA JSON (API_VERTEX_AI_API_KEY, base64 encoded)
+                //      — enterprise path, matches the v2 VertexAdapter.
+                //   3. If API_VERTEX_AI_API_KEY is set but isn't a base64 SA
+                //      JSON, treat it as a plain AI Studio key (users often
+                //      paste an AIzaSy… key into the Vertex slot because of
+                //      the historical env var name).
+                if (googleAiStudioKey) {
+                    return createGoogleGenerativeAI({
+                        apiKey: googleAiStudioKey,
+                    })(envMode);
+                }
+                if (vertexKey) {
+                    const vertexModel = vertexModelFromSaJson(
+                        vertexKey,
+                        envMode,
+                    );
+                    if (vertexModel) return vertexModel;
+                    return createGoogleGenerativeAI({ apiKey: vertexKey })(
+                        envMode,
+                    );
+                }
+                // No Google-side key at all — fall through to the cloud
+                // Gemini default below.
             }
-            if (isClaude && openaiKey) {
+            if (isClaude && openaiKey && !viaProxy) {
                 return createAnthropic({
                     apiKey: openaiKey,
                     // Anthropic SDK defaults to api.anthropic.com/v1 when
-                    // baseURL is omitted; only pass the env override if the
-                    // user explicitly set it (e.g. a proxy).
+                    // baseURL is omitted; forward the env override only
+                    // when the user explicitly points at Anthropic.
                     ...(openaiBaseURL ? { baseURL: openaiBaseURL } : {}),
                 })(envMode);
             }
@@ -218,10 +266,20 @@ export function getModelName(byokConfig?: BYOKConfig): string {
     if (envMode !== 'auto') {
         const isGemini = GEMINI_MODEL_PATTERN.test(envMode);
         const isClaude = CLAUDE_MODEL_PATTERN.test(envMode);
-        if (isGemini && process.env.API_VERTEX_AI_API_KEY) {
-            return `google_vertex:${envMode}`;
+        const openaiBaseURL = process.env.API_OPENAI_FORCE_BASE_URL;
+        const viaProxy = isProxyBaseURL(openaiBaseURL);
+        const googleAiStudioKey =
+            process.env.API_GOOGLE_AI_API_KEY ||
+            process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+        if (isGemini && !viaProxy) {
+            if (googleAiStudioKey) {
+                return `google_ai_studio:${envMode}`;
+            }
+            if (process.env.API_VERTEX_AI_API_KEY) {
+                return `google_vertex:${envMode}`;
+            }
         }
-        if (isClaude && process.env.API_OPEN_AI_API_KEY) {
+        if (isClaude && process.env.API_OPEN_AI_API_KEY && !viaProxy) {
             return `anthropic:${envMode}`;
         }
         if (process.env.API_OPEN_AI_API_KEY) {
@@ -261,12 +319,24 @@ export function getInternalModel(
         const openaiKey = process.env.API_OPEN_AI_API_KEY;
         const openaiBaseURL = process.env.API_OPENAI_FORCE_BASE_URL;
         const vertexKey = process.env.API_VERTEX_AI_API_KEY;
+        const googleAiStudioKey =
+            process.env.API_GOOGLE_AI_API_KEY ||
+            process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+        const viaProxy = isProxyBaseURL(openaiBaseURL);
 
-        if (isGemini && vertexKey) {
-            const vertexModel = vertexModelFromSaJson(vertexKey, envMode);
-            if (vertexModel) return vertexModel;
+        if (isGemini && !viaProxy) {
+            if (googleAiStudioKey) {
+                return createGoogleGenerativeAI({ apiKey: googleAiStudioKey })(
+                    envMode,
+                );
+            }
+            if (vertexKey) {
+                const vertexModel = vertexModelFromSaJson(vertexKey, envMode);
+                if (vertexModel) return vertexModel;
+                return createGoogleGenerativeAI({ apiKey: vertexKey })(envMode);
+            }
         }
-        if (isClaude && openaiKey) {
+        if (isClaude && openaiKey && !viaProxy) {
             return createAnthropic({
                 apiKey: openaiKey,
                 ...(openaiBaseURL ? { baseURL: openaiBaseURL } : {}),
