@@ -5,6 +5,8 @@
  * Covers: redaction correctness, structural sharing (performance), edge cases.
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- HTTP header fixtures (user-agent, set-cookie, etc.) */
+
 import { describe, it, expect } from 'vitest';
 import {
     deepSanitize,
@@ -308,7 +310,7 @@ describe('deepSanitize — got/axios HTTPError shapes', () => {
                 options: {
                     url: 'https://api.bitbucket.org/2.0/...',
                     headers: {
-                        authorization: 'Basic dXNlcjphcHBwYXNzd29yZA==',
+                        'authorization': 'Basic dXNlcjphcHBwYXNzd29yZA==',
                         'user-agent': 'bitbucket.js',
                     },
                 },
@@ -329,7 +331,9 @@ describe('deepSanitize — got/axios HTTPError shapes', () => {
         expect(result.request.headers.authorization).toBe('[REDACTED]');
         expect(result.response.headers['set-cookie']).toBe('[REDACTED]');
         expect(result.response.headers['retry-after']).toBe('30');
-        expect(result.request.options.headers['user-agent']).toBe('bitbucket.js');
+        expect(result.request.options.headers['user-agent']).toBe(
+            'bitbucket.js',
+        );
         expect(result.response.statusCode).toBe(429);
     });
 
