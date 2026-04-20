@@ -3,6 +3,7 @@ import { IOrganization } from '@libs/organization/domain/organization/interfaces
 
 import {
     SSOConfig,
+    SSOConnectionTestMetadata,
     SSOProtocol,
     SSOProtocolConfigMap,
 } from '../interfaces/ssoConfig.interface';
@@ -16,6 +17,7 @@ export class SSOConfigEntity<P extends SSOProtocol> implements Entity<
     private _active: boolean;
     private _providerConfig: SSOProtocolConfigMap[P];
     private _domains: string[];
+    private _connectionTest?: SSOConnectionTestMetadata;
     private _createdAt: Date;
     private _updatedAt: Date;
 
@@ -26,6 +28,7 @@ export class SSOConfigEntity<P extends SSOProtocol> implements Entity<
         this._active = sso.active;
         this._providerConfig = sso.providerConfig;
         this._domains = sso.domains;
+        this._connectionTest = sso.connectionTest;
         this._createdAt = sso.createdAt;
         this._updatedAt = sso.updatedAt;
     }
@@ -44,6 +47,7 @@ export class SSOConfigEntity<P extends SSOProtocol> implements Entity<
             active: this.active,
             providerConfig: this.providerConfig,
             domains: this.domains,
+            connectionTest: this.connectionTest,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt,
         };
@@ -75,6 +79,10 @@ export class SSOConfigEntity<P extends SSOProtocol> implements Entity<
 
     public get domains() {
         return this._domains;
+    }
+
+    public get connectionTest() {
+        return this._connectionTest;
     }
 
     public get createdAt() {

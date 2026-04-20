@@ -17,8 +17,44 @@ export interface SSOConfig<P extends SSOProtocol> {
     active: boolean;
     providerConfig: SSOProtocolConfigMap[P];
     domains: string[];
+    connectionTest?: SSOConnectionTestMetadata;
     createdAt?: string;
     updatedAt?: string;
+}
+
+export enum SSOConnectionTestStatus {
+    SUCCESS = "success",
+    FAILED = "failed",
+}
+
+export interface SSOConnectionTestMetadata {
+    status: SSOConnectionTestStatus;
+    configFingerprint: string;
+    testedAt: string;
+    testedBy?: string;
+    failureCode?: string;
+    failureMessage?: string;
+}
+
+export enum SSOConnectionTestSessionStatus {
+    PENDING = "pending",
+    SUCCESS = "success",
+    FAILED = "failed",
+}
+
+export interface StartSSOConnectionTestResponse {
+    sessionId: string;
+    redirectUrl: string;
+    configFingerprint: string;
+}
+
+export interface GetSSOConnectionTestResultResponse {
+    sessionId: string;
+    status: SSOConnectionTestSessionStatus;
+    configFingerprint: string;
+    failureCode?: string;
+    failureMessage?: string;
+    testedAt?: string;
 }
 
 export type SSOProtocolConfigMap = {

@@ -1,9 +1,11 @@
 import { authorizedFetch, TypedFetchError } from "@services/fetch";
 import { axiosAuthorized } from "src/core/utils/axios";
 import {
+    GetSSOConnectionTestResultResponse,
     SSOConfig,
     SSOProtocol,
     SSOProtocolConfigMap,
+    StartSSOConnectionTestResponse,
 } from "src/lib/auth/types";
 
 import { SSO_CONFIG_PATHS } from "./index";
@@ -35,6 +37,7 @@ export const createOrUpdateSSOConfig = async <T extends SSOProtocol>(params: {
     providerConfig: SSOProtocolConfigMap[T];
     active?: boolean;
     domains?: string[];
+    testSessionId?: string;
 }): Promise<SSOConfig<T>> => {
     const response = await axiosAuthorized.post<SSOConfig<T>>(
         SSO_CONFIG_PATHS.CREATE_OR_UPDATE,
@@ -44,8 +47,40 @@ export const createOrUpdateSSOConfig = async <T extends SSOProtocol>(params: {
             providerConfig: params.providerConfig,
             active: params.active,
             domains: params.domains,
+            testSessionId: params.testSessionId,
         },
     );
 
     return response;
+};
+
+export const startSSOConnectionTest = async <T extends SSOProtocol>(params: {
+    protocol: T;
+    providerConfig: SSOProtocolConfigMap[T];
+    domains: string[];
+}): Promise<StartSSOConnectionTestResponse> => {
+    const response = await axiosAuthorized.post<StartSSOConnectionTestResponse>(
+        SSO_CONFIG_PATHS.TEST_START,
+        params,
+    );
+    return "data" in response
+        ? (response.data as StartSSOConnectionTestResponse)
+        : response;
+};
+
+export const getSSOConnectionTestResult = async (
+    sessionId: string,
+): Promise<GetSSOConnectionTestResultResponse> => {
+    const response =
+        await axiosAuthorized.fetcher<GetSSOConnectionTestResultResponse>(
+            SSO_CONFIG_PATHS.TEST_RESULT,
+            {
+                params: {
+                    sessionId,
+                },
+            },
+        );
+    return "data" in response
+        ? (response.data as GetSSOConnectionTestResultResponse)
+        : response;
 };

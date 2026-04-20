@@ -60,6 +60,16 @@ export function UserAuthForm() {
                 return "Your account has been removed from the organization.";
             case "inactive":
                 return "Your account is inactive. Please contact your administrator.";
+            case "sso-config-not-found":
+                return "SSO is not configured for this organization. Contact your administrator.";
+            case "sso-invalid-email-assertion":
+                return "Your identity provider did not send a valid email claim. Contact your administrator.";
+            case "sso-invalid-assertion":
+                return "The SSO response could not be validated. Please retry or contact your administrator.";
+            case "sso-expired-request":
+                return "The SSO request expired. Start sign in again.";
+            case "sso-auth-failed":
+                return "SSO authentication failed. Please try again or contact your administrator.";
             default:
                 return null;
         }

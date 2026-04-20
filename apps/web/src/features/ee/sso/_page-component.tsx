@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Alert, AlertDescription } from "@components/ui/alert";
 import { Button } from "@components/ui/button";
 import { Card, CardHeader } from "@components/ui/card";
 import { FormControl } from "@components/ui/form-control";
@@ -13,15 +14,24 @@ import { Textarea } from "@components/ui/textarea";
 import { toast } from "@components/ui/toaster/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAsyncAction } from "@hooks/use-async-action";
-import { createOrUpdateSSOConfig } from "@services/ssoConfig/fetch";
+import {
+    createOrUpdateSSOConfig,
+    getSSOConnectionTestResult,
+    startSSOConnectionTest,
+} from "@services/ssoConfig/fetch";
 import { AlertCircle, Save, Upload } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useAuth } from "src/core/providers/auth.provider";
 import { publicDomainsSet } from "src/core/utils/email";
 import { pathToApiUrl } from "src/core/utils/helpers";
 import { revalidateServerSidePath } from "src/core/utils/revalidate-server-side";
-import { SSOConfig, SSOProtocol } from "src/lib/auth/types";
-import { Alert, AlertDescription } from "@components/ui/alert";
+import { buildSSOConfigFingerprint } from "src/lib/auth/sso-fingerprint";
+import {
+    SSOConfig,
+    SSOConnectionTestSessionStatus,
+    SSOConnectionTestStatus,
+    SSOProtocol,
+} from "src/lib/auth/types";
 import { z } from "zod";
 
 import {
@@ -35,9 +45,9 @@ const createSsoSchema = (userDomain: string) =>
             active: z.boolean().optional(),
             providerConfig: z.object({
                 issuer: z.string().optional(),
-                idpIssuer: z.string().optional().default(""),
-                entryPoint: z.string().optional().default(""),
-                cert: z.string().optional().default(""),
+                idpIssuer: z.string().default(""),
+                entryPoint: z.string().default(""),
+                cert: z.string().default(""),
                 identifierFormat: z.string().optional(),
             }),
             domains: z.array(z.string()),
@@ -109,7 +119,24 @@ const createSsoSchema = (userDomain: string) =>
             }
         });
 
-type SsoFormData = z.infer<ReturnType<typeof createSsoSchema>>;
+type SsoFormData = z.input<ReturnType<typeof createSsoSchema>>;
+
+interface SSOTestDraftStorage {
+    active?: boolean;
+    providerConfig?: SsoFormData["providerConfig"];
+    domains?: string[];
+}
+
+const buildSSOTestDraftKey = (organizationId?: string) =>
+    `sso-test-draft:${organizationId || "unknown"}`;
+
+const toSamlProviderConfig = (config?: SsoFormData["providerConfig"]) => ({
+    idpIssuer: config?.idpIssuer || "",
+    entryPoint: config?.entryPoint || "",
+    cert: config?.cert || "",
+    identifierFormat: config?.identifierFormat,
+    issuer: config?.issuer,
+});
 
 export const ClientSsoOrganizationSettingsPage = (props: {
     email: string;
@@ -117,10 +144,21 @@ export const ClientSsoOrganizationSettingsPage = (props: {
     uuid?: string;
 }) => {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { organizationId } = useAuth();
+    const ssoTestSessionId = searchParams.get("ssoTestSessionId");
     const [metadataUrl, setMetadataUrl] = useState<string>("");
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [isTestingConnection, setIsTestingConnection] = useState(false);
+    const [latestSuccessfulTestSessionId, setLatestSuccessfulTestSessionId] =
+        useState<string | null>(null);
+    const [validatedFingerprint, setValidatedFingerprint] = useState<string>(
+        props.ssoConfig.connectionTest?.status ===
+            SSOConnectionTestStatus.SUCCESS
+            ? props.ssoConfig.connectionTest.configFingerprint
+            : "",
+    );
 
     const callbackUrl = pathToApiUrl(
         `/auth/sso/saml/callback/${organizationId}`,
@@ -153,10 +191,43 @@ export const ClientSsoOrganizationSettingsPage = (props: {
     const {
         control,
         handleSubmit,
+        reset,
         setValue,
         watch,
         formState: { errors, isDirty, isValid },
     } = form;
+
+    const isEnabled = watch("active");
+    const watchedProviderConfig = watch("providerConfig");
+    const watchedDomains = watch("domains");
+
+    const currentFingerprint = useMemo(() => {
+        return buildSSOConfigFingerprint({
+            protocol: SSOProtocol.SAML,
+            providerConfig: toSamlProviderConfig(watchedProviderConfig),
+            domains: watchedDomains || [],
+        });
+    }, [watchedProviderConfig, watchedDomains]);
+
+    const persistedFingerprint = useMemo(() => {
+        return buildSSOConfigFingerprint({
+            protocol: SSOProtocol.SAML,
+            providerConfig: toSamlProviderConfig(
+                props.ssoConfig.providerConfig,
+            ),
+            domains:
+                props.ssoConfig.domains.length > 0
+                    ? props.ssoConfig.domains
+                    : [userDomain],
+        });
+    }, [props.ssoConfig.domains, props.ssoConfig.providerConfig, userDomain]);
+
+    const hasUnsavedChangesComparedToPersistedConfig =
+        currentFingerprint !== persistedFingerprint ||
+        Boolean(isEnabled) !== Boolean(props.ssoConfig.active);
+
+    const needsConnectionRetest =
+        Boolean(isEnabled) && currentFingerprint !== validatedFingerprint;
 
     // Set the identifier format to the required SAML format
     useEffect(() => {
@@ -166,16 +237,134 @@ export const ClientSsoOrganizationSettingsPage = (props: {
         );
     }, [setValue]);
 
+    useEffect(() => {
+        if (!organizationId) {
+            return;
+        }
+
+        try {
+            const draftRaw = window.localStorage.getItem(
+                buildSSOTestDraftKey(organizationId),
+            );
+
+            if (!draftRaw) {
+                return;
+            }
+
+            const parsedDraft = JSON.parse(draftRaw) as SSOTestDraftStorage;
+
+            if (!parsedDraft || !parsedDraft.providerConfig) {
+                return;
+            }
+
+            reset({
+                active: parsedDraft.active,
+                providerConfig: {
+                    issuer: parsedDraft.providerConfig.issuer,
+                    idpIssuer: parsedDraft.providerConfig.idpIssuer || "",
+                    entryPoint: parsedDraft.providerConfig.entryPoint || "",
+                    cert: parsedDraft.providerConfig.cert || "",
+                    identifierFormat:
+                        parsedDraft.providerConfig.identifierFormat ||
+                        "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+                },
+                domains: parsedDraft.domains || [userDomain],
+            });
+        } catch (error) {
+            console.error("Failed to restore SSO test draft", error);
+        }
+    }, [organizationId, reset, userDomain]);
+
+    useEffect(() => {
+        if (!ssoTestSessionId) {
+            return;
+        }
+
+        let ignore = false;
+
+        const loadTestResult = async () => {
+            try {
+                const result =
+                    await getSSOConnectionTestResult(ssoTestSessionId);
+
+                if (ignore) {
+                    return;
+                }
+
+                if (result.status === SSOConnectionTestSessionStatus.SUCCESS) {
+                    setValidatedFingerprint(result.configFingerprint);
+                    setLatestSuccessfulTestSessionId(result.sessionId);
+                    toast({
+                        title: "Connection verified",
+                        description:
+                            "SSO test succeeded. You can now save and enable SSO.",
+                        variant: "success",
+                    });
+                } else if (
+                    result.status === SSOConnectionTestSessionStatus.FAILED
+                ) {
+                    toast({
+                        title: "SSO test failed",
+                        description:
+                            result.failureMessage ||
+                            "Unable to validate the SSO connection with the current draft settings.",
+                        variant: "danger",
+                    });
+                }
+            } catch (error: any) {
+                toast({
+                    title: "Could not load test result",
+                    description:
+                        error?.response?.data?.message ||
+                        "The SSO test session is no longer available. Run the test again.",
+                    variant: "danger",
+                });
+            } finally {
+                router.replace("/organization/sso");
+            }
+        };
+
+        loadTestResult();
+
+        return () => {
+            ignore = true;
+        };
+    }, [router, ssoTestSessionId]);
+
     const [saveSettings, { loading: isLoadingSubmitButton }] = useAsyncAction(
         async (data: SsoFormData) => {
             try {
-                await createOrUpdateSSOConfig({
+                const canAttachTestSession =
+                    currentFingerprint === validatedFingerprint &&
+                    !!latestSuccessfulTestSessionId;
+
+                const updated = await createOrUpdateSSOConfig({
                     protocol: SSOProtocol.SAML,
-                    providerConfig: data.providerConfig,
+                    providerConfig: toSamlProviderConfig(data.providerConfig),
                     active: data.active,
                     uuid: props.uuid,
                     domains: data.domains,
+                    testSessionId: canAttachTestSession
+                        ? latestSuccessfulTestSessionId || undefined
+                        : undefined,
                 });
+
+                if (
+                    updated.connectionTest?.status ===
+                    SSOConnectionTestStatus.SUCCESS
+                ) {
+                    setValidatedFingerprint(
+                        updated.connectionTest.configFingerprint,
+                    );
+                }
+
+                setLatestSuccessfulTestSessionId(null);
+
+                if (organizationId) {
+                    window.localStorage.removeItem(
+                        buildSSOTestDraftKey(organizationId),
+                    );
+                }
 
                 await revalidateServerSidePath("/organization/sso");
                 router.refresh();
@@ -185,15 +374,78 @@ export const ClientSsoOrganizationSettingsPage = (props: {
                     variant: "success",
                 });
             } catch (error: any) {
+                const code =
+                    error?.response?.data?.code ||
+                    error?.response?.data?.error?.code;
+                const message =
+                    error?.response?.data?.message ||
+                    error?.message ||
+                    "Unable to save SSO settings";
+
                 toast({
                     title: "Error",
-                    description: error.message,
+                    description:
+                        code === "SSO_TEST_REQUIRED"
+                            ? "Run a successful SSO connection test before enabling SSO."
+                            : message,
                     variant: "danger",
                 });
                 console.error(error);
             }
         },
     );
+
+    const handleConnectionTest = async () => {
+        const isFormValid = await form.trigger();
+
+        if (!isFormValid) {
+            toast({
+                title: "Review SSO settings",
+                description:
+                    "Fix validation errors before running the connection test.",
+                variant: "danger",
+            });
+            return;
+        }
+
+        const values = form.getValues();
+        setIsTestingConnection(true);
+
+        try {
+            if (organizationId) {
+                window.localStorage.setItem(
+                    buildSSOTestDraftKey(organizationId),
+                    JSON.stringify({
+                        active: values.active,
+                        providerConfig: values.providerConfig,
+                        domains: values.domains,
+                    } satisfies SSOTestDraftStorage),
+                );
+            }
+
+            const result = await startSSOConnectionTest({
+                protocol: SSOProtocol.SAML,
+                providerConfig: toSamlProviderConfig(values.providerConfig),
+                domains: values.domains,
+            });
+
+            if (!result.redirectUrl) {
+                throw new Error("No redirect URL provided by server");
+            }
+
+            router.push(result.redirectUrl);
+        } catch (error: any) {
+            console.error(error);
+            setIsTestingConnection(false);
+            toast({
+                title: "Could not start SSO test",
+                description:
+                    error?.response?.data?.message ||
+                    "Please verify the draft settings and try again.",
+                variant: "danger",
+            });
+        }
+    };
 
     const handleMetadataFetch = async () => {
         if (!metadataUrl) return;
@@ -267,8 +519,6 @@ export const ClientSsoOrganizationSettingsPage = (props: {
         fileInputRef.current?.click();
     };
 
-    const isEnabled = watch("active");
-    const watchedDomains = watch("domains");
     const hasDomainMismatch =
         isEnabled &&
         !!userDomain &&
@@ -283,12 +533,27 @@ export const ClientSsoOrganizationSettingsPage = (props: {
                     <Page.Title>SSO Settings</Page.Title>
                     <Page.HeaderActions>
                         <Button
+                            type="button"
+                            size="md"
+                            variant="secondary"
+                            onClick={handleConnectionTest}
+                            loading={isTestingConnection}
+                            disabled={
+                                isLoadingSubmitButton || isTestingConnection
+                            }>
+                            Test connection
+                        </Button>
+                        <Button
                             type="submit"
                             size="md"
                             variant="primary"
                             leftIcon={<Save />}
                             disabled={
-                                !isDirty || !isValid || isLoadingSubmitButton
+                                (!isDirty &&
+                                    !hasUnsavedChangesComparedToPersistedConfig) ||
+                                !isValid ||
+                                isLoadingSubmitButton ||
+                                (isEnabled && needsConnectionRetest)
                             }
                             loading={isLoadingSubmitButton}>
                             Save settings
@@ -331,6 +596,18 @@ export const ClientSsoOrganizationSettingsPage = (props: {
 
                                 {isEnabled && (
                                     <div className="space-y-6 border-t border-gray-200 pt-6">
+                                        {needsConnectionRetest && (
+                                            <Alert variant="warning">
+                                                <AlertCircle />
+                                                <AlertDescription>
+                                                    Run "Test connection" and
+                                                    complete a successful IdP
+                                                    login before saving enabled
+                                                    SSO settings.
+                                                </AlertDescription>
+                                            </Alert>
+                                        )}
+
                                         <div className="grid grid-cols-1 gap-6 sm:grid-cols-1">
                                             <div className="space-y-4">
                                                 <FormControl.Root>
