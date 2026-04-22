@@ -3,6 +3,85 @@ import { ProviderService } from '@libs/core/infrastructure/services/providers/pr
 import { createLogger } from '@kodus/flow';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
+import { lookup } from 'dns/promises';
+
+/**
+ * Cloud regions follow tight naming rules (AWS: us-east-1, GCP:
+ * us-central1). We only accept that shape when building URLs with
+ * user-provided regions so an attacker can't smuggle path traversal or
+ * hostname injection through the region field (e.g. "evil.com/?").
+ */
+const REGION_PATTERN = /^[a-z0-9-]{2,32}$/;
+
+function assertSafeRegion(region: string): void {
+    if (!REGION_PATTERN.test(region)) {
+        throw new BadRequestException(
+            `Invalid region "${region}". Expected lowercase letters, digits, or hyphens.`,
+        );
+    }
+}
+
+/**
+ * Guard user-provided base URLs against SSRF before making outbound
+ * HTTP calls:
+ *   - Require https:// (reject http:, file:, javascript:, etc.)
+ *   - Resolve the hostname and reject any loopback / link-local /
+ *     RFC1918 private address (including IPv6 equivalents). Stops an
+ *     authenticated caller from probing internal infra, the cloud
+ *     metadata service (169.254.169.254), or localhost services.
+ *
+ * There is a small TOCTOU window between the lookup and the actual
+ * axios.get — acceptable for a one-shot test probe that doesn't leak
+ * response bodies back to the user.
+ */
+async function assertSafeOpenAICompatibleUrl(rawUrl: string): Promise<void> {
+    let parsed: URL;
+    try {
+        parsed = new URL(rawUrl);
+    } catch {
+        throw new BadRequestException('baseURL is not a valid URL.');
+    }
+    if (parsed.protocol !== 'https:') {
+        throw new BadRequestException(
+            'baseURL must use https:// for security.',
+        );
+    }
+    let addresses: Array<{ address: string; family: number }>;
+    try {
+        addresses = await lookup(parsed.hostname, { all: true });
+    } catch {
+        throw new BadRequestException(
+            `Couldn't resolve host "${parsed.hostname}". Check the base URL.`,
+        );
+    }
+    for (const { address } of addresses) {
+        if (isPrivateOrReservedIp(address)) {
+            throw new BadRequestException(
+                `baseURL resolves to a private or reserved address (${address}). Point it at a public provider endpoint.`,
+            );
+        }
+    }
+}
+
+function isPrivateOrReservedIp(ip: string): boolean {
+    // IPv4
+    if (ip === '0.0.0.0' || ip.startsWith('127.')) return true; // loopback / unspecified
+    if (ip.startsWith('10.')) return true; // RFC1918
+    if (ip.startsWith('192.168.')) return true; // RFC1918
+    if (ip.startsWith('169.254.')) return true; // link-local (incl. cloud metadata)
+    if (ip.startsWith('100.64.')) return true; // CGNAT
+    const m172 = ip.match(/^172\.(\d+)\./);
+    if (m172) {
+        const n = parseInt(m172[1], 10);
+        if (n >= 16 && n <= 31) return true; // RFC1918
+    }
+    // IPv6
+    const lower = ip.toLowerCase();
+    if (lower === '::1' || lower === '::') return true;
+    if (/^f[cd][0-9a-f]{2}:/i.test(lower)) return true; // fc00::/7 ULA
+    if (/^fe[89ab][0-9a-f]:/i.test(lower)) return true; // fe80::/10 link-local
+    return false;
+}
 
 export type TestByokResultCode =
     | 'ok'
@@ -111,10 +190,21 @@ export class TestByokConnectionUseCase {
         }
 
         const { url, headers } = this.buildProbeRequest(byokProvider, apiKey, baseURL);
+
+        // SSRF guard: only openai_compatible consumes a user-provided
+        // base URL here; the other providers hardcode their endpoints.
+        if (byokProvider === BYOKProvider.OPENAI_COMPATIBLE) {
+            await assertSafeOpenAICompatibleUrl(url);
+        }
+
         const start = Date.now();
 
         try {
-            await axios.get(url, { headers, timeout: TEST_TIMEOUT_MS });
+            await axios.get(url, {
+                headers,
+                timeout: TEST_TIMEOUT_MS,
+                maxRedirects: 0, // don't follow redirects: could lead back to a private IP
+            });
             return {
                 ok: true,
                 code: 'ok',
@@ -171,6 +261,19 @@ export class TestByokConnectionUseCase {
             });
             const client = await auth.getClient();
             const region = location?.trim() || 'us-central1';
+            assertSafeRegion(region);
+            // GCP project IDs: 6-30 chars, lowercase letters/digits/hyphens,
+            // must start with a letter. Prevents path traversal via the
+            // project_id segment of the URL.
+            if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(credentials.project_id)) {
+                return {
+                    ok: false,
+                    code: 'bad_request',
+                    latencyMs: Date.now() - start,
+                    message:
+                        'The service account JSON has an unusual project_id. Expected lowercase letters, digits, and hyphens.',
+                };
+            }
             const probeUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${credentials.project_id}/locations/${region}/publishers/google/models`;
             const res = await client.request({
                 url: probeUrl,
@@ -197,6 +300,7 @@ export class TestByokConnectionUseCase {
         token: string,
         region: string,
     ): Promise<TestByokResult> {
+        assertSafeRegion(region);
         const start = Date.now();
         try {
             const url = `https://bedrock.${region}.amazonaws.com/foundation-models`;
@@ -236,6 +340,7 @@ export class TestByokConnectionUseCase {
         sessionToken?: string;
         region: string;
     }): Promise<TestByokResult> {
+        assertSafeRegion(creds.region);
         const start = Date.now();
         try {
             const { AwsClient } = await import('aws4fetch');
@@ -411,7 +516,12 @@ export class TestByokConnectionUseCase {
                 };
 
             case BYOKProvider.OPENAI_COMPATIBLE: {
-                const trimmed = baseURL!.replace(/\/+$/, '');
+                // Trim trailing slashes without a `/+$` regex (polynomial
+                // backtracking risk on user input). endsWith+slice is O(n).
+                let trimmed = baseURL!;
+                while (trimmed.endsWith('/')) {
+                    trimmed = trimmed.slice(0, -1);
+                }
                 const needsV1 = !/\/v\d+$/i.test(trimmed);
                 const url = needsV1
                     ? `${trimmed}/v1/models`
