@@ -19,6 +19,7 @@ import { NestFactory } from '@nestjs/core';
 import { LoggerWrapperService } from '@libs/core/log/loggerWrapper.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
 
+import { resolveWorkerRole } from './worker-role';
 import { WorkerModule } from './worker.module';
 
 declare const module: any;
@@ -32,19 +33,23 @@ function handleNestJSWebpackHmr(app: INestApplicationContext, module: any) {
 
 async function bootstrap() {
     process.env.COMPONENT_TYPE = 'worker';
+    // Resolve early so an invalid WORKER_ROLE fails the container start
+    // instead of booting into an unexpected shape.
+    const role = resolveWorkerRole();
     let appContext: INestApplicationContext | undefined;
     let logger: LoggerWrapperService | undefined;
 
     try {
-        appContext = await NestFactory.createApplicationContext(WorkerModule, {
-            snapshot: true,
-        });
+        appContext = await NestFactory.createApplicationContext(
+            WorkerModule.forRoot(),
+            { snapshot: true },
+        );
 
         logger = appContext.get(LoggerWrapperService);
         appContext.useLogger(logger);
 
         logger.log('Entering bootstrap try block...', 'Bootstrap');
-        logger.log('Initializing Worker...', 'Bootstrap');
+        logger.log(`Initializing Worker (role=${role})...`, 'Bootstrap');
 
         process.on('uncaughtException', (error) => {
             void reportExceptionToSentry(error, {
@@ -90,7 +95,7 @@ async function bootstrap() {
 
         appContext.enableShutdownHooks();
 
-        console.log('[Worker] - Initialized and running.');
+        console.log(`[Worker] - Initialized and running (role=${role}).`);
 
         handleNestJSWebpackHmr(appContext, module);
     } catch (e) {
