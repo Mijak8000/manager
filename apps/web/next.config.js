@@ -154,25 +154,15 @@ const nextConfig = {
         ];
     },
     reactStrictMode: true,
-    // All public client-facing envs moved to PublicConfig / useConfig()
-    // by waves 1-4 of the web-runtime-config-migration plan. Server-only
-    // envs (internal hostnames/ports, secrets) are now read directly from
-    // process.env in server-only modules (see `import 'server-only'`
-    // guards added in task 7).
-    env: {
-        // Kept intentionally: WEB_NODE_ENV / WEB_HOSTNAME_API / WEB_PORT_API
-        // are currently consumed by server-side helpers (helpers.ts) that
-        // still run inside client-imported files in dev; once helpers.ts is
-        // fully guarded with `import 'server-only'` (task 7) these last 3
-        // entries can be removed in task 8.
-        WEB_NODE_ENV: process.env.WEB_NODE_ENV,
-        WEB_HOSTNAME_API: process.env.WEB_HOSTNAME_API,
-        WEB_PORT_API: process.env.WEB_PORT_API,
-        WEB_HOSTNAME_BILLING: process.env.WEB_HOSTNAME_BILLING,
-        WEB_PORT_BILLING: process.env.WEB_PORT_BILLING,
-        WEB_HOSTNAME_MCP_MANAGER: process.env.WEB_HOSTNAME_MCP_MANAGER,
-        WEB_PORT_MCP_MANAGER: process.env.WEB_PORT_MCP_MANAGER,
-    },
+    // env: block removed. Public client-facing values come via
+    // ConfigProvider/useConfig() (see waves 1-4). Internal hostnames
+    // (WEB_HOSTNAME_API / WEB_PORT_API / WEB_HOSTNAME_BILLING /
+    // WEB_PORT_BILLING / WEB_HOSTNAME_MCP_MANAGER / WEB_PORT_MCP_MANAGER
+    // and WEB_NODE_ENV) are now read directly from process.env in
+    // server-only modules — the client never sees them. Client fetches
+    // against the upstream API go through the /api/proxy/api/* route
+    // handler introduced in task 7, so build-time inlining is no longer
+    // needed at all.
 };
 
 module.exports = withBundleAnalyzer(nextConfig);
