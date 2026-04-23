@@ -159,10 +159,8 @@ const nextConfig = {
         WEB_HOSTNAME_API: process.env.WEB_HOSTNAME_API,
         WEB_PORT_API: process.env.WEB_PORT_API,
         WEB_GITHUB_INSTALL_URL: process.env.WEB_GITHUB_INSTALL_URL,
-        GLOBAL_GITLAB_CLIENT_ID: process.env.GLOBAL_GITLAB_CLIENT_ID,
-        GLOBAL_GITLAB_REDIRECT_URL: process.env.GLOBAL_GITLAB_REDIRECT_URL,
-        WEB_GITLAB_SCOPES: process.env.WEB_GITLAB_SCOPES,
-        WEB_GITLAB_OAUTH_URL: process.env.WEB_GITLAB_OAUTH_URL,
+        // GitLab OAuth envs (GLOBAL_GITLAB_*, WEB_GITLAB_*) migrated to
+        // PublicConfig / useConfig() in Wave 1 — no longer inlined.
         WEB_TERMS_AND_CONDITIONS: process.env.WEB_TERMS_AND_CONDITIONS,
         WEB_SUPPORT_DOCS_URL: process.env.WEB_SUPPORT_DOCS_URL,
         WEB_SUPPORT_DISCORD_INVITE_URL:
