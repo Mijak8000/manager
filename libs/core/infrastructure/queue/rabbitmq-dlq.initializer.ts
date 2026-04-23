@@ -1,6 +1,10 @@
 import { AmqpConnection } from '@golevelup/nestjs-rabbitmq';
 import { createLogger } from '@kodus/flow';
-import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import {
+    Injectable,
+    OnApplicationBootstrap,
+    Optional,
+} from '@nestjs/common';
 
 type QueueBinding = {
     queue: string;
@@ -57,12 +61,17 @@ const WORKFLOW_JOB_QUEUES: QueueBinding[] = [
 ];
 
 @Injectable()
-export class RabbitMQDLQInitializer implements OnModuleInit {
+export class RabbitMQDLQInitializer implements OnApplicationBootstrap {
     private readonly logger = createLogger(RabbitMQDLQInitializer.name);
 
     constructor(@Optional() private readonly amqpConnection?: AmqpConnection) {}
 
-    async onModuleInit(): Promise<void> {
+    // Run after every module has finished onModuleInit — including the
+    // @RabbitSubscribe consumers that declare workflow.jobs.*.queue. Binding
+    // before those declarations leaves the delayed exchange unbound (silent
+    // loss of delayed retries), which is the race condition that produced
+    // the NOT_FOUND errors on first boot with a fresh RabbitMQ volume.
+    async onApplicationBootstrap(): Promise<void> {
         if (!this.amqpConnection) {
             this.logger.warn({
                 message:

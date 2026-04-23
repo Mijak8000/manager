@@ -9,6 +9,36 @@ if (process.env.ANALYZE === "true") {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // Emit a self-contained server bundle at .next/standalone so the
+    // production image can ship only the files the runtime actually needs
+    // (no full node_modules, no devDependencies). Shrinks the web image
+    // from ~1GB to ~200MB and reduces supply-chain surface.
+    output: "standalone",
+    // Pin the file-tracing root to this package instead of letting Next
+    // auto-detect via lockfile. Auto-detect walks upward until it finds a
+    // yarn.lock / package.json and was picking up stray files above the
+    // repo (e.g. a global ~/package.json with language servers), which
+    // caused standalone to emit `.next/standalone/<full-absolute-path>/`
+    // instead of a clean `.next/standalone/server.js` at the root.
+    outputFileTracingRoot: __dirname,
+    // Suppress the default `X-Powered-By: Next.js` response header so
+    // self-hosted deployments without an upstream proxy that strips it
+    // don't fingerprint the framework version.
+    poweredByHeader: false,
+    // Pin BUILD_ID to the release / commit SHA so two builds of the same
+    // source produce identical chunk hashes. Without this, rebuilding the
+    // image at a different time (CI cache miss, replica re-build, etc.)
+    // generates different /_next/static/<hash>.js paths, which causes 404s
+    // when a load balancer routes requests across replicas built at
+    // different moments. CI already passes RELEASE_VERSION via build-arg
+    // in every web pipeline.
+    generateBuildId: async () => {
+        return (
+            process.env.RELEASE_VERSION ||
+            process.env.GIT_COMMIT_SHA ||
+            "dev"
+        );
+    },
     typescript: {
         ignoreBuildErrors: true,
     },
