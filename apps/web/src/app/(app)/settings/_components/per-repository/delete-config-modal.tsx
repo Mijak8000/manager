@@ -37,7 +37,7 @@ export const DeleteRepoConfigModal = ({
     repository: Pick<CodeReviewRepositoryConfig, "id" | "name" | "isSelected">;
     directory?: Pick<
         NonNullable<CodeReviewRepositoryConfig["directories"]>[number],
-        "id" | "name" | "path"
+        "id" | "name" | "folders"
     >;
 }) => {
     const { teamId } = useSelectedTeamId();
@@ -121,7 +121,7 @@ export const DeleteRepoConfigModal = ({
                         Delete{" "}
                         <strong className="text-danger">
                             {repository.name}
-                            {directory?.path}
+                            {directory?.folders?.[0]?.path}
                         </strong>{" "}
                         configuration?
                     </DialogTitle>

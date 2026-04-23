@@ -925,14 +925,16 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
                 );
             };
 
-            const directoryMatchers = repoConfig.directories.map(
-                (dir: any) => ({
-                    dir,
-                    normalizedPath: normalizePath(dir.path),
-                }),
+            // Build matchers from each group's folders
+            const groupMatchers = repoConfig.directories.flatMap(
+                (group: any) =>
+                    (group.folders || []).map((folder: any) => ({
+                        group,
+                        normalizedPath: normalizePath(folder.path),
+                    })),
             );
 
-            const matchingDirectories = directoryMatchers.filter(
+            const matchingEntries = groupMatchers.filter(
                 ({ normalizedPath }) =>
                     affectedPaths.some((filePath: string) => {
                         const normalizedFile = normalizePath(filePath);
@@ -944,11 +946,19 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
                     }),
             );
 
+            // Deduplicate by group id
+            const matchingGroupIds = new Set(
+                matchingEntries.map(({ group }) => group.id),
+            );
+            const matchingGroups = repoConfig.directories.filter((g: any) =>
+                matchingGroupIds.has(g.id),
+            );
+
             const hasNotClassifiedPaths = affectedPaths.some(
                 (filePath: string) => {
                     const normalizedFile = normalizePath(filePath);
 
-                    return !matchingDirectories.some(({ normalizedPath }) =>
+                    return !matchingEntries.some(({ normalizedPath }) =>
                         isPathCoveredByDirectory(
                             normalizedPath,
                             normalizedFile,
@@ -957,24 +967,19 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
                 },
             );
 
-            // Agrupar diretórios configurados atingidos e sinalizar paths fora de qualquer config
-            const groupedDirectories = matchingDirectories.map(
-                ({ dir }) => dir,
-            );
-
-            if (groupedDirectories.length > 0 && hasNotClassifiedPaths) {
-                groupedDirectories.push({ name: 'not classified', path: null });
+            if (matchingGroups.length > 0 && hasNotClassifiedPaths) {
+                matchingGroups.push({ name: 'not classified', folders: [{ path: null }] });
             }
 
-            if (groupedDirectories.length !== 1) {
+            if (matchingGroups.length !== 1) {
                 return;
             }
 
             if (
-                groupedDirectories.length === 1 &&
-                groupedDirectories[0]?.path !== null
+                matchingGroups.length === 1 &&
+                matchingGroups[0]?.folders?.[0]?.path !== null
             ) {
-                return groupedDirectories[0];
+                return matchingGroups[0];
             }
 
             return;
@@ -1015,35 +1020,43 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
 
             const normalizedAffectedPath = normalizePath(affectedPath);
 
-            const matchingDirectories = repoConfig.directories.filter((dir) => {
-                const normalizedDirPath = normalizePath(dir.path);
+            // Build a flat list of { groupId, folderPath } from all groups
+            const allFolderEntries = repoConfig.directories.flatMap(
+                (group) =>
+                    (group.folders || []).map((folder) => ({
+                        groupId: group.id,
+                        folderPath: folder.path,
+                    })),
+            );
 
-                // The root directory ('/' or '') is always a potential match.
-                if (normalizedDirPath === '') {
-                    return true;
-                }
+            const matchingFolders = allFolderEntries.filter(
+                ({ folderPath }) => {
+                    const normalizedDirPath = normalizePath(folderPath);
 
-                // A directory matches if it's identical to the path or is a prefix.
-                // e.g., 'foo/bar' matches 'foo/bar' and 'foo/bar/baz.ts'.
-                return (
-                    normalizedAffectedPath === normalizedDirPath ||
-                    normalizedAffectedPath.startsWith(normalizedDirPath + '/')
-                );
-            });
+                    if (normalizedDirPath === '') {
+                        return true;
+                    }
 
-            if (matchingDirectories.length === 0) {
-                return;
-            }
-
-            const mostSpecificDirectory = matchingDirectories.reduce(
-                (bestMatch, currentDir) => {
-                    return currentDir.path.length > bestMatch.path.length
-                        ? currentDir
-                        : bestMatch;
+                    return (
+                        normalizedAffectedPath === normalizedDirPath ||
+                        normalizedAffectedPath.startsWith(
+                            normalizedDirPath + '/',
+                        )
+                    );
                 },
             );
 
-            return mostSpecificDirectory.id;
+            if (matchingFolders.length === 0) {
+                return;
+            }
+
+            const mostSpecific = matchingFolders.reduce((bestMatch, current) =>
+                current.folderPath.length > bestMatch.folderPath.length
+                    ? current
+                    : bestMatch,
+            );
+
+            return mostSpecific.groupId;
         } catch (error) {
             this.logger.error({
                 message: 'Error resolving the most specific config for a path',
