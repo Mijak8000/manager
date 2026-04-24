@@ -18,7 +18,7 @@ import {
 
 function makeContext(args: {
     jwtOrg?: string;
-    queryOrg?: string;
+    queryOrg?: unknown;
     isPublic?: boolean;
 }): {
     ctx: ExecutionContext;
@@ -26,7 +26,10 @@ function makeContext(args: {
 } {
     const req = {
         user: args.jwtOrg ? { organizationId: args.jwtOrg } : undefined,
-        query: args.queryOrg ? { organizationId: args.queryOrg } : {},
+        query:
+            args.queryOrg !== undefined
+                ? { organizationId: args.queryOrg }
+                : {},
     };
     const ctx = {
         switchToHttp: () => ({ getRequest: () => req }),
@@ -85,6 +88,38 @@ describe('CockpitTierGuard', () => {
             organizationId: 'org-A',
             teamId: '',
         });
+    });
+
+    it('blocks array-coerced organizationId in the query (prevents IDOR via duplicate params)', async () => {
+        const licenseService = makeLicenseService({ valid: true });
+        const { ctx, reflector } = makeContext({
+            jwtOrg: 'org-A',
+            // Express parses `?organizationId=X&organizationId=Y` as
+            // an array — the previous `typeof === 'string'` check
+            // treated it as undefined and fell through to JWT.
+            queryOrg: ['org-B', 'org-B'],
+        });
+        const guard = new CockpitTierGuard(licenseService, reflector);
+
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            ForbiddenException,
+        );
+        expect(
+            licenseService.validateOrganizationLicense,
+        ).not.toHaveBeenCalled();
+    });
+
+    it('blocks object-coerced organizationId (Mongo operator injection shape)', async () => {
+        const licenseService = makeLicenseService({ valid: true });
+        const { ctx, reflector } = makeContext({
+            jwtOrg: 'org-A',
+            queryOrg: { $ne: null },
+        });
+        const guard = new CockpitTierGuard(licenseService, reflector);
+
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            ForbiddenException,
+        );
     });
 
     it('blocks IDOR: JWT for org A, query for org B', async () => {
