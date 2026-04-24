@@ -1,0 +1,98 @@
+import {
+    CanActivate,
+    ExecutionContext,
+    ForbiddenException,
+    Inject,
+    Injectable,
+    Logger,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
+
+import {
+    ILicenseService,
+    LICENSE_SERVICE_TOKEN,
+} from '@libs/ee/license/interfaces/license.interface';
+import { IS_PUBLIC_KEY } from '@libs/identity/infrastructure/adapters/services/auth/public.decorator';
+
+import { isCockpitTierAllowed } from '../../domain/tier-policy';
+
+/**
+ * Rejects cockpit endpoints for orgs outside the supported tier set
+ * (see `isCockpitTierAllowed`). Mirrors the frontend shell gate so a
+ * user with a JWT can't bypass the page guard and scrape data via a
+ * raw HTTP call.
+ *
+ * Resolves the orgId in this priority order:
+ *   1. `req.user.organizationId` from the JWT payload (standard path).
+ *   2. `req.query.organizationId` as a fallback (public-ish endpoints
+ *      like `/cockpit/source/:id` read the id from the URL).
+ *
+ * Endpoints declared `@Public()` (e.g. `/cockpit/health`,
+ * `/cockpit/source/:id`) shouldn't be decorated with this guard —
+ * they need to answer without requiring a paid-tier org.
+ */
+@Injectable()
+export class CockpitTierGuard implements CanActivate {
+    private readonly logger = new Logger(CockpitTierGuard.name);
+
+    constructor(
+        @Inject(LICENSE_SERVICE_TOKEN)
+        private readonly licenseService: ILicenseService,
+        private readonly reflector: Reflector,
+    ) {}
+
+    async canActivate(context: ExecutionContext): Promise<boolean> {
+        // Let class-level `@UseGuards(CockpitTierGuard)` coexist with
+        // `@Public()`-decorated probes (`/cockpit/health`, `/cockpit/source/:id`
+        // that external monitoring relies on).
+        const isPublic = this.reflector.getAllAndOverride<boolean>(
+            IS_PUBLIC_KEY,
+            [context.getHandler(), context.getClass()],
+        );
+        if (isPublic) return true;
+
+        const req = context.switchToHttp().getRequest<
+            Request & {
+                user?: { organizationId?: string };
+            }
+        >();
+
+        const orgFromJwt = req.user?.organizationId;
+        const orgFromQuery =
+            typeof req.query?.organizationId === 'string'
+                ? req.query.organizationId
+                : undefined;
+        const organizationId = orgFromJwt ?? orgFromQuery;
+
+        if (!organizationId) {
+            throw new ForbiddenException(
+                'cockpit: organizationId missing from request',
+            );
+        }
+
+        try {
+            const license = await this.licenseService.validateOrganizationLicense({
+                organizationId,
+                teamId: '',
+            });
+            if (!isCockpitTierAllowed(license)) {
+                throw new ForbiddenException(
+                    'cockpit: organization is not on a supported tier',
+                );
+            }
+            return true;
+        } catch (err) {
+            if (err instanceof ForbiddenException) throw err;
+            this.logger.warn(
+                `license validation failed for org ${organizationId}: ${
+                    err instanceof Error ? err.message : String(err)
+                }`,
+            );
+            // Fail-closed: if we can't validate, don't leak data.
+            throw new ForbiddenException(
+                'cockpit: license validation unavailable',
+            );
+        }
+    }
+}

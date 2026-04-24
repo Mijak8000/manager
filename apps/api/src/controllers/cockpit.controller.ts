@@ -6,6 +6,7 @@ import {
     Param,
     Post,
     Query,
+    UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
@@ -21,6 +22,7 @@ import {
     CockpitSourceResolver,
     CockpitValidationService,
 } from '@libs/cockpit';
+import { CockpitTierGuard } from '@libs/cockpit/infrastructure/guards/cockpit-tier.guard';
 import { Public } from '@libs/identity/infrastructure/adapters/services/auth/public.decorator';
 
 /**
@@ -54,6 +56,7 @@ function requireRange(q: CockpitRangeQuery): void {
 
 @ApiTags('Cockpit')
 @ApiBearerAuth('jwt')
+@UseGuards(CockpitTierGuard)
 @Controller('cockpit')
 export class CockpitController {
     constructor(
@@ -173,6 +176,7 @@ export class CockpitController {
 
 @ApiTags('Cockpit · Code Health')
 @ApiBearerAuth('jwt')
+@UseGuards(CockpitTierGuard)
 @Controller('code-health')
 export class CockpitCodeHealthController {
     constructor(private readonly codeHealth: CockpitCodeHealthService) {}
@@ -227,6 +231,7 @@ export class CockpitCodeHealthController {
 
 @ApiTags('Cockpit · Productivity')
 @ApiBearerAuth('jwt')
+@UseGuards(CockpitTierGuard)
 @Controller('productivity')
 export class CockpitProductivityController {
     constructor(
