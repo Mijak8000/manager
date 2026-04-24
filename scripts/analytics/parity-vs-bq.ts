@@ -21,21 +21,42 @@ import { writeFileSync } from 'fs';
  *     [--threshold-count 0.01]        # 1%, count metrics
  *     [--threshold-time 0.05]         # 5%, time metrics (timezone forgiveness)
  *     [--report parity-report.json]
- *     [--endpoints bug-ratio,deploy-frequency]   # subset
- *     [--windows 7d,30d]                          # subset
+ *     [--endpoints code-health.charts.bug-ratio,...]   # subset by name
+ *     [--windows 7d,14d,30d]                            # subset
+ *
+ * Split orgs (local cloned from prod rewriting organizationId):
+ *   --orgs <newOrgId>=<legacyOrgId>[:Label]
+ *   e.g. --orgs 0a3dd273-...=04bd288b-...:kodus-prod
  *
  * Smoke test (compares the new endpoint against itself — should be 100% MATCH):
  *   yarn analytics:parity-vs-bq \
- *     --new http://localhost:3011 --legacy http://localhost:3011 \
- *     --orgs analytics-test-001 --jwt-new fake
+ *     --new http://localhost:3001 --legacy http://localhost:3001 \
+ *     --orgs <org-uuid> --jwt-new $(yarn -s analytics:mint-dev-jwt --email ...)
  */
+
+interface OrgPair {
+    /** Org UUID on the new (local/internal) side. */
+    newOrg: string;
+    /** Org UUID on the legacy (BQ) side. Different when the local dev
+     *  env was populated via `analytics:clone-from-prod`, which rewrites
+     *  `organizationId` when copying. */
+    legacyOrg: string;
+    /** Pretty label for the report, defaults to newOrg. */
+    label: string;
+}
 
 interface CliArgs {
     newUrl: string;
     legacyUrl: string;
-    orgs: string[];
+    orgs: OrgPair[];
     jwtNew: string;
+    /** JWT for the legacy side. Ignored when `apiKeyLegacy` is set. */
     jwtLegacy: string;
+    /** `x-api-key` for the legacy side. The real kodus-service-analytics
+     *  authenticates with an API key (`WEB_ANALYTICS_SECRET` in prod),
+     *  not a bearer JWT — pass this when hitting the actual legacy
+     *  deployment. */
+    apiKeyLegacy?: string;
     thresholdCount: number;
     thresholdTime: number;
     reportPath: string;
@@ -52,6 +73,11 @@ interface EndpointDef {
      *  - 'composite': walks numeric leaves, applies thresholdCount.
      */
     type: 'count' | 'time' | 'composite';
+    /** Endpoints introduced in the new path that the legacy service
+     *  never had. Still hit on the `new` side for self-regression but
+     *  skipped on legacy — otherwise they'd always show MISSING and
+     *  dilute the signal. */
+    newOnly?: boolean;
 }
 
 interface WindowDef {
@@ -72,32 +98,110 @@ interface ComparisonResult {
     detail?: string;
 }
 
+/**
+ * Endpoint catalog — mirrors `apps/api/src/controllers/cockpit.controller.ts`.
+ * Naming convention: `<scope>.<kind>.<metric>` so you can filter via
+ * `--endpoints productivity.highlights.deploy-frequency,...` or by
+ * prefix such as `--endpoints productivity.highlights.*`.
+ */
 const ALL_ENDPOINTS: EndpointDef[] = [
-    { name: 'bug-ratio', path: '/code-health/charts/bug-ratio', type: 'count' },
+    // code-health / charts
     {
-        name: 'deploy-frequency',
-        path: '/productivity/charts/deploy-frequency',
+        name: 'code-health.charts.bug-ratio',
+        path: '/code-health/charts/bug-ratio',
         type: 'count',
     },
     {
-        name: 'lead-time-for-change',
-        path: '/productivity/highlights/lead-time-for-change',
-        type: 'time',
-    },
-    {
-        name: 'suggestions-by-category',
+        name: 'code-health.charts.suggestions-by-category',
         path: '/code-health/charts/suggestions-by-category',
         type: 'count',
     },
     {
-        name: 'company-dashboard',
+        name: 'code-health.charts.suggestions-by-repository',
+        path: '/code-health/charts/suggestions-by-repository',
+        type: 'count',
+    },
+    // code-health / highlights
+    {
+        name: 'code-health.highlights.bug-ratio',
+        path: '/code-health/highlights/bug-ratio',
+        type: 'composite',
+    },
+    {
+        name: 'code-health.highlights.suggestions-implementation-rate',
+        path: '/code-health/highlights/suggestions-implementation-rate',
+        type: 'composite',
+    },
+    // productivity / charts
+    {
+        name: 'productivity.charts.deploy-frequency',
+        path: '/productivity/charts/deploy-frequency',
+        type: 'count',
+    },
+    {
+        name: 'productivity.charts.lead-time-for-change',
+        path: '/productivity/charts/lead-time-for-change',
+        type: 'time',
+    },
+    {
+        name: 'productivity.charts.lead-time-breakdown',
+        path: '/productivity/charts/lead-time-breakdown',
+        type: 'time',
+    },
+    {
+        // Chart counterpart to the `/highlights/pr-size` endpoint —
+        // only the highlight existed in `kodus-service-analytics`, so
+        // legacy always 404s here. Flag as new-only to keep the parity
+        // summary honest.
+        name: 'productivity.charts.pr-size',
+        path: '/productivity/charts/pr-size',
+        type: 'count',
+        newOnly: true,
+    },
+    {
+        name: 'productivity.charts.pull-requests-by-developer',
+        path: '/productivity/charts/pull-requests-by-developer',
+        type: 'count',
+    },
+    {
+        name: 'productivity.charts.pull-requests-opened-vs-closed',
+        path: '/productivity/charts/pull-requests-opened-vs-closed',
+        type: 'count',
+    },
+    {
+        name: 'productivity.charts.developer-activity',
+        path: '/productivity/charts/developer-activity',
+        type: 'count',
+    },
+    // productivity / highlights
+    {
+        name: 'productivity.highlights.deploy-frequency',
+        path: '/productivity/highlights/deploy-frequency',
+        type: 'composite',
+    },
+    {
+        name: 'productivity.highlights.lead-time-for-change',
+        path: '/productivity/highlights/lead-time-for-change',
+        type: 'time',
+    },
+    {
+        name: 'productivity.highlights.pr-size',
+        path: '/productivity/highlights/pr-size',
+        type: 'composite',
+    },
+    // productivity / dashboard
+    {
+        name: 'productivity.dashboard.company',
         path: '/productivity/dashboard/company',
         type: 'composite',
     },
 ];
 
+// `14d` matches the UI default for highlight cards; `30d` / `90d` are
+// the common chart window lengths; `7d` catches short-range drift early.
 const ALL_WINDOWS: WindowDef[] = [
     { name: '7d', days: 7 },
+    { name: '14d', days: 14 },
     { name: '30d', days: 30 },
     { name: '90d', days: 90 },
 ];
@@ -122,7 +226,19 @@ function parseArgs(): CliArgs {
                 i += 1;
                 break;
             case '--orgs':
-                out.orgs = next.split(',');
+                // Two accepted shapes:
+                //   "uuid-1,uuid-2"                  (same id both sides)
+                //   "newId=legacyId,newId=legacyId"  (local rewrote orgs)
+                // Optional label suffix: "newId=legacyId:My Org"
+                out.orgs = next.split(',').map((raw) => {
+                    const [pair, label] = raw.split(':');
+                    const [newOrg, legacyOrg = newOrg] = pair.split('=');
+                    return {
+                        newOrg: newOrg.trim(),
+                        legacyOrg: legacyOrg.trim(),
+                        label: (label ?? newOrg).trim(),
+                    };
+                });
                 i += 1;
                 break;
             case '--jwt-new':
@@ -131,6 +247,10 @@ function parseArgs(): CliArgs {
                 break;
             case '--jwt-legacy':
                 out.jwtLegacy = next;
+                i += 1;
+                break;
+            case '--api-key-legacy':
+                out.apiKeyLegacy = next;
                 i += 1;
                 break;
             case '--threshold-count':
@@ -180,20 +300,33 @@ function isoDateToday(): string {
 
 async function fetchEndpoint(
     baseUrl: string,
-    jwt: string,
+    auth: { kind: 'jwt' | 'apiKey'; value: string },
     path: string,
     org: string,
     window: WindowDef,
 ): Promise<{ status: number; body: unknown }> {
-    const url = new URL(path, baseUrl);
+    // Use string concat instead of `new URL(path, baseUrl)` — the URL
+    // ctor treats absolute paths as "replace pathname", which drops an
+    // `/api` prefix baked into the baseUrl (the real legacy deployment
+    // sits under `https://service.analytics.kodus.io/api`).
+    const sep = path.startsWith('/') ? '' : '/';
+    const stem = baseUrl.replace(/\/$/, '') + sep + path;
+    const url = new URL(stem);
     url.searchParams.set('organizationId', org);
     url.searchParams.set('startDate', isoDateNDaysAgo(window.days));
     url.searchParams.set('endDate', isoDateToday());
 
+    const headers: Record<string, string> = {};
+    if (auth.value) {
+        if (auth.kind === 'jwt') {
+            headers.Authorization = `Bearer ${auth.value}`;
+        } else {
+            headers['x-api-key'] = auth.value;
+        }
+    }
+
     try {
-        const res = await fetch(url.toString(), {
-            headers: jwt ? { Authorization: `Bearer ${jwt}` } : {},
-        });
+        const res = await fetch(url.toString(), { headers });
         const text = await res.text();
         let body: unknown = text;
         try {
@@ -317,6 +450,32 @@ function compare(
 
 async function main() {
     const args = parseArgs();
+
+    // Surface typos early. Previously unknown names were silently
+    // dropped by the filter, making it easy to think you'd asked for
+    // "14d" when the harness only has 7/30/90 (real incident during the
+    // migration testing).
+    if (args.endpoints) {
+        const known = new Set(ALL_ENDPOINTS.map((e) => e.name));
+        const unknown = args.endpoints.filter((n) => !known.has(n));
+        if (unknown.length) {
+            throw new Error(
+                `unknown --endpoints values: ${unknown.join(', ')}. ` +
+                    `available: ${ALL_ENDPOINTS.map((e) => e.name).join(', ')}`,
+            );
+        }
+    }
+    if (args.windows) {
+        const known = new Set(ALL_WINDOWS.map((w) => w.name));
+        const unknown = args.windows.filter((n) => !known.has(n));
+        if (unknown.length) {
+            throw new Error(
+                `unknown --windows values: ${unknown.join(', ')}. ` +
+                    `available: ${ALL_WINDOWS.map((w) => w.name).join(', ')}`,
+            );
+        }
+    }
+
     const endpoints = args.endpoints
         ? ALL_ENDPOINTS.filter((e) => args.endpoints!.includes(e.name))
         : ALL_ENDPOINTS;
@@ -333,28 +492,55 @@ async function main() {
         `[parity] running ${total} comparisons (${args.orgs.length} orgs × ${endpoints.length} endpoints × ${windows.length} windows)`,
     );
 
+    const legacyAuth = args.apiKeyLegacy
+        ? ({ kind: 'apiKey', value: args.apiKeyLegacy } as const)
+        : ({ kind: 'jwt', value: args.jwtLegacy } as const);
+    const newAuth = { kind: 'jwt', value: args.jwtNew } as const;
+
     for (const org of args.orgs) {
         for (const endpoint of endpoints) {
             for (const window of windows) {
+                const neuPromise = fetchEndpoint(
+                    args.newUrl,
+                    newAuth,
+                    endpoint.path,
+                    org.newOrg,
+                    window,
+                );
+                // For `newOnly` endpoints we skip the legacy call
+                // entirely and mark the verdict separately.
+                if (endpoint.newOnly) {
+                    const neu = await neuPromise;
+                    results.push({
+                        org: org.label,
+                        endpoint: endpoint.name,
+                        window: window.name,
+                        legacyOk: true,
+                        newOk: neu.status >= 200 && neu.status < 300,
+                        legacyStatus: 0,
+                        newStatus: neu.status,
+                        drift: 0,
+                        verdict: neu.status >= 200 && neu.status < 300
+                            ? 'MATCH'
+                            : 'ERROR',
+                        detail: 'new-only endpoint (skipped on legacy)',
+                    });
+                    done += 1;
+                    continue;
+                }
                 const [legacy, neu] = await Promise.all([
                     fetchEndpoint(
                         args.legacyUrl,
-                        args.jwtLegacy,
+                        legacyAuth,
                         endpoint.path,
-                        org,
+                        org.legacyOrg,
                         window,
                     ),
-                    fetchEndpoint(
-                        args.newUrl,
-                        args.jwtNew,
-                        endpoint.path,
-                        org,
-                        window,
-                    ),
+                    neuPromise,
                 ]);
                 const cmp = compare(endpoint, legacy, neu, args);
                 results.push({
-                    org,
+                    org: org.label,
                     endpoint: endpoint.name,
                     window: window.name,
                     legacyOk: legacy.status >= 200 && legacy.status < 300,
