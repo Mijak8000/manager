@@ -34,7 +34,11 @@ const optionsDataBase: DataSourceOptions = {
     type: 'postgres',
     ...connectionConfig,
     logging: false,
-    logger: 'file',
+    // Stream CLI logs (migrations, seeds) to stdout instead of writing
+    // ./ormlogs.log — that file write breaks under restricted PSA with
+    // readOnlyRootFilesystem=true, and the runtime TypeOrmFactory
+    // already uses a stdout-based TypeOrmCustomLogger anyway.
+    logger: 'advanced-console',
     synchronize: false,
     cache: false,
     migrationsRun: false,

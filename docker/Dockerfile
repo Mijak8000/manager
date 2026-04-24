@@ -162,7 +162,11 @@ COPY --chown=1000:1000 --from=build /usr/src/app/tsconfig-paths-bootstrap.js ./t
 
 COPY --chmod=0755 docker/prod-entrypoint.sh /usr/local/bin/prod-entrypoint
 
-# Give ownership of working directory to user 1000 so they can create files (like ormlogs.log)
+# Ensure the working directory is owned by user 1000 so Node can read
+# the tree as a non-root user. The image no longer writes files into
+# /usr/src/app at runtime (TypeORM CLI logs stream to stdout via
+# ormconfig.ts `logger: 'advanced-console'`), so this is strictly an
+# ownership fix for the non-root USER 1000 below — not a write path.
 RUN chown 1000:1000 /usr/src/app
 
 USER 1000
