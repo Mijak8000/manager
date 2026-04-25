@@ -4,6 +4,7 @@ import { trace, type AttributeValue } from '@opentelemetry/api';
 
 let spanProcessor: LangfuseSpanProcessor | null = null;
 let ownTracerProvider: NodeTracerProvider | null = null;
+let beforeExitInstalled = false;
 
 export function shouldTrace(): boolean {
     return (
@@ -11,6 +12,24 @@ export function shouldTrace(): boolean {
         !!process.env.LANGFUSE_PUBLIC_KEY &&
         !!process.env.LANGFUSE_SECRET_KEY
     );
+}
+
+/**
+ * `beforeExit` fires when Node's event loop drains and the process is about
+ * to exit naturally — including the path taken when `uncaughtException` /
+ * `unhandledRejection` are swallowed by the global handlers in each
+ * app's `main.ts` and the app then quiesces. SIGTERM/SIGINT graceful
+ * shutdowns go through `LangfuseShutdownProvider` instead.
+ *
+ * Idempotent: only installs once per process.
+ */
+function installBeforeExitFlush(): void {
+    if (beforeExitInstalled) return;
+    beforeExitInstalled = true;
+
+    process.on('beforeExit', async () => {
+        await flushLangfuse();
+    });
 }
 
 /**
@@ -47,6 +66,8 @@ export function setupLangfuseTracing(): LangfuseSpanProcessor | null {
         });
         ownTracerProvider.register();
     }
+
+    installBeforeExitFlush();
 
     return spanProcessor;
 }
