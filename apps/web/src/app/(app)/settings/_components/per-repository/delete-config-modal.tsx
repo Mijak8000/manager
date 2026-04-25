@@ -42,7 +42,7 @@ export const DeleteRepoConfigModal = ({
 }) => {
     const { teamId } = useSelectedTeamId();
     const [enabled, setEnabled] = useState(false);
-    const { resetQueries } = useReactQueryInvalidateQueries();
+    const { invalidateQueries } = useReactQueryInvalidateQueries();
 
     useTimeout(() => {
         setEnabled(true);
@@ -71,7 +71,7 @@ export const DeleteRepoConfigModal = ({
             await updateCodeReviewParameterRepositories(teamId);
 
             await Promise.all([
-                resetQueries({
+                invalidateQueries({
                     queryKey: generateQueryKey(PARAMETERS_PATHS.GET_BY_KEY, {
                         params: {
                             key: ParametersConfigKey.CODE_REVIEW_CONFIG,
@@ -79,7 +79,7 @@ export const DeleteRepoConfigModal = ({
                         },
                     }),
                 }),
-                resetQueries({
+                invalidateQueries({
                     queryKey: generateQueryKey(
                         PARAMETERS_PATHS.GET_CODE_REVIEW_PARAMETER,
                         {

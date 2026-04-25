@@ -56,7 +56,8 @@ export const AddRepoModal = ({
     editGroup?: EditGroupContext;
 }) => {
     const { teamId } = useSelectedTeamId();
-    const { resetQueries, generateQueryKey } = useReactQueryInvalidateQueries();
+    const { invalidateQueries, generateQueryKey } =
+        useReactQueryInvalidateQueries();
 
     const isEditMode = !!editGroup;
     const [selectedIds, setSelectedIds] = useState<string[]>(
@@ -113,7 +114,7 @@ export const AddRepoModal = ({
             }
 
             await Promise.all([
-                resetQueries({
+                invalidateQueries({
                     queryKey: generateQueryKey(PARAMETERS_PATHS.GET_BY_KEY, {
                         params: {
                             key: ParametersConfigKey.CODE_REVIEW_CONFIG,
@@ -121,7 +122,7 @@ export const AddRepoModal = ({
                         },
                     }),
                 }),
-                resetQueries({
+                invalidateQueries({
                     queryKey: generateQueryKey(
                         PARAMETERS_PATHS.GET_CODE_REVIEW_PARAMETER,
                         {
@@ -174,7 +175,13 @@ export const AddRepoModal = ({
                                         : 0;
                                 }}>
                                 <CommandInput
-                                    placeholder="Search repository..."
+                                    placeholder={
+                                        selectedRepositories.length > 0
+                                            ? selectedRepositories
+                                                  .map((r) => r.name)
+                                                  .join(", ")
+                                            : "Search repository..."
+                                    }
                                     onValueChange={(value) => {
                                         setSearch(value);
                                         setShowRepoList(true);
