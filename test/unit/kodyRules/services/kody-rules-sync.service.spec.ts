@@ -466,3 +466,99 @@ describe('KodyRulesSyncService — Bug: orphaned rules after IDE sync toggle-off
         expect(purgedUuids.sort()).toEqual(['rule-cursor-root', 'rule-cursor-subdir']);
     });
 });
+
+describe('KodyRulesSyncService.getConfiguredDirectories', () => {
+    const organizationAndTeamData = { organizationId: 'org-1', teamId: 'team-1' };
+
+    function buildService(repositories: any[]) {
+        const parametersService = {
+            findByKey: jest.fn().mockResolvedValue({
+                configValue: { repositories },
+            }),
+        };
+        const service = new KodyRulesSyncService(
+            {} as any, // kodyRulesService
+            parametersService as any,
+            {} as any, // contextResolutionService
+            {} as any, // codeManagementService
+            {} as any, // updateOrCreateCodeReviewParameterUseCase
+            {} as any, // createOrUpdateKodyRulesUseCase
+            {} as any, // promptRunnerService
+            {} as any, // permissionValidationService
+            {} as any, // observabilityService
+            {} as any, // contextReferenceDetectionService
+        );
+        return service;
+    }
+
+    it('returns the configured directory paths for the repository', async () => {
+        // REGRESSION: TypeScript was complaining "Property 'path' does not
+        // exist on type 'DirectoryCodeReviewConfig'" because the formal type
+        // models nested `folders[]` while the persisted shape carries `path`
+        // directly on each entry. The implementation now narrows via runtime
+        // typeof check and returns only the valid string paths.
+        const service = buildService([
+            {
+                id: 'repo-1',
+                directories: [
+                    { id: 'd1', path: 'apps/web' },
+                    { id: 'd2', path: 'apps/api' },
+                ],
+            },
+        ]);
+
+        const dirs = await (service as any).getConfiguredDirectories(
+            organizationAndTeamData,
+            'repo-1',
+        );
+
+        expect(dirs.sort()).toEqual(['apps/api', 'apps/web']);
+    });
+
+    it('skips entries that do not have a string `path`', async () => {
+        const service = buildService([
+            {
+                id: 'repo-1',
+                directories: [
+                    { id: 'd1', path: 'apps/web' },
+                    { id: 'd2' /* path missing */ },
+                    { id: 'd3', path: null },
+                    { id: 'd4', path: 42 as any },
+                ],
+            },
+        ]);
+
+        const dirs = await (service as any).getConfiguredDirectories(
+            organizationAndTeamData,
+            'repo-1',
+        );
+
+        expect(dirs).toEqual(['apps/web']);
+    });
+
+    it('returns [] when the repo has no directories configured', async () => {
+        const service = buildService([
+            { id: 'repo-1', directories: [] },
+        ]);
+
+        const dirs = await (service as any).getConfiguredDirectories(
+            organizationAndTeamData,
+            'repo-1',
+        );
+
+        expect(dirs).toEqual([]);
+    });
+
+    it('returns [] when repositoryId is missing', async () => {
+        const service = buildService([
+            { id: 'repo-1', directories: [{ id: 'd1', path: 'apps/web' }] },
+        ]);
+
+        const dirs = await (service as any).getConfiguredDirectories(
+            organizationAndTeamData,
+            undefined,
+        );
+
+        expect(dirs).toEqual([]);
+    });
+});

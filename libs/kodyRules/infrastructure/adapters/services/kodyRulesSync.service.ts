@@ -2436,7 +2436,14 @@ export class KodyRulesSyncService {
                 return [];
             }
 
-            return repoConfig.directories.map((d) => d.path);
+            // Each directory entry persisted in the parameters store carries
+            // a `path` string at runtime, but the formal type
+            // (`DirectoryCodeReviewConfig`) only models nested `folders[]`.
+            // Cast + runtime guard mirrors the pattern used by
+            // `findScopedDirectoryForFile` higher up in this file.
+            return (repoConfig.directories as any[])
+                .filter((d) => typeof d?.path === 'string')
+                .map((d) => d.path as string);
         } catch {
             return [];
         }
