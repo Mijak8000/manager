@@ -371,6 +371,72 @@ describe('KodyRulesSyncService — Bug: orphaned rules after IDE sync toggle-off
         expect(kodyRulesService.createOrUpdate).not.toHaveBeenCalled();
     });
 
+    it('pauseAllIdeSyncRulesForRepository flips ACTIVE rules to PAUSED, leaves PAUSED/DELETED alone', async () => {
+        const { service, kodyRulesService } = buildServiceForCleanup([
+            { uuid: 'rule-active', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'active' },
+            { uuid: 'rule-already-paused', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'paused' },
+            { uuid: 'rule-deleted', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'deleted' },
+            { uuid: 'rule-onboard', repositoryId: 'repo-1', sourcePath: 'package.json', status: 'active' },
+        ]);
+
+        await (service as any).pauseAllIdeSyncRulesForRepository({
+            organizationAndTeamData,
+            repositoryId: 'repo-1',
+        });
+
+        // Only the ACTIVE auto-sync rule is touched
+        expect(kodyRulesService.createOrUpdate).toHaveBeenCalledTimes(1);
+        expect(kodyRulesService.createOrUpdate).toHaveBeenCalledWith(
+            organizationAndTeamData,
+            expect.objectContaining({ uuid: 'rule-active', status: 'paused' }),
+            expect.any(Object),
+        );
+    });
+
+    it('resumeAllIdeSyncRulesForRepository flips PAUSED rules back to ACTIVE, leaves DELETED alone', async () => {
+        const { service, kodyRulesService } = buildServiceForCleanup([
+            { uuid: 'rule-paused-1', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'paused' },
+            { uuid: 'rule-paused-2', repositoryId: 'repo-1', sourcePath: 'apps/foo/.cursor/rules/x.mdc', status: 'paused' },
+            { uuid: 'rule-active', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'active' },
+            { uuid: 'rule-deleted', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'deleted' },
+        ]);
+
+        await (service as any).resumeAllIdeSyncRulesForRepository({
+            organizationAndTeamData,
+            repositoryId: 'repo-1',
+        });
+
+        // Only PAUSED auto-sync rules are flipped — DELETED is not resurrected here
+        expect(kodyRulesService.createOrUpdate).toHaveBeenCalledTimes(2);
+        const flipped = (kodyRulesService.createOrUpdate as jest.Mock).mock.calls.map(
+            ([, rule]) => rule.uuid,
+        );
+        expect(flipped.sort()).toEqual(['rule-paused-1', 'rule-paused-2']);
+        for (const call of (kodyRulesService.createOrUpdate as jest.Mock).mock.calls) {
+            expect(call[1].status).toBe('active');
+        }
+    });
+
+    it('countIdeSyncRulesForRepository tallies active/paused/deleted IDE-synced rules', async () => {
+        const { service } = buildServiceForCleanup([
+            { uuid: 'a1', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'active' },
+            { uuid: 'a2', repositoryId: 'repo-1', sourcePath: 'CLAUDE.md', status: 'active' },
+            { uuid: 'p1', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'paused' },
+            { uuid: 'd1', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'deleted' },
+            // NOT counted: Onboard rule (sourcePath outside RULE_FILE_PATTERNS)
+            { uuid: 'o1', repositoryId: 'repo-1', sourcePath: 'package.json', status: 'active' },
+            // NOT counted: rule from another repo
+            { uuid: 'r2', repositoryId: 'repo-2', sourcePath: '.cursorrules', status: 'active' },
+        ]);
+
+        const counts = await (service as any).countIdeSyncRulesForRepository({
+            organizationAndTeamData,
+            repositoryId: 'repo-1',
+        });
+
+        expect(counts).toEqual({ active: 2, paused: 1, deleted: 1 });
+    });
+
     it('does not touch Onboard-origin rules (sourcePath outside RULE_FILE_PATTERNS) during purge', async () => {
         // REGRESSION: previously the filter was `sourcePath != null`, which
         // erroneously matched rules from the Onboard flow (which also persist

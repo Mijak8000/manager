@@ -2477,40 +2477,72 @@ export class KodyRulesSyncService {
         return `${dir}/**/*`;
     }
 
+    /**
+     * Internal helper: walk every IDE-sync rule for `repositoryId` and flip
+     * each one to `targetStatus`. Optionally restrict the set to rules
+     * whose CURRENT status is in `onlyFromStatus` (e.g. `pause` should only
+     * touch ACTIVE rules; `resume` should only touch PAUSED rules).
+     *
+     * Returns the count of rules whose status was changed.
+     */
+    private async transitionIdeSyncRulesStatus(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repositoryId: string;
+        targetStatus: KodyRulesStatus;
+        onlyFromStatus?: KodyRulesStatus[];
+    }): Promise<number> {
+        const {
+            organizationAndTeamData,
+            repositoryId,
+            targetStatus,
+            onlyFromStatus,
+        } = params;
+        const entity = await this.kodyRulesService.findByOrganizationId(
+            organizationAndTeamData.organizationId,
+        );
+        if (!entity?.rules) return 0;
+
+        // Only act on rules whose `sourcePath` matches a recognised IDE
+        // rule file pattern. Other flows (e.g. Onboard) also persist rules
+        // with a `sourcePath`, so checking for null alone would sweep them
+        // up erroneously.
+        const ideSyncRules = entity.rules.filter((r: any) => {
+            if (r?.repositoryId !== repositoryId) return false;
+            if (!isIdeRuleSource(r?.sourcePath)) return false;
+            if (onlyFromStatus && !onlyFromStatus.includes(r?.status)) {
+                return false;
+            }
+            return true;
+        });
+
+        let changed = 0;
+        for (const rule of ideSyncRules) {
+            if (!rule.uuid) continue;
+            await this.kodyRulesService.createOrUpdate(
+                organizationAndTeamData,
+                { ...rule, status: targetStatus } as any,
+                this.systemUserInfo,
+            );
+            changed += 1;
+        }
+        return changed;
+    }
+
+    /**
+     * Soft-delete all IDE-synced rules for a repository (status → DELETED).
+     * Used by the toggle-off `delete` action and by the imported-rules
+     * management endpoint. The rule is kept for audit/undo but is hidden
+     * from the user's listing and skipped by the enforcement filter.
+     */
     async purgeAllIdeSyncRulesForRepository(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repositoryId: string;
     }): Promise<void> {
-        const { organizationAndTeamData, repositoryId } = params;
         try {
-            const entity = await this.kodyRulesService.findByOrganizationId(
-                organizationAndTeamData.organizationId,
-            );
-            if (!entity?.rules) return;
-
-            // Only purge rules whose `sourcePath` matches a recognised IDE
-            // rule file pattern. Other flows (e.g. Onboard) also persist
-            // rules with a `sourcePath`, so checking for null alone would
-            // sweep them up erroneously when the user toggles IDE auto-sync
-            // off.
-            const ideSyncRules = entity.rules.filter(
-                (r: any) =>
-                    r?.repositoryId === repositoryId &&
-                    isIdeRuleSource(r?.sourcePath),
-            );
-
-            for (const rule of ideSyncRules) {
-                if (!rule.uuid) continue;
-                // Soft-delete: flip status to DELETED. Keeps the record for
-                // audit/undo and removes it from the active rule set because
-                // KodyRulesValidationService.filterKodyRules drops any rule
-                // whose status !== ACTIVE.
-                await this.kodyRulesService.createOrUpdate(
-                    organizationAndTeamData,
-                    { ...rule, status: KodyRulesStatus.DELETED } as any,
-                    this.systemUserInfo,
-                );
-            }
+            await this.transitionIdeSyncRulesStatus({
+                ...params,
+                targetStatus: KodyRulesStatus.DELETED,
+            });
         } catch (error) {
             this.logger.error({
                 message: 'Failed to purge IDE sync rules for repository',
@@ -2519,5 +2551,88 @@ export class KodyRulesSyncService {
                 metadata: params,
             });
         }
+    }
+
+    /**
+     * Soft-disable all IDE-synced rules for a repository (status → PAUSED).
+     * Used by the toggle-off `pause` action and by the management endpoint.
+     * The rule stays visible in the user's list but is skipped by the
+     * enforcement filter, so PRs are no longer reviewed against it. Reversible
+     * via `resumeAllIdeSyncRulesForRepository`.
+     *
+     * Only rules currently in ACTIVE are paused (idempotent: PAUSED stays
+     * PAUSED, DELETED stays DELETED).
+     */
+    async pauseAllIdeSyncRulesForRepository(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repositoryId: string;
+    }): Promise<void> {
+        try {
+            await this.transitionIdeSyncRulesStatus({
+                ...params,
+                targetStatus: KodyRulesStatus.PAUSED,
+                onlyFromStatus: [KodyRulesStatus.ACTIVE],
+            });
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to pause IDE sync rules for repository',
+                context: KodyRulesSyncService.name,
+                error,
+                metadata: params,
+            });
+        }
+    }
+
+    /**
+     * Re-enable all paused IDE-synced rules for a repository (status →
+     * ACTIVE). Mirror of `pauseAllIdeSyncRulesForRepository`. Only rules
+     * currently in PAUSED are flipped — DELETED rules are not resurrected
+     * via this path (re-enabling auto-sync re-imports them from source).
+     */
+    async resumeAllIdeSyncRulesForRepository(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repositoryId: string;
+    }): Promise<void> {
+        try {
+            await this.transitionIdeSyncRulesStatus({
+                ...params,
+                targetStatus: KodyRulesStatus.ACTIVE,
+                onlyFromStatus: [KodyRulesStatus.PAUSED],
+            });
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to resume IDE sync rules for repository',
+                context: KodyRulesSyncService.name,
+                error,
+                metadata: params,
+            });
+        }
+    }
+
+    /**
+     * Count IDE-synced rules per status for a repository — drives the
+     * toggle-off modal copy ("you have N rules currently auto-synced").
+     */
+    async countIdeSyncRulesForRepository(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repositoryId: string;
+    }): Promise<{ active: number; paused: number; deleted: number }> {
+        const { organizationAndTeamData, repositoryId } = params;
+        const counts = { active: 0, paused: 0, deleted: 0 };
+        const entity = await this.kodyRulesService.findByOrganizationId(
+            organizationAndTeamData.organizationId,
+        );
+        if (!entity?.rules) return counts;
+
+        for (const r of entity.rules as any[]) {
+            if (r?.repositoryId !== repositoryId) continue;
+            if (!isIdeRuleSource(r?.sourcePath)) continue;
+            if (r?.status === KodyRulesStatus.ACTIVE) counts.active += 1;
+            else if (r?.status === KodyRulesStatus.PAUSED) counts.paused += 1;
+            else if (r?.status === KodyRulesStatus.DELETED) {
+                counts.deleted += 1;
+            }
+        }
+        return counts;
     }
 }
