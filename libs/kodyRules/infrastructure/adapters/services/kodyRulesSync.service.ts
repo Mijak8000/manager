@@ -15,7 +15,10 @@ import {
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
 
 import { ParametersKey } from '@libs/core/domain/enums';
-import { RULE_FILE_PATTERNS } from '@libs/common/utils/kody-rules/file-patterns';
+import {
+    RULE_FILE_PATTERNS,
+    isIdeRuleSource,
+} from '@libs/common/utils/kody-rules/file-patterns';
 import { isFileMatchingGlob } from '@libs/common/utils/glob-utils';
 import {
     CreateKodyRuleDto,
@@ -2485,9 +2488,15 @@ export class KodyRulesSyncService {
             );
             if (!entity?.rules) return;
 
+            // Only purge rules whose `sourcePath` matches a recognised IDE
+            // rule file pattern. Other flows (e.g. Onboard) also persist
+            // rules with a `sourcePath`, so checking for null alone would
+            // sweep them up erroneously when the user toggles IDE auto-sync
+            // off.
             const ideSyncRules = entity.rules.filter(
                 (r: any) =>
-                    r?.repositoryId === repositoryId && r?.sourcePath != null,
+                    r?.repositoryId === repositoryId &&
+                    isIdeRuleSource(r?.sourcePath),
             );
 
             for (const rule of ideSyncRules) {

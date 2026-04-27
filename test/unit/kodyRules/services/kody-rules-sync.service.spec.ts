@@ -370,4 +370,33 @@ describe('KodyRulesSyncService — Bug: orphaned rules after IDE sync toggle-off
 
         expect(kodyRulesService.createOrUpdate).not.toHaveBeenCalled();
     });
+
+    it('does not touch Onboard-origin rules (sourcePath outside RULE_FILE_PATTERNS) during purge', async () => {
+        // REGRESSION: previously the filter was `sourcePath != null`, which
+        // erroneously matched rules from the Onboard flow (which also persist
+        // sourcePath, but pointing at files like package.json / esbuild.config.js
+        // that are not in the IDE-rule pattern set). Toggling IDE auto-sync off
+        // would silently delete those Onboard rules. The filter now requires
+        // the sourcePath to match RULE_FILE_PATTERNS via isIdeRuleSource.
+        const { service, kodyRulesService } = buildServiceForCleanup([
+            // Auto-sync rules — should be purged
+            { uuid: 'rule-cursor-root', repositoryId: 'repo-1', sourcePath: '.cursorrules', status: 'active' },
+            { uuid: 'rule-cursor-subdir', repositoryId: 'repo-1', sourcePath: 'applications/foo/.cursor/rules/api.mdc', status: 'active' },
+            // Onboard rules with sourcePath outside RULE_FILE_PATTERNS — should be left alone
+            { uuid: 'rule-onboard-pkg', repositoryId: 'repo-1', sourcePath: 'package.json', status: 'active' },
+            { uuid: 'rule-onboard-esbuild', repositoryId: 'repo-1', sourcePath: 'esbuild.config.js', status: 'active' },
+            { uuid: 'rule-onboard-tsconfig', repositoryId: 'repo-1', sourcePath: 'apps/web/tsconfig.json', status: 'active' },
+        ]);
+
+        await (service as any).purgeAllIdeSyncRulesForRepository({
+            organizationAndTeamData,
+            repositoryId: 'repo-1',
+        });
+
+        expect(kodyRulesService.createOrUpdate).toHaveBeenCalledTimes(2);
+        const purgedUuids = (kodyRulesService.createOrUpdate as jest.Mock).mock.calls.map(
+            ([, rule]) => rule.uuid,
+        );
+        expect(purgedUuids.sort()).toEqual(['rule-cursor-root', 'rule-cursor-subdir']);
+    });
 });
