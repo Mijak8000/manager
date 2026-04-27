@@ -139,3 +139,131 @@ export function extractRepoSubdirFromIdeSource(
     // the dirname.
     return dir;
 }
+
+/**
+ * Whether `candidatePath` would match an IDE rule file path. Used to
+ * reject LLM hallucinations that try to scope a rule against the
+ * `.cursor/rules/**` (or similar) directory — i.e. lint the rule
+ * source files themselves instead of the actual code.
+ */
+export function pathMatchesIdeRuleDir(
+    candidatePath: string | null | undefined,
+): boolean {
+    if (!candidatePath) return false;
+    // Comma-separated list (KodyRules supports OR-joined globs)
+    const globs = candidatePath
+        .split(',')
+        .map((g) => g.trim())
+        .filter(Boolean);
+    if (globs.length === 0) return false;
+
+    return globs.some((glob) => {
+        // The glob is "IDE-y" if its fixed prefix is one of the markers
+        // (e.g. ".cursor/rules/**" → fixed prefix ".cursor/rules/").
+        const fixedPrefix = glob.split(/[*?[]/)[0];
+        const dir = fixedPrefix.endsWith('/')
+            ? fixedPrefix.slice(0, -1)
+            : path.posix.dirname(fixedPrefix);
+        if (!dir || dir === '.') return false;
+        return IDE_RULE_DIR_MARKERS.some(
+            (marker) => dir === marker || dir.endsWith('/' + marker),
+        );
+    });
+}
+
+/**
+ * Outcome of validating an LLM-extracted rule path.
+ *
+ *   accepted-as-is     → path is fine, use it verbatim
+ *   accepted-scoped    → path was generic ("**\/*") and got narrowed to
+ *                        the source's repo subdir
+ *   rejected-ide-path  → LLM tried to lint the rule source files (e.g.
+ *                        ".cursor/rules/**\/*"); the path was rebuilt
+ *                        from the source location instead
+ *   rejected-empty     → LLM returned no path or echoed the source path;
+ *                        rebuilt from the source location
+ */
+export type ValidatedRulePathReason =
+    | 'accepted-as-is'
+    | 'accepted-scoped'
+    | 'rejected-ide-path'
+    | 'rejected-empty';
+
+export interface ValidatedRulePath {
+    path: string;
+    reason: ValidatedRulePathReason;
+    /**
+     * The original LLM-supplied value (or `undefined`/`null` if missing).
+     * Useful for telemetry: which paths required intervention?
+     */
+    originalLlmPath?: string | null;
+}
+
+/**
+ * Validate and (when needed) rebuild a rule's `path` glob.
+ *
+ *   - If the LLM declared the glob (`pathSource === 'declared'`) and the
+ *     glob doesn't try to lint the rule source itself, accept verbatim.
+ *   - If the path is empty or echoes the source file path, fall back to
+ *     `<repo-subdir>/**\/*` (or repo-wide if the source is at the root).
+ *   - If the path matches an IDE rule directory ("would lint the rule
+ *     source"), do the same fallback rebuild.
+ *   - If the path is the generic "**\/*" and `pathSource !== 'declared'`,
+ *     scope to the repo subdir derived from the source location.
+ *   - Otherwise accept verbatim.
+ *
+ * Single entry point for path normalisation so the rules can't escape
+ * any of these checks. Callers should ALWAYS use this for IDE-sync
+ * imports.
+ */
+export function validateAndScopeIdeRulePath(params: {
+    llmPath: string | null | undefined;
+    sourceFilePath: string;
+    pathSource?: string | null;
+}): ValidatedRulePath {
+    const { llmPath, sourceFilePath, pathSource } = params;
+    const subdir = extractRepoSubdirFromIdeSource(sourceFilePath);
+    const subdirGlob = subdir ? `${subdir}/**/*` : '**/*';
+
+    const isEmpty =
+        !llmPath ||
+        llmPath.trim() === '' ||
+        // LLM echoed the source path back into the rule path, which is
+        // the failure mode we saw in production (".cursor/rules/foo.mdc"
+        // ending up as path).
+        llmPath.trim() === sourceFilePath;
+
+    if (isEmpty) {
+        return {
+            path: subdirGlob,
+            reason: 'rejected-empty',
+            originalLlmPath: llmPath,
+        };
+    }
+
+    if (pathMatchesIdeRuleDir(llmPath)) {
+        return {
+            path: subdirGlob,
+            reason: 'rejected-ide-path',
+            originalLlmPath: llmPath,
+        };
+    }
+
+    // Generic "**\/*" only gets scoped if the LLM didn't explicitly
+    // claim it was a declared glob. Respect declared intent.
+    if (llmPath === '**/*' && pathSource !== 'declared') {
+        if (subdir) {
+            return {
+                path: subdirGlob,
+                reason: 'accepted-scoped',
+                originalLlmPath: llmPath,
+            };
+        }
+    }
+
+    return {
+        path: llmPath,
+        reason: 'accepted-as-is',
+        originalLlmPath: llmPath,
+    };
+}

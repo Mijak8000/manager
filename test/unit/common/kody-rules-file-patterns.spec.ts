@@ -3,6 +3,8 @@ import {
     RULE_FILE_PATTERNS,
     extractRepoSubdirFromIdeSource,
     isIdeRuleSource,
+    pathMatchesIdeRuleDir,
+    validateAndScopeIdeRulePath,
 } from '../../../libs/common/utils/kody-rules/file-patterns';
 
 describe('IDE_RULE_DIR_MARKERS', () => {
@@ -154,5 +156,156 @@ describe('isIdeRuleSource — sanity check', () => {
         expect(isIdeRuleSource(null)).toBe(false);
         expect(isIdeRuleSource(undefined)).toBe(false);
         expect(isIdeRuleSource('')).toBe(false);
+    });
+});
+
+describe('pathMatchesIdeRuleDir', () => {
+    const IDE_PATHS = [
+        '.cursor/rules/**/*',
+        '.cursor/rules/**',
+        '.kody/rules/**',
+        '.github/instructions/**',
+        '.sourcegraph/**/*.rule.md',
+        'applications/foo/.cursor/rules/**/*',
+    ];
+
+    for (const p of IDE_PATHS) {
+        it(`flags "${p}" as IDE rule dir`, () => {
+            expect(pathMatchesIdeRuleDir(p)).toBe(true);
+        });
+    }
+
+    const REAL_CODE_PATHS = [
+        '**/*',
+        'src/**/*.ts',
+        '**/*.controller.ts,**/*.service.ts',
+        'apps/web/**',
+        'esbuild.config.js',
+    ];
+
+    for (const p of REAL_CODE_PATHS) {
+        it(`does NOT flag "${p}"`, () => {
+            expect(pathMatchesIdeRuleDir(p)).toBe(false);
+        });
+    }
+
+    it('flags any glob in a comma-separated list that hits an IDE dir', () => {
+        // Defensive: even if the LLM slips an IDE glob into a list of
+        // otherwise legit globs, we want to catch it.
+        expect(
+            pathMatchesIdeRuleDir('src/**/*.ts,.cursor/rules/**/*'),
+        ).toBe(true);
+    });
+
+    it('returns false for empty / nullish input', () => {
+        expect(pathMatchesIdeRuleDir('')).toBe(false);
+        expect(pathMatchesIdeRuleDir(null)).toBe(false);
+        expect(pathMatchesIdeRuleDir(undefined)).toBe(false);
+    });
+});
+
+describe('validateAndScopeIdeRulePath', () => {
+    it('accepts an explicit non-** glob declared by the LLM', () => {
+        const result = validateAndScopeIdeRulePath({
+            llmPath: 'src/**/*.ts',
+            sourceFilePath: '.cursor/rules/security.mdc',
+            pathSource: 'declared',
+        });
+        expect(result.path).toBe('src/**/*.ts');
+        expect(result.reason).toBe('accepted-as-is');
+    });
+
+    it('does NOT scope a "**/*" glob that the LLM marked as declared', () => {
+        // User explicitly wrote "globs: **/*" in the MDC; respect it.
+        const result = validateAndScopeIdeRulePath({
+            llmPath: '**/*',
+            sourceFilePath: 'applications/foo/.cursor/rules/x.mdc',
+            pathSource: 'declared',
+        });
+        expect(result.path).toBe('**/*');
+        expect(result.reason).toBe('accepted-as-is');
+    });
+
+    it('scopes "**/*" inferred glob to the repo subdir of the source', () => {
+        const result = validateAndScopeIdeRulePath({
+            llmPath: '**/*',
+            sourceFilePath: 'applications/foo/.cursor/rules/x.mdc',
+            pathSource: 'default-repo-wide',
+        });
+        expect(result.path).toBe('applications/foo/**/*');
+        expect(result.reason).toBe('accepted-scoped');
+    });
+
+    it('keeps "**/*" inferred glob repo-wide when source is at the repo root', () => {
+        // No subdir to scope to → the glob is unchanged. Mark as
+        // accepted-as-is, not accepted-scoped, so telemetry can tell
+        // the difference.
+        const result = validateAndScopeIdeRulePath({
+            llmPath: '**/*',
+            sourceFilePath: '.cursor/rules/x.mdc',
+            pathSource: 'default-repo-wide',
+        });
+        expect(result.path).toBe('**/*');
+        expect(result.reason).toBe('accepted-as-is');
+    });
+
+    it('rejects a path that points at the IDE rule dir and rebuilds from source location', () => {
+        // REGRESSION: this is the v2 bug — LLM (or a previous backend
+        // version) emitted ".cursor/rules/**/*" as the path, which would
+        // tell the reviewer to lint the rule files themselves.
+        const result = validateAndScopeIdeRulePath({
+            llmPath: '.cursor/rules/**/*',
+            sourceFilePath: 'applications/foo/.cursor/rules/x.mdc',
+            pathSource: 'declared',
+        });
+        expect(result.path).toBe('applications/foo/**/*');
+        expect(result.reason).toBe('rejected-ide-path');
+        expect(result.originalLlmPath).toBe('.cursor/rules/**/*');
+    });
+
+    it('rejects empty / missing path and rebuilds from source location', () => {
+        const result = validateAndScopeIdeRulePath({
+            llmPath: '',
+            sourceFilePath: 'applications/foo/.cursor/rules/x.mdc',
+            pathSource: 'default-repo-wide',
+        });
+        expect(result.path).toBe('applications/foo/**/*');
+        expect(result.reason).toBe('rejected-empty');
+    });
+
+    it('rejects an LLM path that echoes the source file path verbatim', () => {
+        // Failure mode: LLM (or fallback) returned the source path as
+        // the rule path. Visible in production (rule "Externalize vscode"
+        // had path === sourcePath === "esbuild.config.js" — borderline,
+        // but still wrong shape).
+        const result = validateAndScopeIdeRulePath({
+            llmPath: 'apps/web/.cursorrules',
+            sourceFilePath: 'apps/web/.cursorrules',
+            pathSource: 'declared',
+        });
+        expect(result.path).toBe('apps/web/**/*');
+        expect(result.reason).toBe('rejected-empty');
+    });
+
+    it('rejects null / undefined path and rebuilds repo-wide for root sources', () => {
+        const result = validateAndScopeIdeRulePath({
+            llmPath: null as any,
+            sourceFilePath: '.cursorrules',
+            pathSource: undefined,
+        });
+        expect(result.path).toBe('**/*');
+        expect(result.reason).toBe('rejected-empty');
+    });
+
+    it('respects an explicit non-** glob even when pathSource is missing', () => {
+        // Backward compat: prompts that don't ask for pathSource still
+        // get sane behaviour as long as the path itself is reasonable.
+        const result = validateAndScopeIdeRulePath({
+            llmPath: 'apps/web/**/*.tsx',
+            sourceFilePath: 'apps/web/.cursor/rules/x.mdc',
+            pathSource: undefined,
+        });
+        expect(result.path).toBe('apps/web/**/*.tsx');
+        expect(result.reason).toBe('accepted-as-is');
     });
 });

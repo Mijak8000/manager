@@ -468,7 +468,13 @@ describe('KodyRulesSyncService — Bug: orphaned rules after IDE sync toggle-off
     });
 });
 
-describe('KodyRulesSyncService.scopePathToSourceDirectory', () => {
+// scopePathToSourceDirectory was removed — its responsibility moved to
+// `validateAndScopeIdeRulePath` in libs/common/utils/kody-rules/file-patterns.ts.
+// See test/unit/common/kody-rules-file-patterns.spec.ts for the equivalent
+// (and broader) coverage. Keeping this block as a no-op skipped suite is
+// pointless — the cases below were preserved for documentation only and
+// commented out.
+describe.skip('KodyRulesSyncService.scopePathToSourceDirectory (REMOVED — see validateAndScopeIdeRulePath)', () => {
     function buildBareService() {
         return new KodyRulesSyncService(
             {} as any, {} as any, {} as any, {} as any, {} as any,

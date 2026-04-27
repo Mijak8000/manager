@@ -17,8 +17,8 @@ import {
 import { ParametersKey } from '@libs/core/domain/enums';
 import {
     RULE_FILE_PATTERNS,
-    extractRepoSubdirFromIdeSource,
     isIdeRuleSource,
+    validateAndScopeIdeRulePath,
 } from '@libs/common/utils/kody-rules/file-patterns';
 import { isFileMatchingGlob } from '@libs/common/utils/glob-utils';
 import {
@@ -587,10 +587,11 @@ export class KodyRulesSyncService {
                     uuid: existing?.uuid,
                     title: oneRule.title as string,
                     rule: oneRule.rule as string,
-                    path: this.scopePathToSourceDirectory(
-                        (oneRule.path as string) ?? f.filename,
-                        f.filename,
-                    ),
+                    path: validateAndScopeIdeRulePath({
+                        llmPath: oneRule.path as string,
+                        sourceFilePath: f.filename,
+                        pathSource: (oneRule as any)?.pathSource,
+                    }).path,
                     sourcePath: f.filename,
                     severity:
                         ((
@@ -872,10 +873,11 @@ export class KodyRulesSyncService {
                     uuid: existing?.uuid,
                     title: oneRule.title as string,
                     rule: oneRule.rule as string,
-                    path: this.scopePathToSourceDirectory(
-                        (oneRule.path as string) ?? file.path,
-                        file.path,
-                    ),
+                    path: validateAndScopeIdeRulePath({
+                        llmPath: oneRule.path as string,
+                        sourceFilePath: file.path,
+                        pathSource: (oneRule as any)?.pathSource,
+                    }).path,
                     sourcePath: file.path,
                     severity:
                         ((
@@ -1068,10 +1070,11 @@ export class KodyRulesSyncService {
             uuid: existing?.uuid,
             title: oneRule.title as string,
             rule: oneRule.rule as string,
-            path: this.scopePathToSourceDirectory(
-                (oneRule.path as string) ?? filePath,
-                filePath,
-            ),
+            path: validateAndScopeIdeRulePath({
+                llmPath: oneRule.path as string,
+                sourceFilePath: filePath,
+                pathSource: (oneRule as any)?.pathSource,
+            }).path,
             sourcePath: filePath,
             severity:
                 ((
@@ -1592,12 +1595,35 @@ export class KodyRulesSyncService {
                                 'Convert repository rule files (Cursor, Claude, GitHub rules, coding standards, etc.) into a JSON array of Kody Rules. IMPORTANT: Enforce exactly one rule per file. If multiple candidate rules exist, merge them COMPREHENSIVELY into one unified rule that preserves all essential details.',
                                 'Output ONLY a valid JSON object with a "rules" array. Format: {"rules": [...]}. If no rules, output {"rules": []}. No comments or explanations.',
                                 'Each item in the "rules" array MUST match exactly:',
-                                '{"title": string, "rule": string, "path": string, "sourcePath": string, "severity": "low"|"medium"|"high"|"critical", "scope"?: "file"|"pull-request", "status"?: "active"|"pending"|"rejected"|"deleted", "examples": [{ "snippet": string, "isCorrect": boolean }], "sourceSnippet"?: string}',
+                                '{"title": string, "rule": string, "path": string, "pathSource": "declared"|"content-inferred"|"location-inferred"|"default-repo-wide", "sourcePath": string, "severity": "low"|"medium"|"high"|"critical", "scope"?: "file"|"pull-request", "status"?: "active"|"pending"|"rejected"|"deleted", "examples": [{ "snippet": string, "isCorrect": boolean }], "sourceSnippet"?: string}',
                                 'Detection: extract a rule only if the text imposes a requirement/restriction/convention/standard.',
                                 'Severity map: must/required/security/blocker → "high" or "critical"; should/warn → "medium"; tip/info/optional → "low".',
                                 'Scope: "file" for code/content; "pull-request" for PR titles/descriptions/commits/reviewers/labels.',
                                 'Status: "active"',
-                                'path (target GLOB): use declared globs/paths when present (frontmatter like "globs:" or explicit sections). If none, set "**/*". If multiple, join with commas (e.g., "services/**,api/**").',
+
+                                // === path / pathSource — choose in this strict priority order ===
+                                'path (target GLOB) — pick the NARROWEST glob that captures what the rule is about, in this priority order:',
+                                '  (1) DECLARED — if the source file declares a glob (frontmatter "globs:", an explicit "Path:" / "Applies to:" line, etc.), use it verbatim. Set "pathSource": "declared". Comma-join multiple declared globs (e.g. "services/**,api/**").',
+                                '  (2) CONTENT-INFERRED — if no declared glob, inspect the rule body and infer from concrete signals. Set "pathSource": "content-inferred". Mapping examples:',
+                                '       TypeScript / TS files / .ts → "**/*.ts,**/*.tsx"',
+                                '       Python / .py → "**/*.py"',
+                                '       Go / Golang → "**/*.go"',
+                                '       Java → "**/*.java"',
+                                '       React / JSX / components → "**/*.tsx,**/*.jsx"',
+                                '       API controllers / HTTP handlers → "**/*.controller.ts,**/api/**"',
+                                '       Tests / specs → "**/*.test.ts,**/*.spec.ts"',
+                                '       esbuild config → "esbuild.config.{js,ts,mjs}"',
+                                '       webpack config → "webpack.config.*"',
+                                '       eslint config → ".eslintrc*,eslint.config.*"',
+                                '       Dockerfiles → "**/Dockerfile,**/Dockerfile.*"',
+                                '       VS Code Extension Webviews → "src/**/*.ts"',
+                                '       Database migrations → "**/migrations/**"',
+                                '  (3) LOCATION-INFERRED — if neither (1) nor (2) gives a useful narrowing AND the source MDC lives inside a repo subdirectory, scope to that subdirectory. Set "pathSource": "location-inferred". Examples:',
+                                '       source "applications/foo/.cursor/rules/x.mdc" → "applications/foo/**"',
+                                '       source "apps/api/.kody/rules/security.md" → "apps/api/**"',
+                                '  (4) DEFAULT-REPO-WIDE — only as a last resort, when the rule is genuinely repo-wide and the source is at the repo root. Set "pathSource": "default-repo-wide". Use "**/*".',
+                                'CRITICAL — NEVER set path to a glob that would match the rule source files themselves: do NOT emit ".cursor/rules/**", ".kody/rules/**", "CLAUDE.md", ".cursorrules", ".github/instructions/**", or any other IDE-rule directory. Those host the rule, not the code it lints. If you find yourself wanting to do that, fall back to (3) or (4).',
+                                'CRITICAL — NEVER copy "sourcePath" into "path". They serve different purposes.',
                                 'sourcePath: ALWAYS set to the exact file path provided in input.',
                                 'sourceSnippet: when possible, include an EXACT copy (verbatim) of the bullet/line/paragraph from the file that led to this rule. Do NOT paraphrase. If none is suitable, omit this key.',
 
@@ -1630,24 +1656,56 @@ export class KodyRulesSyncService {
 
             if (!result?.rules || result.rules.length === 0) return [];
 
-            const normalizeRule = (rule: any): Partial<CreateKodyRuleDto> => ({
-                ...rule,
-                severity:
-                    (rule?.severity?.toString?.().toLowerCase?.() as any) ||
-                    KodyRuleSeverity.MEDIUM,
-                scope: (rule?.scope as any) || KodyRulesScope.FILE,
-                path: rule?.path || params.filePath,
-                sourcePath: rule?.sourcePath || params.filePath,
-                repositoryId: rule?.repositoryId || params.repositoryId,
-                origin: KodyRulesOrigin.USER,
-                status: options?.defaultStatus || KodyRulesStatus.ACTIVE,
-                examples: Array.isArray(rule?.examples)
-                    ? rule.examples.map((example: any) => ({
-                          snippet: example?.snippet || '',
-                          isCorrect: example?.isCorrect || false,
-                      }))
-                    : [],
-            });
+            const normalizeRule = (rule: any): Partial<CreateKodyRuleDto> => {
+                const sourcePath = rule?.sourcePath || params.filePath;
+                // Single entry point for path validation/scoping. Replaces
+                // the old `rule?.path || params.filePath` fallback (which
+                // could echo the source path into the rule) and the
+                // post-hoc scopePathToSourceDirectory call.
+                const validated = validateAndScopeIdeRulePath({
+                    llmPath: rule?.path,
+                    sourceFilePath: sourcePath,
+                    pathSource: rule?.pathSource,
+                });
+
+                if (validated.reason !== 'accepted-as-is') {
+                    // Telemetry: non-trivial path interventions are the
+                    // signal that the LLM prompt drifted or hit an edge
+                    // case the validator caught. Aggregate over time to
+                    // see if "default-repo-wide" or "rejected-ide-path"
+                    // is a recurring pattern that needs prompt tuning.
+                    this.logger.log({
+                        message: `[kody-rules-sync] path validation: ${validated.reason}`,
+                        context: KodyRulesSyncService.name,
+                        metadata: {
+                            sourceFilePath: sourcePath,
+                            originalLlmPath: validated.originalLlmPath,
+                            finalPath: validated.path,
+                            pathSource: rule?.pathSource ?? 'unspecified',
+                            repositoryId: params.repositoryId,
+                        },
+                    });
+                }
+
+                return {
+                    ...rule,
+                    severity:
+                        (rule?.severity?.toString?.().toLowerCase?.() as any) ||
+                        KodyRuleSeverity.MEDIUM,
+                    scope: (rule?.scope as any) || KodyRulesScope.FILE,
+                    path: validated.path,
+                    sourcePath,
+                    repositoryId: rule?.repositoryId || params.repositoryId,
+                    origin: KodyRulesOrigin.USER,
+                    status: options?.defaultStatus || KodyRulesStatus.ACTIVE,
+                    examples: Array.isArray(rule?.examples)
+                        ? rule.examples.map((example: any) => ({
+                              snippet: example?.snippet || '',
+                              isCorrect: example?.isCorrect || false,
+                          }))
+                        : [],
+                };
+            };
 
             return result.rules.map(normalizeRule);
         } catch {
@@ -2468,27 +2526,6 @@ export class KodyRulesSyncService {
         } catch {
             return [];
         }
-    }
-
-    /**
-     * When the LLM returns the generic "**\/*" glob for a rule file that
-     * lives in a subdirectory, scope the rule to that subdirectory so it
-     * is not applied repo-wide. Explicit globs declared in the source
-     * file are left untouched.
-     *
-     * The IDE-rule directory markers used here are derived from
-     * `RULE_FILE_PATTERNS` in libs/common/utils/kody-rules/file-patterns.ts —
-     * single source of truth, so adding a new IDE/agent pattern there
-     * keeps this scoping in sync without touching multiple files.
-     */
-    private scopePathToSourceDirectory(
-        llmPath: string,
-        sourceFilePath: string,
-    ): string {
-        if (llmPath !== '**/*') return llmPath;
-        const subdir = extractRepoSubdirFromIdeSource(sourceFilePath);
-        if (!subdir) return llmPath; // root config → keep repo-wide
-        return `${subdir}/**/*`;
     }
 
     /**
