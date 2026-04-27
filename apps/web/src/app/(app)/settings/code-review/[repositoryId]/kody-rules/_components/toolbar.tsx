@@ -50,7 +50,8 @@ export const KodyRulesToolbar = ({
     const activeFilterCount =
         listFilters.origins.size +
         listFilters.severities.size +
-        (listFilters.withSyncErrors ? 1 : 0);
+        (listFilters.withSyncErrors ? 1 : 0) +
+        (listFilters.pausedOnly ? 1 : 0);
 
     // Global "/" shortcut focuses the search input (skips when the user is
     // already typing in another input/textarea/contenteditable).
@@ -391,6 +392,21 @@ export const FilterPopoverContent = ({
                     />
                     <Label htmlFor="filter-sync-errors">
                         Has sync errors
+                    </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id="filter-paused-only"
+                        checked={listFilters.pausedOnly}
+                        onCheckedChange={(checked) =>
+                            onListFiltersChange({
+                                ...listFilters,
+                                pausedOnly: Boolean(checked),
+                            })
+                        }
+                    />
+                    <Label htmlFor="filter-paused-only">
+                        Paused only
                     </Label>
                 </div>
             </section>

@@ -33,6 +33,7 @@ export const FILTER_PARAM_KEYS = {
     severities: "severities",
     onlyOrphans: "onlyOrphans",
     withSyncErrors: "syncErrors",
+    pausedOnly: "pausedOnly",
 } as const;
 
 export type SerializedFilters = {
@@ -80,10 +81,11 @@ export function parseFiltersFromParams(
     const onlyOrphans = params.get(FILTER_PARAM_KEYS.onlyOrphans) === "1";
     const withSyncErrors =
         params.get(FILTER_PARAM_KEYS.withSyncErrors) === "1";
+    const pausedOnly = params.get(FILTER_PARAM_KEYS.pausedOnly) === "1";
 
     return {
         query,
-        listFilters: { origins, severities, withSyncErrors },
+        listFilters: { origins, severities, withSyncErrors, pausedOnly },
         onlyOrphans,
     };
 }
@@ -130,6 +132,12 @@ export function applyFiltersToParams(
         params.set(FILTER_PARAM_KEYS.withSyncErrors, "1");
     } else {
         params.delete(FILTER_PARAM_KEYS.withSyncErrors);
+    }
+
+    if (filters.listFilters.pausedOnly) {
+        params.set(FILTER_PARAM_KEYS.pausedOnly, "1");
+    } else {
+        params.delete(FILTER_PARAM_KEYS.pausedOnly);
     }
 
     return params;

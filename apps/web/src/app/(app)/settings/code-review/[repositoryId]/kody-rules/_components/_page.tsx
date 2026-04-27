@@ -51,6 +51,7 @@ import {
     compareRules,
     EMPTY_LIST_FILTERS,
     matchesOriginFilter,
+    matchesPausedOnlyFilter,
     matchesSeverityFilter,
     matchesSyncErrorsFilter,
     matchesTextQuery,
@@ -340,7 +341,16 @@ const KodyRulesPageContent = () => {
                 rule as KodyRule,
                 listFilters,
             );
-            return passesOrigin && passesSeverity && passesSyncErrors;
+            const passesPausedOnly = matchesPausedOnlyFilter(
+                rule as KodyRule,
+                listFilters,
+            );
+            return (
+                passesOrigin &&
+                passesSeverity &&
+                passesSyncErrors &&
+                passesPausedOnly
+            );
         });
 
         const filterQueryLowercase = filterQuery.toLowerCase();
