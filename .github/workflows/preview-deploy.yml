@@ -87,7 +87,7 @@ jobs:
                   echo "Waiting for $API_URL to respond..."
 
                   for i in $(seq 1 30); do
-                    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$API_URL/" || echo "000")
+                    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$API_URL/") || code="000"
                     # Any non-5xx (incl. 404) means the API is up enough to
                     # route. 502/503/000 mean Railway is still cold-starting
                     # or networking isn't ready yet.
