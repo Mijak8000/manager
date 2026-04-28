@@ -17,6 +17,13 @@ ENV API_DEVELOPMENT_MODE=false
 ENV RELEASE_VERSION=${RELEASE_VERSION}
 ENV SENTRY_RELEASE=${RELEASE_VERSION}
 
+# Yarn1's default HTTP timeout is 30s, which is too tight for slow paths to
+# registry.npmjs.org from the GitHub Actions runners — a single laggy
+# tarball (e.g. date-fns) can blow the whole `yarn install` after 4 retries
+# and abort the bake. 10 minutes covers realistic transient slowness; if
+# the registry is genuinely down we want to fail fast on a re-run anyway.
+ENV YARN_HTTP_TIMEOUT=600000
+
 # apt cache mounts persist /var/cache/apt and /var/lib/apt across builds so
 # repeated apt-get runs don't re-download the same .deb packages. The
 # `docker-clean` apt hook (ships in debian-slim) would delete the cache
