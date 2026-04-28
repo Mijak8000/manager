@@ -154,7 +154,6 @@ jobs:
             # See selfhosted-build-push.yml for flag rationale. Advisory-only
             # (`exit-code: 0`) until backlog triage — flip to `1` to block.
             - name: Trivy scan — kodus-ai-api
-              if: always()
               uses: aquasecurity/trivy-action@v0.36.0
               with:
                   image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_API
@@ -166,7 +165,6 @@ jobs:
                   exit-code: "0"
 
             - name: Trivy scan — kodus-ai-webhooks
-              if: always()
               uses: aquasecurity/trivy-action@v0.36.0
               with:
                   image-ref: ${{ steps.login-ecr.outputs.registry }}/${{
@@ -178,7 +176,6 @@ jobs:
                   exit-code: "0"
 
             - name: Trivy scan — kodus-ai-worker
-              if: always()
               uses: aquasecurity/trivy-action@v0.36.0
               with:
                   image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_WORKER
@@ -190,8 +187,7 @@ jobs:
                   exit-code: "0"
 
             - name: Upload Trivy SARIF reports
-              if: always()
-              uses: github/codeql-action/upload-sarif@v3
+              uses: github/codeql-action/upload-sarif@v4
               with:
                   sarif_file: "."
                   category: "trivy-qa-backend"
