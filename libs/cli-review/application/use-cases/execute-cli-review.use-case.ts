@@ -40,11 +40,19 @@ import {
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
 import { KodyRulesValidationService } from '@libs/ee/kodyRules/service/kody-rules-validation.service';
+import { CodeReviewPipelineObserver } from '@libs/code-review/infrastructure/observers/code-review-pipeline.observer';
 
 interface GitContext {
     remote?: string;
     branch?: string;
     commitSha?: string;
+    /**
+     * Merge-base between HEAD and the upstream default branch on the user's
+     * machine (git merge-base HEAD origin/main). Used by the sandbox stage
+     * to checkout a commit that exists on the remote and apply the local
+     * diff on top — works when the branch isn't pushed yet.
+     */
+    mergeBaseSha?: string;
     inferredPlatform?: PlatformType;
     cliVersion?: string;
 }
@@ -77,6 +85,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
         @Inject(KODY_RULES_SERVICE_TOKEN)
         private readonly kodyRulesService: IKodyRulesService,
         private readonly kodyRulesValidationService: KodyRulesValidationService,
+        private readonly pipelineObserver: CodeReviewPipelineObserver,
     ) {}
 
     async execute(params: ExecuteCliReviewInput): Promise<CliReviewResponse> {
@@ -221,9 +230,15 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                           remote: gitContext.remote,
                           branch: gitContext.branch,
                           commitSha: gitContext.commitSha,
+                          mergeBaseSha: gitContext.mergeBaseSha,
                           inferredPlatform: gitContext.inferredPlatform,
                       }
                     : undefined,
+
+                // Raw diff for the sandbox stage to `git apply` on top of the
+                // merge-base SHA — recreates branches not yet pushed and
+                // uncommitted working-tree changes inside the sandbox.
+                cliRawDiff: input.diff,
 
                 // Pipeline metadata — populate lastExecution with the real
                 // AutomationExecution uuid so the pipeline observer uses
@@ -255,6 +270,9 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                 context,
                 stages,
                 pipelineName,
+                undefined,
+                undefined,
+                [this.pipelineObserver],
             );
 
             // 6. Return formatted response
@@ -593,6 +611,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                               remote: gitContext.remote,
                               branch: gitContext.branch,
                               commitSha: gitContext.commitSha,
+                              mergeBaseSha: gitContext.mergeBaseSha,
                               inferredPlatform: gitContext.inferredPlatform,
                           }
                         : undefined,

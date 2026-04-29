@@ -1,0 +1,26 @@
+import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
+import { CliReviewInput } from '@libs/cli-review/domain/types/cli-review.types';
+import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
+
+export interface CliReviewJobGitContext {
+    remote?: string;
+    branch?: string;
+    commitSha?: string;
+    /**
+     * Merge-base between HEAD and the upstream default branch on the user's
+     * machine. The sandbox checks out this commit (which is guaranteed to be
+     * on the remote) and applies the diff on top, so reviews work for
+     * branches that haven't been pushed yet and for uncommitted changes.
+     */
+    mergeBaseSha?: string;
+    inferredPlatform?: PlatformType;
+    cliVersion?: string;
+}
+
+export interface CliReviewJobPayload {
+    organizationAndTeamData: OrganizationAndTeamData;
+    input: CliReviewInput;
+    isTrialMode?: boolean;
+    userEmail?: string;
+    gitContext?: CliReviewJobGitContext;
+}

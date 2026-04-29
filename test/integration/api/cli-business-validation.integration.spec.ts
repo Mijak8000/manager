@@ -20,6 +20,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { CliReviewController } from '@/core/infrastructure/http/controllers/cli/cli-review.controller';
 import { ExecuteCliReviewUseCase } from '@libs/cli-review/application/use-cases/execute-cli-review.use-case';
+import { EnqueueCliReviewUseCase } from '@libs/cli-review/application/use-cases/enqueue-cli-review.use-case';
+import { JOB_QUEUE_SERVICE_TOKEN } from '@libs/core/workflow/domain/contracts/job-queue.service.contract';
 import { SubmitCliSessionCaptureUseCase } from '@libs/cli-review/application/use-cases/submit-cli-session-capture.use-case';
 import { AuthenticatedRateLimiterService } from '@libs/cli-review/infrastructure/services/authenticated-rate-limiter.service';
 import { TrialRateLimiterService } from '@libs/cli-review/infrastructure/services/trial-rate-limiter.service';
@@ -62,6 +64,18 @@ describe('CLI business-validation integration', () => {
                 {
                     provide: ExecuteCliReviewUseCase,
                     useValue: { execute: jest.fn() },
+                },
+                {
+                    provide: EnqueueCliReviewUseCase,
+                    useValue: { execute: jest.fn() },
+                },
+                {
+                    provide: JOB_QUEUE_SERVICE_TOKEN,
+                    useValue: {
+                        enqueue: jest.fn(),
+                        getStatus: jest.fn(),
+                        listJobs: jest.fn(),
+                    },
                 },
                 {
                     provide: SubmitCliSessionCaptureUseCase,

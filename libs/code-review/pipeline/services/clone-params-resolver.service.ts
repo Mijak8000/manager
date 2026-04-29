@@ -70,6 +70,13 @@ export class CloneParamsResolverService {
         baseBranch?: string;
         prNumber?: number;
         platform: PlatformType;
+        /**
+         * CLI-only: SHA the sandbox should checkout instead of fetching the
+         * branch ref. Set when the user has a local merge-base with the
+         * upstream default branch — guarantees the SHA exists on the remote
+         * even if the user's branch hasn't been pushed yet.
+         */
+        checkoutSha?: string;
     } | null> {
         if (context.origin !== 'cli') {
             const cloneParams = await this.codeManagementService.getCloneParams(
@@ -164,6 +171,7 @@ export class CloneParamsResolverService {
             branch,
             prNumber: undefined,
             platform,
+            checkoutSha: gitContext.mergeBaseSha,
         };
     }
 }

@@ -98,6 +98,15 @@ export class E2BSandboxService implements ISandboxProvider {
 
             await this.cloneRepository(sandbox, params);
 
+            // CLI mode: when the user's branch isn't pushed (or there are
+            // uncommitted changes), the regular fetch above fails — we
+            // instead fetch the merge-base SHA (always present on the
+            // remote) and apply the local diff on top, recreating the
+            // working state inside the sandbox.
+            if (params.unifiedDiff && params.checkoutSha) {
+                await this.applyLocalDiff(sandbox, params.unifiedDiff);
+            }
+
             // Fetch base branch so git diff origin/${baseBranch}...HEAD works
             const resolvedBaseBranch = await this.fetchBaseBranch(
                 sandbox,
@@ -189,14 +198,26 @@ export class E2BSandboxService implements ISandboxProvider {
             branch,
             prNumber,
             platform,
+            checkoutSha,
         } = params;
 
-        // Shallow-fetch the PR ref or branch (minimal network transfer)
+        // CLI mode with merge-base SHA: fetch that SHA directly. Avoids
+        // depending on the user's branch existing on the remote (it may
+        // not be pushed yet) — the merge-base is always there.
+        // PR mode: fetch the PR refspec.
+        // Otherwise: fetch the branch ref.
         const refspec =
-            prNumber != null
-                ? this.getPrRefspec(platform, prNumber, cloneUrl, branch)
-                : `refs/heads/${branch}`;
-        const localRef = prNumber != null ? 'pr-head' : 'cli-head';
+            checkoutSha != null
+                ? checkoutSha
+                : prNumber != null
+                  ? this.getPrRefspec(platform, prNumber, cloneUrl, branch)
+                  : `refs/heads/${branch}`;
+        const localRef =
+            checkoutSha != null
+                ? 'cli-base'
+                : prNumber != null
+                  ? 'pr-head'
+                  : 'cli-head';
         const authHeader = this.buildAuthHeader(
             platform,
             authToken,
@@ -271,6 +292,79 @@ export class E2BSandboxService implements ISandboxProvider {
             metadata: {
                 exitCode: verifyResult.exitCode,
                 stdout: verifyResult.stdout?.slice(0, 500),
+            },
+        });
+    }
+
+    /**
+     * Apply a unified diff on top of the currently-checked-out commit. Used
+     * in CLI mode to recreate the user's local working state on top of the
+     * merge-base SHA we just cloned. `--3way` makes apply tolerant to
+     * context drift (it falls back to a 3-way merge using the blob SHAs
+     * embedded in the diff). Failure is non-fatal: we log and continue —
+     * worst case the agent reviews the merge-base instead of the user's
+     * local changes, which is still better than self-contained mode.
+     */
+    private async applyLocalDiff(
+        sandbox: Sandbox,
+        unifiedDiff: string,
+    ): Promise<void> {
+        const PATCH_PATH = '/tmp/kodus-cli.patch';
+
+        try {
+            await sandbox.files.write(PATCH_PATH, unifiedDiff);
+        } catch (error) {
+            this.logger.warn({
+                message:
+                    '[DEBUG] Failed to write CLI diff to sandbox; agent will review merge-base only',
+                context: E2BSandboxService.name,
+                error,
+            });
+            return;
+        }
+
+        // Configure a dummy identity so `git apply --3way` (which records a
+        // commit when it falls back) doesn't error on missing user.email.
+        // Then try `git apply --3way` first; if that fails, retry with
+        // `git apply --whitespace=fix` which is more permissive but loses
+        // 3-way fallback. Last resort: log and move on.
+        const result = await sandbox.commands.run(
+            [
+                `cd ${REPO_DIR}`,
+                `git config user.email kodus-cli@kodus.local`,
+                `git config user.name 'Kodus CLI'`,
+                `git apply --3way --whitespace=nowarn ${PATCH_PATH}`,
+            ].join(' && '),
+            { timeoutMs: TIMEOUTS.COMMAND_LONG_MS },
+        );
+
+        if (result.exitCode === 0) {
+            this.logger.log({
+                message: `[DEBUG] CLI diff applied successfully on top of merge-base`,
+                context: E2BSandboxService.name,
+            });
+            return;
+        }
+
+        this.logger.warn({
+            message: `[DEBUG] git apply --3way failed (exit=${result.exitCode}), retrying with --whitespace=fix`,
+            context: E2BSandboxService.name,
+            metadata: {
+                stderr: result.stderr?.slice(0, 500),
+            },
+        });
+
+        const retry = await sandbox.commands.run(
+            `cd ${REPO_DIR} && git apply --whitespace=fix --reject ${PATCH_PATH} || true`,
+            { timeoutMs: TIMEOUTS.COMMAND_LONG_MS },
+        );
+
+        this.logger.warn({
+            message: `[DEBUG] git apply fallback finished (exit=${retry.exitCode}); agent will see whichever hunks applied`,
+            context: E2BSandboxService.name,
+            metadata: {
+                stdout: retry.stdout?.slice(0, 300),
+                stderr: retry.stderr?.slice(0, 300),
             },
         });
     }

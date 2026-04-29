@@ -146,6 +146,16 @@ export class CliReviewRequestDto {
     commitSha?: string; // git rev-parse HEAD
 
     @IsOptional()
+    @IsString()
+    @MaxLength(40, { message: 'Merge-base SHA too long' })
+    @ApiPropertyOptional({
+        description:
+            "Merge-base between HEAD and the upstream default branch (git merge-base HEAD origin/main). The sandbox checks out this commit (guaranteed to be on the remote) and applies the diff on top, so reviews work for branches not yet pushed and uncommitted changes.",
+        example: 'a1b2c3d4e5f6g7h8i9j0',
+    })
+    mergeBaseSha?: string;
+
+    @IsOptional()
     @IsEnum(PlatformType)
     @ApiPropertyOptional({
         enum: PlatformType,

@@ -24,6 +24,7 @@ describe('RealReviewApi', () => {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,
+                    'X-Kodus-Async': '1',
                 },
                 body: JSON.stringify({
                     diff: 'diff --git a/file b/file',

@@ -13,6 +13,31 @@ type RequestWithRetry = <T>(
     options?: RequestInit,
 ) => Promise<T>;
 
+interface CliReviewEnqueueResponse {
+    jobId: string;
+    status: string;
+    statusUrl?: string;
+}
+
+interface CliReviewJobStatusResponse {
+    jobId: string;
+    status:
+        | 'PENDING'
+        | 'PROCESSING'
+        | 'COMPLETED'
+        | 'FAILED'
+        | 'WAITING_FOR_EVENT';
+    result?: ReviewResult;
+    error?: string;
+    createdAt?: string;
+    startedAt?: string;
+    completedAt?: string;
+}
+
+const POLL_MIN_DELAY_MS = 1_000;
+const POLL_MAX_DELAY_MS = 5_000;
+const POLL_MAX_WAIT_MS = 30 * 60 * 1000;
+
 export class RealReviewApi implements IReviewApi {
     constructor(private readonly requester: RequestWithRetry = requestWithRetry) {}
 
@@ -29,10 +54,11 @@ export class RealReviewApi implements IReviewApi {
         accessToken: string,
         config?: ReviewConfig,
         metrics?: GitMetrics,
+        onProgress?: (status: string) => void,
     ): Promise<ReviewResult> {
         const isTeamKey = accessToken.startsWith('kodus_');
 
-        const headers: Record<string, string> = isTeamKey
+        const authHeaders: Record<string, string> = isTeamKey
             ? { 'X-Team-Key': accessToken }
             : { Authorization: `Bearer ${accessToken}` };
 
@@ -50,15 +76,80 @@ export class RealReviewApi implements IReviewApi {
             }
         }
 
-        return this.requester<ReviewResult>(endpoint, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                diff,
-                config,
-                ...metrics,
-            }),
-        });
+        // Enqueue: server returns 202 + jobId. We then poll for completion.
+        const enqueueResponse = await this.requester<CliReviewEnqueueResponse>(
+            endpoint,
+            {
+                method: 'POST',
+                headers: {
+                    ...authHeaders,
+                    'X-Kodus-Async': '1',
+                },
+                body: JSON.stringify({
+                    diff,
+                    config,
+                    ...metrics,
+                }),
+            },
+        );
+
+        if (!enqueueResponse?.jobId) {
+            // Server didn't honor async (older deployment). It must have
+            // returned the legacy synchronous body, so just hand it back.
+            return enqueueResponse as unknown as ReviewResult;
+        }
+
+        return this.pollReviewJob(
+            enqueueResponse.jobId,
+            authHeaders,
+            onProgress,
+        );
+    }
+
+    private async pollReviewJob(
+        jobId: string,
+        authHeaders: Record<string, string>,
+        onProgress?: (status: string) => void,
+    ): Promise<ReviewResult> {
+        const startedAt = Date.now();
+        let delayMs = POLL_MIN_DELAY_MS;
+        let lastStatus: string | undefined;
+
+        while (Date.now() - startedAt < POLL_MAX_WAIT_MS) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            delayMs = Math.min(delayMs * 2, POLL_MAX_DELAY_MS);
+
+            const statusResponse =
+                await this.requester<CliReviewJobStatusResponse>(
+                    `/cli/review/jobs/${encodeURIComponent(jobId)}`,
+                    { method: 'GET', headers: { ...authHeaders } },
+                );
+
+            if (statusResponse.status !== lastStatus) {
+                lastStatus = statusResponse.status;
+                onProgress?.(statusResponse.status);
+            }
+
+            if (statusResponse.status === 'COMPLETED') {
+                if (!statusResponse.result) {
+                    throw new Error(
+                        `CLI review job ${jobId} completed but no result was returned`,
+                    );
+                }
+                return statusResponse.result;
+            }
+
+            if (statusResponse.status === 'FAILED') {
+                throw new Error(
+                    statusResponse.error ||
+                        `CLI review job ${jobId} failed without an error message`,
+                );
+            }
+        }
+
+        throw new Error(
+            `CLI review job ${jobId} did not finish within ${POLL_MAX_WAIT_MS}ms`,
+        );
     }
 
     async getPullRequestSuggestions(

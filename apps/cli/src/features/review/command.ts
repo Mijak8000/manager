@@ -36,6 +36,7 @@ import {
     shouldFailReview,
     shouldUseInteractiveReview,
 } from './result.js';
+import { ApiError } from '../../types/errors.js';
 import type { GlobalOptions } from '../../types/cli.js';
 import type { ReviewResult, TrialReviewResult } from '../../types/review.js';
 
@@ -171,21 +172,68 @@ async function reviewAction(
                 reviewService.setVerbose(true);
             }
 
-            result = await reviewService.analyze(
-                diff,
-                options.rulesOnly,
-                options.fast,
-                {
-                    files: files.length > 0 ? files : undefined,
-                    staged: options.staged,
-                    commit: options.commit,
-                    branch: options.branch,
-                    quiet: globalOpts.quiet,
-                },
-            );
-            const modeLabel = options.fast ? ' (fast mode)' : '';
-            if (!globalOpts.quiet && !ctx.isAgent) {
-                spinner.succeed(chalk.green(`Review complete!${modeLabel}`));
+            try {
+                result = await reviewService.analyze(
+                    diff,
+                    options.rulesOnly,
+                    options.fast,
+                    {
+                        files: files.length > 0 ? files : undefined,
+                        staged: options.staged,
+                        commit: options.commit,
+                        branch: options.branch,
+                        quiet: globalOpts.quiet,
+                        onProgress: (status) => {
+                            if (globalOpts.quiet || ctx.isAgent) return;
+                            if (status === 'PENDING') {
+                                spinner.text = chalk.cyan(
+                                    'Queued for review...',
+                                );
+                            } else if (status === 'PROCESSING') {
+                                spinner.text = chalk.cyan('Analyzing code...');
+                            }
+                        },
+                    },
+                );
+                const modeLabel = options.fast ? ' (fast mode)' : '';
+                if (!globalOpts.quiet && !ctx.isAgent) {
+                    spinner.succeed(
+                        chalk.green(`Review complete!${modeLabel}`),
+                    );
+                }
+            } catch (error) {
+                // If the configured credentials are invalid (revoked team key,
+                // expired session) fall back to trial mode so a single broken
+                // setup doesn't block a one-off review. We only fall back on
+                // 401 — other errors (rate limit, server error, network)
+                // bubble up unchanged.
+                if (
+                    !(error instanceof ApiError) ||
+                    error.statusCode !== 401
+                ) {
+                    throw error;
+                }
+
+                if (!globalOpts.quiet && !ctx.isAgent) {
+                    spinner.warn(
+                        chalk.yellow(
+                            'Authenticated review failed (invalid or revoked credentials). Falling back to trial mode...',
+                        ),
+                    );
+                }
+
+                const fallbackResult = await runTrialFallback({
+                    diff,
+                    spinner,
+                    ctx,
+                    globalOpts,
+                });
+
+                if (!fallbackResult) {
+                    return;
+                }
+
+                result = fallbackResult;
             }
         } else {
             if (!globalOpts.quiet && !ctx.isAgent) {
@@ -351,6 +399,47 @@ async function reviewAction(
         }
         exitWithCode(normalized.exitCode);
     }
+}
+
+async function runTrialFallback({
+    diff,
+    spinner,
+    ctx,
+    globalOpts,
+}: {
+    diff: string;
+    spinner: Ora;
+    ctx: ReturnType<typeof createCommandContext>;
+    globalOpts: GlobalOptions;
+}): Promise<TrialReviewResult | null> {
+    if (!globalOpts.quiet && !ctx.isAgent) {
+        spinner.start(chalk.cyan('Checking trial limit...'));
+    }
+
+    const trialStatus = await checkTrialStatus();
+    if (trialStatus.isLimited) {
+        spinner.stop();
+        showTrialLimitPrompt(trialStatus);
+        return null;
+    }
+
+    if (!globalOpts.quiet && !ctx.isAgent) {
+        spinner.text = chalk.cyan('Analyzing code (trial mode)...');
+    }
+
+    if (globalOpts.verbose) {
+        reviewService.setVerbose(true);
+    }
+
+    const trialResult = await reviewService.trialAnalyze(diff);
+
+    if (!globalOpts.quiet && !ctx.isAgent) {
+        spinner.succeed(
+            chalk.green(formatTrialCompletionMessage(trialResult)),
+        );
+    }
+
+    return trialResult;
 }
 
 async function handleNoChanges(

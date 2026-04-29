@@ -53,6 +53,7 @@ class ReviewService {
             commit?: string;
             branch?: string;
             quiet?: boolean;
+            onProgress?: (status: string) => void;
         },
     ): Promise<ReviewResult> {
         const token = await authService.getValidToken();
@@ -102,9 +103,11 @@ class ReviewService {
                     gitRemote: gitInfo.remote || undefined,
                     branch: gitInfo.branch,
                     commitSha: gitInfo.commitSha,
+                    mergeBaseSha: gitInfo.mergeBaseSha,
                     inferredPlatform,
                     cliVersion: CLI_VERSION,
                 },
+                options?.onProgress,
             );
 
             createAnalyzeApiResponseVerboseMessages({
@@ -141,9 +144,11 @@ class ReviewService {
                 gitRemote: gitInfo.remote || undefined,
                 branch: gitInfo.branch,
                 commitSha: gitInfo.commitSha,
+                mergeBaseSha: gitInfo.mergeBaseSha,
                 inferredPlatform,
                 cliVersion: CLI_VERSION,
             },
+            options?.onProgress,
         );
 
         createAnalyzeApiResponseVerboseMessages({
