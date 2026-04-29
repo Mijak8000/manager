@@ -53,7 +53,9 @@ import { AuthController } from './controllers/auth.controller';
 import { CliConfigController } from './controllers/cli/cli-config.controller';
 import { CliCentralizedConfigController } from './controllers/cli/cli-centralized-config.controller';
 import { CliKodyRulesController } from './controllers/cli/cli-kody-rules.controller';
+import { CliAuthController } from './controllers/cli-auth.controller';
 import { CliReviewController } from './controllers/cli/cli-review.controller';
+import { CliReviewsController } from './controllers/cli-reviews.controller';
 import { CodeBaseController } from './controllers/codeBase.controller';
 import { CodeManagementController } from './controllers/codeManagement.controller';
 import { CodeReviewSettingLogController } from './controllers/codeReviewSettingLog.controller';
@@ -165,7 +167,9 @@ import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provi
         IntegrationConfigController,
         PullRequestController,
         UsersController,
+        CliAuthController,
         CliReviewController,
+        CliReviewsController,
         CliConfigController,
         CliCentralizedConfigController,
         CliKodyRulesController,
