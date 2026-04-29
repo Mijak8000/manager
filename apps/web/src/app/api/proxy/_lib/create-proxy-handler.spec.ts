@@ -165,6 +165,25 @@ describe("createProxyHandler", () => {
     });
 
     describe("header handling", () => {
+        it("returns 503 when the upstream service is unavailable", async () => {
+            fetchMock.mockRejectedValueOnce(
+                new Error("fetch failed: ECONNREFUSED"),
+            );
+
+            const handler = createProxyHandler({
+                resolveUpstream: (p) => `http://upstream${p}`,
+            });
+            const res = await handler.GET(
+                mockReq("GET", { cookie: "authjs.session-token=unavailable" }),
+                ctx(["x"]),
+            );
+
+            expect(res.status).toBe(503);
+            await expect(res.json()).resolves.toEqual({
+                message: "Upstream service is unavailable",
+            });
+        });
+
         it("strips Host header before forwarding", async () => {
             const handler = createProxyHandler({
                 resolveUpstream: (p) => `http://upstream${p}`,

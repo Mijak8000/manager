@@ -42,6 +42,30 @@ jest.mock("src/core/config/auth", () => ({
 const typedFetchMock = jest.fn();
 jest.mock("@services/fetch", () => ({
     typedFetch: (...args: unknown[]) => typedFetchMock(...args),
+    TypedFetchError: class TypedFetchError extends Error {
+        statusCode: number;
+        statusText: string;
+        url: string;
+        body?: unknown;
+
+        static isError(error: unknown): error is TypedFetchError {
+            return error instanceof TypedFetchError;
+        }
+
+        constructor(
+            statusCode: number,
+            statusText: string,
+            url: string,
+            body?: unknown,
+        ) {
+            super(`Request error: ${statusCode} ${statusText} in URL: ${url}`);
+            this.name = "TypedFetchError";
+            this.statusCode = statusCode;
+            this.statusText = statusText;
+            this.url = url;
+            this.body = body;
+        }
+    },
 }));
 
 const setServer = (v: boolean) => {
@@ -127,5 +151,27 @@ describe("mcpManagerFetch dual-mode", () => {
         await mcpManagerFetch("/integrations");
         const [, , , options] = createUrlMock.mock.calls[0];
         expect(options).toEqual({ internal: true });
+    });
+
+    it("maps proxied service errors to MCPServiceUnavailableError", async () => {
+        setServer(false);
+        const warnSpy = jest.spyOn(console, "warn").mockImplementation();
+        const { TypedFetchError } = jest.requireMock("@services/fetch");
+        typedFetchMock.mockRejectedValueOnce(
+            new TypedFetchError(
+                503,
+                "Service Unavailable",
+                "/api/proxy/mcp/integrations",
+            ),
+        );
+
+        const { mcpManagerFetch, MCPServiceUnavailableError } = await import(
+            "./utils"
+        );
+
+        await expect(mcpManagerFetch("/integrations")).rejects.toBeInstanceOf(
+            MCPServiceUnavailableError,
+        );
+        warnSpy.mockRestore();
     });
 });

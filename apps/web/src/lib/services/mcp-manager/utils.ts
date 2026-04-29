@@ -1,4 +1,4 @@
-import { typedFetch } from "@services/fetch";
+import { typedFetch, TypedFetchError } from "@services/fetch";
 import { auth } from "src/core/config/auth";
 import { createUrl } from "src/core/utils/helpers";
 import { isServerSide } from "src/core/utils/server-side";
@@ -60,6 +60,14 @@ export const mcpManagerFetch = async <Data>(
             },
         });
     } catch (error) {
+        if (
+            TypedFetchError.isError(error) &&
+            (error.statusCode === 503 || error.statusCode === 502)
+        ) {
+            console.warn("[MCP Manager] Service unavailable:", error.message);
+            throw new MCPServiceUnavailableError();
+        }
+
         // Service unavailable — MCP Manager might not be running.
         if (
             error instanceof Error &&

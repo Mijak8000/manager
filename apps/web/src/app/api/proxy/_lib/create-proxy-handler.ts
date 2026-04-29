@@ -157,7 +157,26 @@ async function forward(
         (init as RequestInit & { duplex?: string }).duplex = "half";
     }
 
-    const upstream = await fetch(url, init);
+    let upstream: Response;
+    try {
+        upstream = await fetch(url, init);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (
+            message.includes("ENOTFOUND") ||
+            message.includes("EAI_AGAIN") ||
+            message.includes("ECONNREFUSED") ||
+            message.includes("fetch failed")
+        ) {
+            return NextResponse.json(
+                { message: "Upstream service is unavailable" },
+                { status: 503 },
+            );
+        }
+
+        throw error;
+    }
 
     // undici transparently decompresses — strip encoding-related
     // headers or the browser tries to decode plaintext and fails.

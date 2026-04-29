@@ -36,7 +36,7 @@ services:
         ports:
             - '${API_PORT:-3001}:${API_PORT:-3001}'
             - '9229:9229'
-            - '8000:8000'
+            - '${API_PROFILE_PORT:-8000}:8000'
         command: yarn start:dev:api
         deploy:
             resources:
@@ -99,7 +99,11 @@ services:
                 reservations:
                     memory: 512M
         healthcheck:
-            test: ['CMD', 'node', '-e', 'process.exit(0)']
+            test:
+                [
+                    'CMD-SHELL',
+                    'node -e "fetch(process.env.WORKER_HEALTH_URL).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+                ]
             interval: 30s
             timeout: 10s
             retries: 3
@@ -113,6 +117,7 @@ services:
             - PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://pyroscope:4040}
             - PYROSCOPE_HEAP_PROFILING=${PYROSCOPE_HEAP_PROFILING:-false}
             - WORKER_ROLE=code-review
+            - WORKER_HEALTH_URL=${WORKER_HEALTH_URL:-http://127.0.0.1:3334/health}
 
     # Analytics-only worker — isolates the cockpit ingestion cron from
     # the code review event loop / pools. Runs in both cloud and
@@ -161,6 +166,12 @@ services:
     webhooks:
         <<: *app-service-defaults
         container_name: kodus_webhooks
+        labels:
+            - traefik.enable=${WEBHOOKS_TRAEFIK_ENABLE:-false}
+            - traefik.http.routers.kodus-webhooks.entrypoints=${WEBHOOKS_TRAEFIK_ENTRYPOINTS:-websecure}
+            - traefik.http.routers.kodus-webhooks.rule=Host(`${WEBHOOKS_TRAEFIK_HOST:-localhost}`)
+            - traefik.http.routers.kodus-webhooks.tls.certresolver=${WEBHOOKS_TRAEFIK_CERTRESOLVER:-letsencrypt}
+            - traefik.http.services.kodus-webhooks.loadbalancer.server.port=${WEBHOOKS_TRAEFIK_SERVICE_PORT:-3332}
         depends_on:
             rabbitmq:
                 condition: service_healthy
