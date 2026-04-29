@@ -31,6 +31,11 @@ import {
     TableRow,
 } from "@components/ui/table";
 import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "@components/ui/tooltip";
+import {
     useCliReviewDetail,
     useInfiniteCliReviews,
 } from "@services/cli-reviews/hooks";
@@ -454,35 +459,40 @@ function CliReviewRow({ row }: { row: CliReviewSummary }) {
                     </span>
                 </TableCell>
                 <TableCell className="min-w-0 max-w-[16rem]">
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className="text-text-primary block truncate text-sm font-medium">
-                            {row.cliAuth?.loggedInUserEmail ??
-                                row.userEmail ??
-                                "Anonymous"}
-                        </span>
-                        <CliAuthBadge auth={row.cliAuth} />
-                    </div>
+                    <UserCell row={row} />
                 </TableCell>
                 <TableCell className="max-w-[10rem]">
-                    <span
-                        className={cn(
-                            "block truncate text-sm",
-                            repo
-                                ? "text-text-secondary"
-                                : "text-text-tertiary",
-                        )}>
-                        {repo ?? "—"}
-                    </span>
+                    {repo ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="text-text-secondary block max-w-[10rem] cursor-default truncate text-sm">
+                                    <TruncateStart text={repo} />
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-mono text-xs">
+                                {repo}
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        <span className="text-text-tertiary text-sm">—</span>
+                    )}
                 </TableCell>
                 <TableCell className="hidden max-w-[10rem] xl:table-cell">
                     {branch ? (
-                        <span className="text-text-tertiary flex items-center gap-1.5 font-mono text-xs">
-                            <GitBranchIcon
-                                aria-hidden
-                                className="size-3 shrink-0"
-                            />
-                            <span className="truncate">{branch}</span>
-                        </span>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="text-text-tertiary flex max-w-[10rem] cursor-default items-center gap-1.5 font-mono text-xs">
+                                    <GitBranchIcon
+                                        aria-hidden
+                                        className="size-3 shrink-0"
+                                    />
+                                    <TruncateStart text={branch} />
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-mono text-xs">
+                                {branch}
+                            </TooltipContent>
+                        </Tooltip>
                     ) : (
                         <span className="text-text-tertiary text-xs">—</span>
                     )}
@@ -854,24 +864,126 @@ function SuggestionItem({ issue }: { issue: CliReviewIssue }) {
     );
 }
 
-function CliAuthBadge({ auth }: { auth?: CliReviewSummary["cliAuth"] }) {
-    if (!auth?.mode) {
-        return null;
-    }
-    if (auth.mode === "team-key") {
-        return (
-            <span className="bg-primary-light/10 text-primary-light inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium">
-                <span className="opacity-70">Team:</span>
-                <span className="max-w-[10rem] truncate font-mono">
-                    {auth.teamKeyName ?? "key"}
-                </span>
-            </span>
-        );
-    }
+/**
+ * Truncate a string from the start, keeping the tail visible. CSS does this
+ * with `direction: rtl` (so the ellipsis falls on the left), but RTL also
+ * reorders inline content like `:` and `/`. We pin direction back to `ltr`
+ * on an inner wrapper so the visible glyphs stay in their natural order —
+ * only the truncation side moves. Used for repo (`org/repo`) and branch
+ * (`feat/long/path`) cells where the suffix is the identifier.
+ */
+function TruncateStart({ text }: { text: string }) {
     return (
-        <span className="bg-card-lv2 text-text-tertiary inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium">
-            Personal
+        <span
+            className="min-w-0 flex-1 truncate"
+            style={{ direction: "rtl" }}>
+            <span style={{ direction: "ltr", unicodeBidi: "embed" }}>
+                {text}
+            </span>
         </span>
+    );
+}
+
+function UserCell({ row }: { row: CliReviewSummary }) {
+    const loggedIn = row.cliAuth?.loggedInUserEmail ?? null;
+    const gitUser = row.userEmail ?? null;
+    const showGit = loggedIn && gitUser && loggedIn !== gitUser;
+    const primary = loggedIn ?? gitUser ?? "Anonymous";
+
+    return (
+        <div className="flex min-w-0 flex-col gap-0.5">
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="text-text-primary block max-w-[16rem] cursor-default truncate text-sm font-medium">
+                        {primary}
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent className="text-xs">{primary}</TooltipContent>
+            </Tooltip>
+
+            <CliAuthLine auth={row.cliAuth} gitUser={showGit ? gitUser : null} />
+        </div>
+    );
+}
+
+/**
+ * Compact metadata line directly under the user email. Renders as a single
+ * row of text with a colored dot for the auth mode and, when the dev's git
+ * config differs from the logged-in Kodus account, a dimmer suffix with
+ * the git email. Replaces the old boxed badges, which felt disconnected
+ * from the email above them in a dense table row.
+ */
+function CliAuthLine({
+    auth,
+    gitUser,
+}: {
+    auth?: CliReviewSummary["cliAuth"];
+    gitUser?: string | null;
+}) {
+    if (!auth?.mode && !gitUser) return null;
+
+    return (
+        <div className="text-text-tertiary flex max-w-[16rem] min-w-0 items-center gap-1.5 text-[11px]">
+            {auth?.mode === "team-key" ? (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span className="inline-flex min-w-0 cursor-default items-center gap-1">
+                            <span
+                                aria-hidden
+                                className="bg-primary-light/80 size-1.5 shrink-0 rounded-full"
+                            />
+                            <span className="text-text-secondary">Team</span>
+                            {auth.teamKeyName && (
+                                <span className="text-text-tertiary truncate font-mono">
+                                    · {auth.teamKeyName}
+                                </span>
+                            )}
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="text-xs">
+                        Authenticated with team CLI key
+                        {auth.teamKeyName ? (
+                            <>
+                                {" "}
+                                <span className="font-mono">
+                                    {auth.teamKeyName}
+                                </span>
+                            </>
+                        ) : null}
+                    </TooltipContent>
+                </Tooltip>
+            ) : auth?.mode === "personal" ? (
+                <span className="inline-flex shrink-0 items-center gap-1">
+                    <span
+                        aria-hidden
+                        className="bg-success/80 size-1.5 shrink-0 rounded-full"
+                    />
+                    <span className="text-text-secondary">Personal</span>
+                </span>
+            ) : null}
+
+            {gitUser && (
+                <>
+                    {auth?.mode && (
+                        <span className="text-text-tertiary/60" aria-hidden>
+                            ·
+                        </span>
+                    )}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="text-text-tertiary min-w-0 cursor-default truncate">
+                                git: {gitUser}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                            Local <code>git config user.email</code> on the
+                            machine that ran the review (may differ from the
+                            Kodus account).
+                        </TooltipContent>
+                    </Tooltip>
+                </>
+            )}
+        </div>
     );
 }
 
