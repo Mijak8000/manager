@@ -15,6 +15,13 @@ interface CliDataExecution {
         resolvedRepositoryId?: string;
         resolvedRepositoryName?: string | null;
     };
+    cliAuth?: {
+        mode?: 'team-key' | 'personal';
+        teamKeyId?: string;
+        teamKeyName?: string;
+        userId?: string;
+        userEmail?: string;
+    };
     filesAnalyzed?: number;
     issuesFound?: number;
     duration?: number;
@@ -62,5 +69,15 @@ export function mapExecutionToSummary(
             data.repositoryResolution?.resolvedRepositoryName ?? null,
         filesAnalyzed: data.filesAnalyzed ?? null,
         issuesFound: data.issuesFound ?? null,
+        // Auth method that triggered the review. Only the identifier and
+        // human label are exposed — the team key / JWT itself is never
+        // persisted (and never reaches the dashboard).
+        cliAuth: data.cliAuth?.mode
+            ? {
+                  mode: data.cliAuth.mode,
+                  teamKeyName: data.cliAuth.teamKeyName ?? null,
+                  loggedInUserEmail: data.cliAuth.userEmail ?? null,
+              }
+            : null,
     };
 }

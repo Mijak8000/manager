@@ -720,6 +720,16 @@ export class CliReviewController {
             teamId: string;
         };
         let teamForRateLimit: { uuid: string; cliConfig?: any };
+        // Provenance of the auth method that succeeded — propagated to the
+        // pipeline so the dashboard can show "Team: <name>" or "Personal"
+        // without ever holding onto the secret.
+        let cliAuth: {
+            mode: 'team-key' | 'personal';
+            teamKeyId?: string;
+            teamKeyName?: string;
+            userId?: string;
+            userEmail?: string;
+        };
 
         // Route 1: Team CLI key (via X-Team-Key header or Bearer with kodus_ prefix)
         if (teamKey || bearerToken?.startsWith('kodus_')) {
@@ -739,7 +749,7 @@ export class CliReviewController {
                 );
             }
 
-            const { team, organization } = teamData;
+            const { team, organization, keyId, keyName } = teamData;
 
             if (!team?.uuid || !organization?.uuid) {
                 throw new UnauthorizedException(
@@ -754,6 +764,11 @@ export class CliReviewController {
             teamForRateLimit = {
                 uuid: team.uuid,
                 cliConfig: team.cliConfig,
+            };
+            cliAuth = {
+                mode: 'team-key',
+                teamKeyId: keyId,
+                teamKeyName: keyName,
             };
         }
         // Route 2: JWT Bearer token
@@ -831,6 +846,11 @@ export class CliReviewController {
             teamForRateLimit = {
                 uuid: team.uuid,
                 cliConfig: team.cliConfig,
+            };
+            cliAuth = {
+                mode: 'personal',
+                userId: user.uuid,
+                userEmail: user.email,
             };
         }
         // No auth provided
@@ -910,6 +930,7 @@ export class CliReviewController {
                 inferredPlatform: body.inferredPlatform,
                 cliVersion: body.cliVersion,
             },
+            cliAuth,
         });
 
         const wantsAsync = this.parseAsyncHeader(asyncHeader);

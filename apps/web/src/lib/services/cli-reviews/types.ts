@@ -39,6 +39,11 @@ export interface CliReviewSummary {
     repositoryName?: string | null;
     filesAnalyzed?: number | null;
     issuesFound?: number | null;
+    cliAuth?: {
+        mode: "team-key" | "personal";
+        teamKeyName?: string | null;
+        loggedInUserEmail?: string | null;
+    } | null;
 }
 
 export interface CliReviewIssue {

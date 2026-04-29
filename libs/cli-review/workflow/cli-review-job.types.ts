@@ -23,10 +23,28 @@ export interface CliReviewJobGitContext {
     cliVersion?: string;
 }
 
+/**
+ * How the CLI request was authenticated. Persisted to dataExecution so the
+ * dashboard can show "Team: <name>" or "Personal" without ever exposing the
+ * key/token itself.
+ */
+export interface CliReviewJobAuthContext {
+    mode: 'team-key' | 'personal';
+    /** UUID of the team_cli_keys row when mode === 'team-key'. */
+    teamKeyId?: string;
+    /** Human label set by the user when generating the key. */
+    teamKeyName?: string;
+    /** Logged-in user UUID when mode === 'personal'. */
+    userId?: string;
+    /** Logged-in user email when mode === 'personal' (independent of git config). */
+    userEmail?: string;
+}
+
 export interface CliReviewJobPayload {
     organizationAndTeamData: OrganizationAndTeamData;
     input: CliReviewInput;
     isTrialMode?: boolean;
     userEmail?: string;
     gitContext?: CliReviewJobGitContext;
+    cliAuth?: CliReviewJobAuthContext;
 }

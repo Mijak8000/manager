@@ -453,10 +453,15 @@ function CliReviewRow({ row }: { row: CliReviewSummary }) {
                         {formatRelative(row.createdAt)}
                     </span>
                 </TableCell>
-                <TableCell className="min-w-0 max-w-[14rem]">
-                    <span className="text-text-primary block truncate text-sm font-medium">
-                        {row.userEmail ?? "Anonymous"}
-                    </span>
+                <TableCell className="min-w-0 max-w-[16rem]">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-text-primary block truncate text-sm font-medium">
+                            {row.cliAuth?.loggedInUserEmail ??
+                                row.userEmail ??
+                                "Anonymous"}
+                        </span>
+                        <CliAuthBadge auth={row.cliAuth} />
+                    </div>
                 </TableCell>
                 <TableCell className="max-w-[10rem]">
                     <span
@@ -846,6 +851,27 @@ function SuggestionItem({ issue }: { issue: CliReviewIssue }) {
                 </pre>
             )}
         </li>
+    );
+}
+
+function CliAuthBadge({ auth }: { auth?: CliReviewSummary["cliAuth"] }) {
+    if (!auth?.mode) {
+        return null;
+    }
+    if (auth.mode === "team-key") {
+        return (
+            <span className="bg-primary-light/10 text-primary-light inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium">
+                <span className="opacity-70">Team:</span>
+                <span className="max-w-[10rem] truncate font-mono">
+                    {auth.teamKeyName ?? "key"}
+                </span>
+            </span>
+        );
+    }
+    return (
+        <span className="bg-card-lv2 text-text-tertiary inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium">
+            Personal
+        </span>
     );
 }
 

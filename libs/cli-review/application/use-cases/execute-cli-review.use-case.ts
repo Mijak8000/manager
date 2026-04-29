@@ -64,12 +64,21 @@ interface GitContext {
     cliVersion?: string;
 }
 
+interface ExecuteCliReviewAuthContext {
+    mode: 'team-key' | 'personal';
+    teamKeyId?: string;
+    teamKeyName?: string;
+    userId?: string;
+    userEmail?: string;
+}
+
 interface ExecuteCliReviewInput {
     organizationAndTeamData: OrganizationAndTeamData;
     input: CliReviewInput;
     isTrialMode?: boolean;
     userEmail?: string;
     gitContext?: GitContext;
+    cliAuth?: ExecuteCliReviewAuthContext;
 }
 
 /**
@@ -102,6 +111,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
             isTrialMode = false,
             userEmail,
             gitContext,
+            cliAuth,
         } = params;
         const correlationId = IdGenerator.correlationId();
         const startTime = Date.now();
@@ -134,6 +144,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                       correlationId,
                       userEmail,
                       gitContext,
+                      cliAuth,
                   );
 
             // 2. Convert CLI input to FileChange[]
@@ -598,6 +609,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
         correlationId: string,
         userEmail?: string,
         gitContext?: GitContext,
+        cliAuth?: ExecuteCliReviewAuthContext,
     ): Promise<IAutomationExecution | null> {
         try {
             const teamAutomations = await this.teamAutomationService.find({
@@ -626,6 +638,18 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                           }
                         : undefined,
                     cliVersion: gitContext?.cliVersion,
+                    // Auth provenance: identifies the CLI key (by id+name) or
+                    // the logged-in user. Never includes the secret material —
+                    // the team key/JWT itself is gone by the time we get here.
+                    cliAuth: cliAuth
+                        ? {
+                              mode: cliAuth.mode,
+                              teamKeyId: cliAuth.teamKeyId,
+                              teamKeyName: cliAuth.teamKeyName,
+                              userId: cliAuth.userId,
+                              userEmail: cliAuth.userEmail,
+                          }
+                        : undefined,
                 },
             });
         } catch (error) {

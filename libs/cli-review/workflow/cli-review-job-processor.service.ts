@@ -50,6 +50,7 @@ export class CliReviewJobProcessorService implements IJobProcessorService {
                 isTrialMode: payload.isTrialMode,
                 userEmail: payload.userEmail,
                 gitContext: payload.gitContext,
+                cliAuth: payload.cliAuth,
             });
 
             await this.markCompleted(jobId, result);
