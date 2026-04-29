@@ -2735,7 +2735,6 @@ export class GitlabService implements Omit<
             repository,
             prNumber,
             body,
-            inReplyToId,
             discussionId,
         } = params;
 
@@ -2750,7 +2749,6 @@ export class GitlabService implements Omit<
                 repository.id,
                 prNumber,
                 discussionId,
-                inReplyToId,
                 body,
             );
 
