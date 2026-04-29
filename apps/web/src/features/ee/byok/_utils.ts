@@ -43,7 +43,9 @@ export const isEnterprisePlan = (license: OrganizationLicense): boolean => {
     if (license.subscriptionStatus !== "active") {
         return false;
     }
-    return license.planType?.startsWith("enterprise") ?? false;
+    return ["enterprise", "free"].some((plan) =>
+        license.planType?.startsWith(plan),
+    );
 };
 
 export const shouldShowBYOKMissingKeyTopbar = (params: {

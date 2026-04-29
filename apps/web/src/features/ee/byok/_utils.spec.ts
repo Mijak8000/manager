@@ -176,6 +176,19 @@ describe("BYOK topbar visibility", () => {
         ).toBe(false);
     });
 
+    it("treats active free plans as enterprise for enterprise-only UI gates", async () => {
+        const { isEnterprisePlan } = await import("./_utils");
+
+        expect(
+            isEnterprisePlan({
+                valid: true,
+                subscriptionStatus: "active",
+                numberOfLicenses: 0,
+                planType: "free_byok",
+            } as any),
+        ).toBe(true);
+    });
+
     it("does not treat canceled/expired/payment_failed subscriptions as BYOK eligible", async () => {
         const { isBYOKSubscriptionPlan } = await import("./_utils");
 
