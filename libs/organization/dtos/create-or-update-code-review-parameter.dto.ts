@@ -414,6 +414,10 @@ class CodeReviewConfigWithoutLLMProviderDto {
     runOnDraft?: boolean;
 
     @IsOptional()
+    @IsBoolean()
+    crossFileDependenciesAnalysis?: boolean;
+
+    @IsOptional()
     @IsEnum(CodeReviewVersion)
     @ApiPropertyOptional({
         enum: CodeReviewVersion,

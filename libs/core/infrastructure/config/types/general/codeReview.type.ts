@@ -330,6 +330,7 @@ export type CodeReviewConfig = {
     directoryPath?: string;
     directoryFolders?: Array<{ id: string; name: string; path: string }>;
     runOnDraft?: boolean;
+    crossFileDependenciesAnalysis?: boolean;
     codeReviewVersion?: CodeReviewVersion;
     byokConfig?: BYOKConfig;
     /** @deprecated Reflection/verify was removed — it hurt recall more than it helped precision. */
