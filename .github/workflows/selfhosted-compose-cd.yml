@@ -38,6 +38,8 @@ env:
     DEPLOY_WEBHOOK_PING_ENABLED: ${{ vars.DEPLOY_WEBHOOK_PING_ENABLED || 'true' }}
     DEPLOY_WEBHOOK_PING_URL: ${{ vars.DEPLOY_WEBHOOK_PING_URL || 'http://127.0.0.1:3332/github/webhook' }}
     DEPLOY_WEB_URL: ${{ vars.DEPLOY_WEB_URL || 'http://127.0.0.1:3000' }}
+    DEPLOY_SMOKE_RETRIES: ${{ vars.DEPLOY_SMOKE_RETRIES || '12' }}
+    DEPLOY_SMOKE_RETRY_DELAY_SECONDS: ${{ vars.DEPLOY_SMOKE_RETRY_DELAY_SECONDS || '5' }}
 
 jobs:
     deploy:
@@ -369,18 +371,43 @@ jobs:
                   webhook_ping_file="${RUNNER_TEMP:-/tmp}/kodus-webhook-ping.txt"
                   rm -f "$api_health_file" "$webhook_ping_file"
 
-                  curl -fsS "$DEPLOY_API_HEALTH_URL" >"$api_health_file"
+                  curl_retry() {
+                    local label="$1"
+                    local output_file="$2"
+                    shift 2
+
+                    local attempts="${DEPLOY_SMOKE_RETRIES:-12}"
+                    local delay="${DEPLOY_SMOKE_RETRY_DELAY_SECONDS:-5}"
+                    local attempt=1
+
+                    while true; do
+                      if curl -fsS "$@" >"$output_file"; then
+                        return 0
+                      fi
+
+                      if [ "$attempt" -ge "$attempts" ]; then
+                        echo "::error::$label smoke check failed after $attempt attempts"
+                        return 1
+                      fi
+
+                      echo "$label smoke check failed on attempt $attempt/$attempts; retrying in ${delay}s..."
+                      attempt=$((attempt + 1))
+                      sleep "$delay"
+                    done
+                  }
+
+                  curl_retry "API health" "$api_health_file" "$DEPLOY_API_HEALTH_URL"
 
                   if [ "$DEPLOY_WEBHOOK_PING_ENABLED" = "true" ]; then
-                    curl -fsS -X POST \
+                    curl_retry "Webhook ping" "$webhook_ping_file" -X POST \
                       -H 'content-type: application/json' \
                       -H 'x-github-event: ping' \
                       -d '{}' \
-                      "$DEPLOY_WEBHOOK_PING_URL" >"$webhook_ping_file"
+                      "$DEPLOY_WEBHOOK_PING_URL"
                     echo "Webhook ping route: $(cat "$webhook_ping_file")"
                   fi
 
-                  curl -fsS "$DEPLOY_WEB_URL" >/dev/null
+                  curl_retry "Web" /dev/null "$DEPLOY_WEB_URL"
                   echo "API health: $(cat "$api_health_file")"
 
             - name: Restore runner workspace ownership
