@@ -302,4 +302,23 @@ describe("createProxyHandler", () => {
             expect((init as any).duplex).toBeUndefined();
         });
     });
+
+    describe("upstream availability", () => {
+        it("returns 503 JSON when upstream fetch is rejected by a network/service availability error", async () => {
+            fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+            const handler = createProxyHandler({
+                resolveUpstream: (p) => `http://upstream${p}`,
+            });
+
+            const res = await handler.GET(
+                mockReq("GET", { cookie: "authjs.session-token=unavailable" }),
+                ctx(["x"]),
+            );
+
+            expect(res.status).toBe(503);
+            await expect(res.json()).resolves.toEqual({
+                message: "Upstream service is unavailable",
+            });
+        });
+    });
 });

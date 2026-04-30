@@ -11,6 +11,7 @@ reviewCadence:
 pullRequestApprovalActive: false
 isRequestChangesActive: false # not on gitlab
 runOnDraft: true
+crossFileDependenciesAnalysis: true
 ignorePaths:
     - 'yarn.lock'
     - 'package-lock.json'

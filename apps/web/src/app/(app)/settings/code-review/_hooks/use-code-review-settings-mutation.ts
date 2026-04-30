@@ -29,10 +29,12 @@ type SaveOptions = {
     prepare?: (
         formData: CodeReviewFormType,
     ) => Promise<SavePreparationResult> | SavePreparationResult;
+    deferSideEffects?: boolean;
 };
 
 type SaveSettingsResult = {
     centralizedPr?: CentralizedPrResponse;
+    applySideEffects?: () => void;
 };
 
 const defaultPrepare = (
@@ -131,15 +133,25 @@ export const useCodeReviewSettingsMutation = (params: {
             );
         }
 
-        if (isCentralizedPrResponse(result)) {
+        const applySideEffects = () => {
             form.reset(prepared.savedFormData);
             invalidateRelatedQueries();
+        };
+
+        if (isCentralizedPrResponse(result)) {
+            if (options?.deferSideEffects) {
+                return { centralizedPr: result, applySideEffects };
+            }
+
+            applySideEffects();
             return { centralizedPr: result };
         }
 
-        form.reset(prepared.savedFormData);
-        invalidateRelatedQueries();
+        if (options?.deferSideEffects) {
+            return { applySideEffects };
+        }
 
+        applySideEffects();
         return {};
     };
 

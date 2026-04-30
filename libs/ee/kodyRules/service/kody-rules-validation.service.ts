@@ -20,7 +20,7 @@ import { Injectable } from '@nestjs/common';
  */
 @Injectable()
 export class KodyRulesValidationService {
-    public readonly MAX_KODY_RULES = 10;
+    public readonly MAX_KODY_RULES = 1000;
     private readonly isCloud: boolean;
 
     constructor(

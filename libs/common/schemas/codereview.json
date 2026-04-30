@@ -3,9 +3,16 @@
     "type": "object",
     "properties": {
         "version": {
-            "type": "string",
-            "default": "1.2",
-            "description": "The version of the schema."
+            "default": "2.0",
+            "description": "The version of the schema.",
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                }
+            ]
         },
         "summary": {
             "type": "object",
@@ -22,13 +29,21 @@
                 },
                 "behaviourForExistingDescription": {
                     "type": "string",
-                    "enum": ["replace", "concatenate", "complement"],
+                    "enum": [
+                        "replace",
+                        "concatenate",
+                        "complement"
+                    ],
                     "default": "concatenate",
                     "description": "Defines how to handle existing descriptions."
                 },
                 "behaviourForNewCommits": {
                     "type": "string",
-                    "enum": ["none", "replace", "concatenate"],
+                    "enum": [
+                        "none",
+                        "replace",
+                        "concatenate"
+                    ],
                     "default": "none",
                     "description": "Defines how Kody updates the summary when new commits arrive."
                 }
@@ -115,20 +130,25 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Enable checks for breaking changes during the review."
+                },
+                "bug": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "performance": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "cross_file": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "business_logic": {
+                    "type": "boolean",
+                    "default": true
                 }
             },
-            "required": [
-                "security",
-                "code_style",
-                "kody_rules",
-                "refactoring",
-                "error_handling",
-                "maintainability",
-                "potential_issues",
-                "documentation_and_comments",
-                "performance_and_optimization",
-                "breaking_changes"
-            ],
+            "required": [],
             "additionalProperties": false
         },
         "suggestionControl": {
@@ -136,13 +156,21 @@
             "properties": {
                 "groupingMode": {
                     "type": "string",
-                    "enum": ["minimal", "full"],
+                    "enum": [
+                        "minimal",
+                        "smart",
+                        "full"
+                    ],
                     "default": "full",
                     "description": "Defines the grouping mode for suggestions."
                 },
                 "limitationType": {
                     "type": "string",
-                    "enum": ["file", "pr", "severity"],
+                    "enum": [
+                        "file",
+                        "pr",
+                        "severity"
+                    ],
                     "default": "pr",
                     "description": "Defines the limitation type for suggestions."
                 },
@@ -154,7 +182,12 @@
                 },
                 "severityLevelFilter": {
                     "type": "string",
-                    "enum": ["critical", "high", "medium", "low"],
+                    "enum": [
+                        "critical",
+                        "high",
+                        "medium",
+                        "low"
+                    ],
                     "default": "medium",
                     "description": "Filter for the severity level of suggestions."
                 },
@@ -191,7 +224,12 @@
                             "description": "Maximum number of critical severity suggestions."
                         }
                     },
-                    "required": ["low", "medium", "high", "critical"],
+                    "required": [
+                        "low",
+                        "medium",
+                        "high",
+                        "critical"
+                    ],
                     "additionalProperties": false,
                     "description": "Limits for suggestions by severity level. Only used when limitationType is 'severity'."
                 }
@@ -213,6 +251,7 @@
             "then": {
                 "properties": {
                     "maxSuggestions": {
+                        "type": "integer",
                         "maximum": 20
                     }
                 }
@@ -253,6 +292,216 @@
             "type": "boolean",
             "default": true,
             "description": "Indicates whether the review should run on draft pull requests."
+        },
+        "crossFileDependenciesAnalysis": {
+            "type": "boolean",
+            "default": true,
+            "description": "Indicates whether Kody should collect and use cross-file dependency context during code review."
+        },
+        "kodusConfigFileOverridesWebPreferences": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether repository kodus config files override web preferences."
+        },
+        "reviewCadence": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "automatic",
+                        "manual",
+                        "auto_pause"
+                    ],
+                    "default": "automatic"
+                },
+                "timeWindow": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 15
+                },
+                "pushesToTrigger": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 3
+                }
+            },
+            "required": [
+                "type"
+            ],
+            "additionalProperties": false
+        },
+        "enableCommittableSuggestions": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether Kody may generate committable suggestions."
+        },
+        "codeReviewVersion": {
+            "type": "string",
+            "enum": [
+                "legacy",
+                "v2",
+                "v3-agent"
+            ],
+            "default": "v2"
+        },
+        "ideRulesSyncEnabled": {
+            "type": "boolean",
+            "default": false
+        },
+        "ideSyncDisableAction": {
+            "type": "string",
+            "enum": [
+                "keep",
+                "pause",
+                "delete"
+            ],
+            "default": "keep"
+        },
+        "kodyRulesGeneratorEnabled": {
+            "type": "boolean",
+            "default": true
+        },
+        "llmGeneratedMemoriesRequireApproval": {
+            "type": "boolean",
+            "default": false
+        },
+        "customMessages": {
+            "type": "object",
+            "properties": {
+                "globalSettings": {
+                    "type": "object",
+                    "properties": {
+                        "hideComments": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "suggestionCopyPrompt": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "startReviewMessage": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "every_push",
+                                "only_when_opened",
+                                "off",
+                                "active",
+                                "inactive"
+                            ],
+                            "default": "every_push"
+                        },
+                        "content": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "endReviewMessage": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "every_push",
+                                "only_when_opened",
+                                "off",
+                                "active",
+                                "inactive"
+                            ],
+                            "default": "every_push"
+                        },
+                        "content": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "v2PromptOverrides": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "object",
+                    "properties": {
+                        "descriptions": {
+                            "type": "object",
+                            "properties": {
+                                "bug": {
+                                    "type": "string"
+                                },
+                                "performance": {
+                                    "type": "string"
+                                },
+                                "security": {
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "severity": {
+                    "type": "object",
+                    "properties": {
+                        "flags": {
+                            "type": "object",
+                            "properties": {
+                                "critical": {
+                                    "type": "string"
+                                },
+                                "high": {
+                                    "type": "string"
+                                },
+                                "medium": {
+                                    "type": "string"
+                                },
+                                "low": {
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "level": {
+                    "type": "object",
+                    "properties": {
+                        "critical": {
+                            "type": "string"
+                        },
+                        "issue": {
+                            "type": "string"
+                        },
+                        "warning": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "generation": {
+                    "type": "object",
+                    "properties": {
+                        "main": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
         }
     },
     "required": [

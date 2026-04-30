@@ -59,7 +59,7 @@ describe('KodyRulesValidationService', () => {
 
             const result = await service.validateRulesLimit(
                 { organizationId: 'org-1' } as any,
-                11,
+                1001,
             );
 
             expect(result).toBe(false);

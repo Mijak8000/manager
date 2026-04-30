@@ -11,6 +11,8 @@ import {
     type LibraryRule,
 } from "./types";
 
+const FREE_ACCOUNT_KODY_RULES_LIMIT = 1000;
+
 export const useSuspenseFindLibraryKodyRules = () => {
     const rules = useSuspenseFetch<Record<string, Array<LibraryRule>>>(
         KODY_RULES_PATHS.FIND_LIBRARY_KODY_RULES,
@@ -37,7 +39,11 @@ export const useKodyRulesLimits = () => {
         };
 
     if (subscription.status === "free" || subscription.status === "self-hosted")
-        return { canAddMoreRules: total < 10, total, limit: 10 };
+        return {
+            canAddMoreRules: total < FREE_ACCOUNT_KODY_RULES_LIMIT,
+            total,
+            limit: FREE_ACCOUNT_KODY_RULES_LIMIT,
+        };
 
     if (subscription.status === "licensed-self-hosted")
         return {

@@ -25,7 +25,6 @@ import {
 import { FormProvider, useFormContext } from "react-hook-form";
 import { AsyncBoundary } from "src/core/components/async-boundary";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
-import { unformatConfig } from "src/core/utils/helpers";
 
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
 import { CentralizedConfigReadOnlyAlert } from "../../_components/centralized-config-readonly-alert";
@@ -55,6 +54,7 @@ import { LanguageSelector } from "./_components/language-selector";
 import { PullRequestApprovalActive } from "./_components/pull-request-approval-active";
 import { RunOnDraft } from "./_components/run-on-draft";
 import { ShowStatusFeedback } from "./_components/show-status-feedback";
+import { saveGeneralSettings } from "./save-general-settings";
 
 export default function General() {
     const platformConfig = usePlatformConfig();
@@ -142,33 +142,16 @@ export default function General() {
     };
 
     const handleSubmit = form.handleSubmit(async (formData) => {
-        const { language, ...config } = formData;
-
-        // Remove reviewCadence when automation is disabled
-        if (!formData.automatedReviewActive) delete config.reviewCadence;
-
-        const unformattedConfig = unformatConfig(config);
-
         try {
-            const saveResult = await saveSettings(formData, {
-                prepare: async () => {
-                    const languageResult = await createOrUpdateParameter(
+            const saveResult = await saveGeneralSettings({
+                formData,
+                saveSettings,
+                saveLanguage: (language) =>
+                    createOrUpdateParameter(
                         ParametersConfigKey.LANGUAGE_CONFIG,
                         language,
                         teamId,
-                    );
-
-                    if (languageResult.error) {
-                        throw new Error(
-                            `Failed to save settings: ${languageResult.error}`,
-                        );
-                    }
-
-                    return {
-                        savedFormData: { ...config, language },
-                        codeReviewConfig: unformattedConfig,
-                    };
-                },
+                    ),
             });
 
             if (saveResult.centralizedPr) {

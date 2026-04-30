@@ -77,6 +77,20 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
             ? `branch ${cliContext?.gitContext?.branch ?? 'unknown'}`
             : `PR#${context?.pullRequest?.number}`;
 
+        // Guard: skip when the user explicitly disabled cross-file dependency
+        // analysis. Omitted/true preserves the historical default-on behavior.
+        if (context.codeReviewConfig?.crossFileDependenciesAnalysis === false) {
+            this.logger.log({
+                message: `Skipping cross-file context collection: cross-file dependency analysis disabled for ${label}`,
+                context: this.stageName,
+                metadata: {
+                    sandboxDecision: 'skipped',
+                    sandboxSkipReason: 'cross_file_disabled',
+                },
+            });
+            return context;
+        }
+
         // Guard: skip in fast mode — the agent will rely on its own
         // readFile/grep tools for any cross-file exploration it needs,
         // and cross-file context collection can take 15-30s which defeats
@@ -246,7 +260,11 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                     this.logger.log({
                         message: `[CROSS-FILE] Graph JSON for ${label}: ${graphJson ? `${graphJson.nodes.length} nodes, ${graphJson.edges.length} edges` : 'null (no nodes parsed)'}`,
                         context: this.stageName,
-                        metadata: { hasGraph: !!graphJson, nodeCount: graphJson?.nodes?.length ?? 0, edgeCount: graphJson?.edges?.length ?? 0 },
+                        metadata: {
+                            hasGraph: !!graphJson,
+                            nodeCount: graphJson?.nodes?.length ?? 0,
+                            edgeCount: graphJson?.edges?.length ?? 0,
+                        },
                     });
                 } catch (err) {
                     this.logger.warn({

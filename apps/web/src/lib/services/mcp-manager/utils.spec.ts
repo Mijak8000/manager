@@ -8,6 +8,9 @@
  * This test locks in both paths. A regression here either re-leaks the
  * hostname or breaks server-side callers that talk to the MCP service.
  */
+/// <reference types="jest" />
+
+export {};
 
 jest.mock("src/core/utils/server-side", () => {
     const mod = { isServerSide: true };
@@ -22,7 +25,12 @@ jest.mock("src/core/utils/server-side", () => {
 });
 
 const createUrlMock = jest.fn(
-    (host: string | undefined, port: string | undefined, path: string) =>
+    (
+        host: string | undefined,
+        port: string | undefined,
+        path: string,
+        _options?: { internal?: boolean },
+    ) =>
         `http://${host}:${port}${path}`,
 );
 jest.mock("src/core/utils/helpers", () => ({
@@ -40,32 +48,24 @@ jest.mock("src/core/config/auth", () => ({
 }));
 
 const typedFetchMock = jest.fn();
+class MockTypedFetchError extends Error {
+    constructor(
+        public statusCode: number,
+        public statusText: string,
+        public url: string,
+        public body?: unknown,
+    ) {
+        super(`Request error: ${statusCode} ${statusText} in URL: ${url}`);
+        this.name = "TypedFetchError";
+    }
+
+    static isError(error: unknown): error is MockTypedFetchError {
+        return error instanceof MockTypedFetchError;
+    }
+}
 jest.mock("@services/fetch", () => ({
     typedFetch: (...args: unknown[]) => typedFetchMock(...args),
-    TypedFetchError: class TypedFetchError extends Error {
-        statusCode: number;
-        statusText: string;
-        url: string;
-        body?: unknown;
-
-        static isError(error: unknown): error is TypedFetchError {
-            return error instanceof TypedFetchError;
-        }
-
-        constructor(
-            statusCode: number,
-            statusText: string,
-            url: string,
-            body?: unknown,
-        ) {
-            super(`Request error: ${statusCode} ${statusText} in URL: ${url}`);
-            this.name = "TypedFetchError";
-            this.statusCode = statusCode;
-            this.statusText = statusText;
-            this.url = url;
-            this.body = body;
-        }
-    },
+    TypedFetchError: MockTypedFetchError,
 }));
 
 const setServer = (v: boolean) => {
@@ -153,25 +153,35 @@ describe("mcpManagerFetch dual-mode", () => {
         expect(options).toEqual({ internal: true });
     });
 
-    it("maps proxied service errors to MCPServiceUnavailableError", async () => {
-        setServer(false);
-        const warnSpy = jest.spyOn(console, "warn").mockImplementation();
-        const { TypedFetchError } = jest.requireMock("@services/fetch");
-        typedFetchMock.mockRejectedValueOnce(
-            new TypedFetchError(
-                503,
-                "Service Unavailable",
-                "/api/proxy/mcp/integrations",
-            ),
-        );
+    it.each([
+        [502, "Bad Gateway"],
+        [503, "Service Unavailable"],
+    ])(
+        "treats proxy %i responses as optional MCP service unavailability",
+        async (statusCode, statusText) => {
+            setServer(false);
+            const warnSpy = jest.spyOn(console, "warn").mockImplementation();
+            typedFetchMock.mockRejectedValueOnce(
+                new MockTypedFetchError(
+                    statusCode,
+                    statusText,
+                    "/api/proxy/mcp/mcp/integrations?page=1&pageSize=100",
+                    { message: "Upstream service is unavailable" },
+                ),
+            );
 
-        const { mcpManagerFetch, MCPServiceUnavailableError } = await import(
-            "./utils"
-        );
+            const { mcpManagerFetch, MCPServiceUnavailableError } =
+                await import("./utils");
 
-        await expect(mcpManagerFetch("/integrations")).rejects.toBeInstanceOf(
-            MCPServiceUnavailableError,
-        );
-        warnSpy.mockRestore();
-    });
+            await expect(
+                mcpManagerFetch("/mcp/integrations"),
+            ).rejects.toBeInstanceOf(MCPServiceUnavailableError);
+            expect(warnSpy).toHaveBeenCalledWith(
+                "[MCP Manager] Service unavailable:",
+                expect.stringContaining(`${statusCode} ${statusText}`),
+            );
+            warnSpy.mockRestore();
+        },
+    );
+
 });

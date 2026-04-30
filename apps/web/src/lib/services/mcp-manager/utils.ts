@@ -34,7 +34,9 @@ export const mcpManagerFetch = async <Data>(
 
     if (isServerSide) {
         const jwtPayload = await auth();
-        authorization = jwtPayload?.user.accessToken;
+        authorization = (
+            jwtPayload?.user as { accessToken?: string } | undefined
+        )?.accessToken;
 
         let hostName = process.env.WEB_HOSTNAME_MCP_MANAGER;
         if (hostName === "localhost") {

@@ -30,10 +30,12 @@ export default function validateKodusConfigFile(
 
     let isDeprecated = false;
 
-    const currentVersion = '1.2';
+    const currentVersion = '2.0';
 
     const fileVersion = configFile.version
-        ? configFile.version
+        ? typeof configFile.version === 'number'
+            ? configFile.version.toFixed(1)
+            : String(configFile.version)
         : currentVersion;
 
     // Backward compatibility handling

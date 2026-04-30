@@ -11,6 +11,27 @@ import { codeReviewConfigRemovePropertiesNotInType } from "src/core/utils/helper
 import { PARAMETERS_PATHS } from ".";
 import { ParametersConfigKey, type PlatformConfigValue } from "./types";
 
+const getAxiosErrorMessage = (error: any, fallback = "Erro desconhecido") => {
+    const status = error?.response?.status;
+    const responseData = error?.response?.data;
+    const backendMessage = Array.isArray(responseData?.message)
+        ? responseData.message.join(", ")
+        : responseData?.message;
+    const backendError =
+        typeof responseData?.error === "string" ? responseData.error : "";
+
+    if (status && backendMessage) {
+        const prefix = [status, backendError].filter(Boolean).join(" ");
+        return `${prefix}: ${backendMessage}`;
+    }
+
+    if (status) {
+        return status;
+    }
+
+    return error instanceof Error ? error.message : fallback;
+};
+
 export const getTeamParameters = async <
     T extends { configValue: unknown },
 >(params: {
@@ -74,7 +95,7 @@ export const getParameterByKey = async (key: string, teamId: string) => {
 
         return response.data;
     } catch (error: any) {
-        return { error: error.response?.status || "Erro desconhecido" };
+        return { error: getAxiosErrorMessage(error) };
     }
 };
 
@@ -95,7 +116,7 @@ export const createOrUpdateParameter = async (
 
         return response.data;
     } catch (error: any) {
-        return { error: error.response?.status || "Erro desconhecido" };
+        return { error: getAxiosErrorMessage(error) };
     }
 };
 
@@ -124,7 +145,7 @@ export const createOrUpdateCodeReviewParameter = async (
 
         return response.data;
     } catch (error: any) {
-        return { error: error.response?.status || "Erro desconhecido" };
+        return { error: getAxiosErrorMessage(error) };
     }
 };
 
@@ -137,7 +158,7 @@ export const updateCodeReviewParameterRepositories = async (teamId: string) => {
 
         return response.data;
     } catch (error: any) {
-        return { error: error.response?.status || "Erro desconhecido" };
+        return { error: getAxiosErrorMessage(error) };
     }
 };
 
@@ -154,7 +175,7 @@ export const getGenerateKodusConfigFile = async (
 
         return response;
     } catch (error: any) {
-        return { error: error.response?.status || "Erro desconhecido" };
+        return { error: getAxiosErrorMessage(error) };
     }
 };
 
@@ -193,7 +214,7 @@ export const applyCodeReviewPreset = async (params: {
 
         return response.data;
     } catch (error: any) {
-        return { error: error.response?.status || "Erro desconhecido" };
+        return { error: getAxiosErrorMessage(error) };
     }
 };
 
@@ -206,7 +227,7 @@ export const centralizedConfigSync = async (teamId: string) => {
 
         return response.data;
     } catch (error: any) {
-        return { error: error.response?.status || "Unknown error" };
+        return { error: getAxiosErrorMessage(error, "Unknown error") };
     }
 };
 
@@ -227,7 +248,7 @@ export const centralizedConfigInit = async (body: {
             prUrl?: string;
         };
     } catch (error: any) {
-        return { error: error.response?.status || "Unknown error" };
+        return { error: getAxiosErrorMessage(error, "Unknown error") };
     }
 };
 
