@@ -44,6 +44,7 @@ jobs:
               with:
                   ref: main
                   fetch-depth: 1
+                  clean: false
 
             - name: Set up persistent Docker Buildx cache
               uses: docker/setup-buildx-action@v3
@@ -188,6 +189,18 @@ jobs:
 
                   curl -fsS "$DEPLOY_WEB_URL" >/dev/null
                   echo "API health: $(cat /tmp/kodus-api-health.txt)"
+
+            - name: Restore runner workspace ownership
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  uid=$(id -u)
+                  gid=$(id -g)
+                  docker run --rm \
+                    -v "$PWD:/workspace" \
+                    docker.io/library/alpine:3.22 \
+                    sh -c "chown -R $uid:$gid /workspace/dist /workspace/apps/*/dist 2>/dev/null || true"
 
             - name: Show deployed containers
               if: always()
