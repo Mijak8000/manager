@@ -24,10 +24,16 @@ packages/**/*.js
 # Explicit exceptions for root-level source .js files (for clarity)
 !tsconfig-paths-bootstrap.js
 
+# Local secrets and environment files. Keep examples tracked.
 .env
-.env.qa
-.env.prod
-.env.local
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Agent/runtime state can include local logs and context; never publish it.
+.omx/
 
 # E2B sandbox secrets
 e2b-sandbox/config.json

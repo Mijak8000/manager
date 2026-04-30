@@ -53,9 +53,6 @@ scripts/pr-creator
 **/.env.*
 !**/.env.example
 
-!apps/web/.env
-!apps/web/.env.production
-
 # macOS finder droppings leak into images through nested COPYs the same
 # way .env files did — catch them explicitly.
 **/.DS_Store
