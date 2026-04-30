@@ -1,0 +1,165 @@
+name: "Self-hosted Compose CD"
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+concurrency:
+    group: selfhosted-compose-cd-main
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    COMPOSE_PROJECT_NAME: ${{ vars.DEPLOY_COMPOSE_PROJECT_NAME || 'kodus-ai' }}
+    DEPLOY_COMPOSE_FILE: ${{ vars.DEPLOY_COMPOSE_FILE || 'docker-compose.dev.yml' }}
+    DEPLOY_COMPOSE_PROFILES: ${{ vars.DEPLOY_COMPOSE_PROFILES || 'local-db' }}
+    DEPLOY_COMPOSE_SERVICES: ${{ vars.DEPLOY_COMPOSE_SERVICES || 'rabbitmq db_postgres db_mongodb kodus-api worker worker-analytics webhooks web' }}
+    DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
+    ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
+    DEPLOY_HEALTH_CONTAINERS: ${{ vars.DEPLOY_HEALTH_CONTAINERS || 'db_postgres rabbitmq kodus_api kodus_worker kodus_analytics_worker kodus_webhooks kodus_web' }}
+    DEPLOY_HEALTH_TIMEOUT_SECONDS: ${{ vars.DEPLOY_HEALTH_TIMEOUT_SECONDS || '300' }}
+    DEPLOY_API_HEALTH_URL: ${{ vars.DEPLOY_API_HEALTH_URL || 'http://127.0.0.1:3001/health' }}
+    DEPLOY_WEBHOOK_PING_ENABLED: ${{ vars.DEPLOY_WEBHOOK_PING_ENABLED || 'true' }}
+    DEPLOY_WEBHOOK_PING_URL: ${{ vars.DEPLOY_WEBHOOK_PING_URL || 'http://127.0.0.1:3332/github/webhook' }}
+    DEPLOY_WEB_URL: ${{ vars.DEPLOY_WEB_URL || 'http://127.0.0.1:3000' }}
+
+jobs:
+    deploy:
+        name: Deploy docker compose on local runner
+        runs-on: ${{ fromJSON(vars.DEPLOY_RUNNER_LABELS_JSON || '["self-hosted","Linux","X64","mijak-manager"]') }}
+        timeout-minutes: ${{ fromJSON(vars.DEPLOY_TIMEOUT_MINUTES || '45') }}
+
+        steps:
+            - name: Checkout Mijak main
+              uses: actions/checkout@v6.0.2
+              with:
+                  ref: main
+                  fetch-depth: 1
+
+            - name: Build compose arguments
+              id: compose
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  args=(-f "$DEPLOY_COMPOSE_FILE")
+                  if [ -n "${DEPLOY_COMPOSE_PROFILES:-}" ]; then
+                    IFS=',' read -ra profiles <<< "$DEPLOY_COMPOSE_PROFILES"
+                    for profile in "${profiles[@]}"; do
+                      profile="${profile//[[:space:]]/}"
+                      if [ -n "$profile" ]; then
+                        args+=(--profile "$profile")
+                      fi
+                    done
+                  fi
+
+                  {
+                    printf 'args<<COMPOSE_ARGS\n'
+                    printf '%q ' "${args[@]}"
+                    printf '\nCOMPOSE_ARGS\n'
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Preflight host and env
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  echo "Runner: ${RUNNER_NAME:-unknown}"
+                  echo "Host: $(hostname)"
+                  docker --version
+                  docker compose version
+
+                  if [ ! -f "$DEPLOY_ENV_FILE" ]; then
+                    echo "::error::Deploy env file not found at $DEPLOY_ENV_FILE. Create it on the self-hosted runner or set the DEPLOY_ENV_FILE repository variable."
+                    exit 1
+                  fi
+
+                  echo "Using COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME"
+                  echo "Using DEPLOY_COMPOSE_FILE=$DEPLOY_COMPOSE_FILE"
+                  echo "Using DEPLOY_COMPOSE_PROFILES=${DEPLOY_COMPOSE_PROFILES:-<none>}"
+                  echo "Using DEPLOY_COMPOSE_SERVICES=$DEPLOY_COMPOSE_SERVICES"
+                  echo "Using DEPLOY_ENV_FILE=$DEPLOY_ENV_FILE"
+
+            - name: Validate docker compose config
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # shellcheck disable=SC2206
+                  compose_args=(${{ steps.compose.outputs.args }})
+                  docker compose "${compose_args[@]}" config >/tmp/kodus-compose-cd.yml
+                  grep -n "kodus-webhooks" /tmp/kodus-compose-cd.yml | head -20 || true
+
+            - name: Build and deploy compose services
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # shellcheck disable=SC2206
+                  compose_args=(${{ steps.compose.outputs.args }})
+                  # shellcheck disable=SC2206
+                  services=($DEPLOY_COMPOSE_SERVICES)
+                  docker compose "${compose_args[@]}" up -d --build "${services[@]}"
+
+            - name: Wait for service health
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  wait_healthy() {
+                    local container="$1"
+                    local timeout_seconds="${2:-$DEPLOY_HEALTH_TIMEOUT_SECONDS}"
+                    local start now state
+                    start=$(date +%s)
+
+                    while true; do
+                      state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
+                      if [ "$state" = "healthy" ] || [ "$state" = "running" ]; then
+                        echo "$container is $state"
+                        return 0
+                      fi
+
+                      now=$(date +%s)
+                      if [ $((now - start)) -ge "$timeout_seconds" ]; then
+                        echo "::error::$container did not become healthy within ${timeout_seconds}s (last state: ${state:-missing})"
+                        docker logs --tail 120 "$container" || true
+                        return 1
+                      fi
+
+                      echo "Waiting for $container (state: ${state:-missing})..."
+                      sleep 5
+                    done
+                  }
+
+                  # shellcheck disable=SC2206
+                  health_containers=($DEPLOY_HEALTH_CONTAINERS)
+                  for container in "${health_containers[@]}"; do
+                    wait_healthy "$container" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
+                  done
+
+            - name: Smoke test local routes
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  curl -fsS "$DEPLOY_API_HEALTH_URL" >/tmp/kodus-api-health.txt
+
+                  if [ "$DEPLOY_WEBHOOK_PING_ENABLED" = "true" ]; then
+                    curl -fsS -X POST \
+                      -H 'content-type: application/json' \
+                      -H 'x-github-event: ping' \
+                      -d '{}' \
+                      "$DEPLOY_WEBHOOK_PING_URL" >/tmp/kodus-webhook-ping.txt
+                    echo "Webhook ping route: $(cat /tmp/kodus-webhook-ping.txt)"
+                  fi
+
+                  curl -fsS "$DEPLOY_WEB_URL" >/dev/null
+                  echo "API health: $(cat /tmp/kodus-api-health.txt)"
+
+            - name: Show deployed containers
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # shellcheck disable=SC2206
+                  compose_args=(${{ steps.compose.outputs.args }})
+                  docker compose "${compose_args[@]}" ps
