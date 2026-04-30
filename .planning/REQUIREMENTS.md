@@ -49,23 +49,21 @@ Deferred to a future milestone. Tracked here so we don't lose them.
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONV-01 | — | Pending |
-| CONV-02 | — | Pending |
-| CONV-03 | — | Pending |
-| RLLT-01 | — | Pending |
-| RLLT-02 | — | Pending |
-| OBS-01 | — | Pending |
-| OBS-02 | — | Pending |
+| CONV-01 | Phase 1 | Pending |
+| CONV-02 | Phase 1 | Pending |
+| CONV-03 | Phase 1 | Pending |
+| RLLT-01 | Phase 1 | Pending |
+| RLLT-02 | Phase 1 | Pending |
+| OBS-01 | Phase 2 | Pending |
+| OBS-02 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 7 total
-- Mapped to phases: 0 ⚠️ (pending roadmap)
-- Unmapped: 7 ⚠️
+- Mapped to phases: 7
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-30*
-*Last updated: 2026-04-30 after initialization*
+*Last updated: 2026-04-29 after roadmap creation*
