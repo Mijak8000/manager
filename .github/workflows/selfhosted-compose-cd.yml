@@ -23,6 +23,9 @@ env:
     DEPLOY_COMPOSE_INFRA_SERVICES: ${{ vars.DEPLOY_COMPOSE_INFRA_SERVICES || 'rabbitmq db_postgres db_mongodb' }}
     DEPLOY_COMPOSE_BUILD_SERVICES: ${{ vars.DEPLOY_COMPOSE_BUILD_SERVICES || 'kodus-api web' }}
     DEPLOY_COMPOSE_SERVICES: ${{ vars.DEPLOY_COMPOSE_SERVICES || 'kodus-api worker worker-analytics webhooks web' }}
+    DEPLOY_IMAGE_BUILD_MODE: ${{ vars.DEPLOY_IMAGE_BUILD_MODE || 'auto' }}
+    DEPLOY_REBUILD_PATHS_REGEX: ${{ vars.DEPLOY_REBUILD_PATHS_REGEX || '(^docker/|^Dockerfile|^docker-compose|^package\\.json$|^yarn\\.lock$|^packages/kodus-common/|^packages/kodus-flow/|^apps/web/package\\.json$|^apps/web/yarn\\.lock$|^apps/web/package-lock\\.json$)' }}
+    DEPLOY_FORCE_RECREATE: ${{ vars.DEPLOY_FORCE_RECREATE || 'true' }}
     DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
     ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
     DEPLOY_HEALTH_CONTAINERS: ${{ vars.DEPLOY_HEALTH_CONTAINERS || 'db_postgres rabbitmq kodus_api kodus_worker kodus_analytics_worker kodus_webhooks kodus_web' }}
@@ -43,7 +46,7 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   ref: main
-                  fetch-depth: 1
+                  fetch-depth: 2
                   clean: false
 
             - name: Set up persistent Docker Buildx cache
@@ -95,6 +98,8 @@ jobs:
                   echo "Using DEPLOY_COMPOSE_INFRA_SERVICES=$DEPLOY_COMPOSE_INFRA_SERVICES"
                   echo "Using DEPLOY_COMPOSE_BUILD_SERVICES=$DEPLOY_COMPOSE_BUILD_SERVICES"
                   echo "Using DEPLOY_COMPOSE_SERVICES=$DEPLOY_COMPOSE_SERVICES"
+                  echo "Using DEPLOY_IMAGE_BUILD_MODE=$DEPLOY_IMAGE_BUILD_MODE"
+                  echo "Using DEPLOY_FORCE_RECREATE=$DEPLOY_FORCE_RECREATE"
                   echo "Using DEPLOY_ENV_FILE=$DEPLOY_ENV_FILE"
 
             - name: Validate docker compose config
@@ -105,6 +110,77 @@ jobs:
                   compose_args=(${{ steps.compose.outputs.args }})
                   docker compose "${compose_args[@]}" config >/tmp/kodus-compose-cd.yml
                   grep -n "kodus-webhooks" /tmp/kodus-compose-cd.yml | head -20 || true
+
+            - name: Decide image rebuild
+              id: rebuild
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  mode="${DEPLOY_IMAGE_BUILD_MODE:-auto}"
+                  before="${{ github.event.before }}"
+                  after="${{ github.sha }}"
+                  event="${{ github.event_name }}"
+                  rebuild=false
+                  reason="No build-impacting files changed."
+                  changed_files_file=/tmp/kodus-cd-changed-files.txt
+                  : > "$changed_files_file"
+
+                  case "$mode" in
+                    always)
+                      rebuild=true
+                      reason="DEPLOY_IMAGE_BUILD_MODE=always"
+                      ;;
+                    never)
+                      rebuild=false
+                      reason="DEPLOY_IMAGE_BUILD_MODE=never"
+                      ;;
+                    auto)
+                      if [ "$event" = "workflow_dispatch" ]; then
+                        rebuild=true
+                        reason="Manual workflow_dispatch defaults to rebuilding images in auto mode."
+                      elif [ -z "$before" ] || [[ "$before" =~ ^0+$ ]]; then
+                        rebuild=true
+                        reason="No previous commit was available for diffing."
+                      else
+                        if ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+                          git fetch --no-tags --depth=1 origin "$before"
+                        fi
+
+                        git diff --name-only "$before" "$after" > "$changed_files_file"
+                        if grep -Eq "$DEPLOY_REBUILD_PATHS_REGEX" "$changed_files_file"; then
+                          rebuild=true
+                          reason="A build-impacting file matched DEPLOY_REBUILD_PATHS_REGEX."
+                        fi
+                      fi
+                      ;;
+                    *)
+                      echo "::error::DEPLOY_IMAGE_BUILD_MODE must be one of: auto, always, never. Got: $mode"
+                      exit 1
+                      ;;
+                  esac
+
+                  {
+                    echo "rebuild=$rebuild"
+                    echo "reason=$reason"
+                  } >> "$GITHUB_OUTPUT"
+
+                  {
+                    echo "### Compose CD rebuild decision"
+                    echo
+                    echo "- mode: \`$mode\`"
+                    echo "- rebuild images: \`$rebuild\`"
+                    echo "- reason: $reason"
+                    echo
+                    echo "Changed files:"
+                    if [ -s "$changed_files_file" ]; then
+                      sed 's/^/- `/' "$changed_files_file" | sed 's/$/`/' | head -100
+                    else
+                      echo "- <not diffed>"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+                  echo "Image rebuild decision: $rebuild ($reason)"
 
             - name: Ensure compose infrastructure is running
               shell: bash
@@ -117,6 +193,7 @@ jobs:
                   docker compose "${compose_args[@]}" up -d --no-recreate "${infra_services[@]}"
 
             - name: Build cached compose images
+              if: steps.rebuild.outputs.rebuild == 'true'
               shell: bash
               run: |
                   set -euo pipefail
@@ -126,6 +203,13 @@ jobs:
                   build_services=($DEPLOY_COMPOSE_BUILD_SERVICES)
                   docker compose "${compose_args[@]}" build --parallel "${build_services[@]}"
 
+            - name: Skip image rebuild
+              if: steps.rebuild.outputs.rebuild != 'true'
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  echo "Skipping docker compose build: ${{ steps.rebuild.outputs.reason }}"
+
             - name: Deploy compose services
               shell: bash
               run: |
@@ -134,7 +218,11 @@ jobs:
                   compose_args=(${{ steps.compose.outputs.args }})
                   # shellcheck disable=SC2206
                   services=($DEPLOY_COMPOSE_SERVICES)
-                  docker compose "${compose_args[@]}" up -d --no-build "${services[@]}"
+                  recreate_args=()
+                  if [ "${DEPLOY_FORCE_RECREATE:-true}" = "true" ]; then
+                    recreate_args+=(--force-recreate)
+                  fi
+                  docker compose "${compose_args[@]}" up -d --no-build "${recreate_args[@]}" "${services[@]}"
 
             - name: Wait for service health
               shell: bash
