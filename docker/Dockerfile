@@ -100,6 +100,7 @@ RUN bun install -g @kodus/kodus-graph
 
 COPY --chown=1000:1000 --from=prod-deps /usr/src/app/node_modules ./node_modules
 COPY --chown=1000:1000 --from=build /usr/src/app/dist ./dist
+COPY --chown=1000:1000 --from=build /usr/src/app/libs/agents/skills ./libs/agents/skills
 COPY --chown=1000:1000 --from=build /usr/src/app/package.json ./package.json
 COPY --chown=1000:1000 --from=build /usr/src/app/default-kodus-config.yml ./default-kodus-config.yml
 COPY --chown=1000:1000 --from=build /usr/src/app/kodus-config.yml ./kodus-config.yml
