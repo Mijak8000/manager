@@ -15,9 +15,14 @@ permissions:
 
 env:
     COMPOSE_PROJECT_NAME: ${{ vars.DEPLOY_COMPOSE_PROJECT_NAME || 'kodus-ai' }}
+    COMPOSE_BAKE: ${{ vars.DEPLOY_COMPOSE_BAKE || 'true' }}
+    DOCKER_BUILDKIT: '1'
+    DOCKER_BUILD_SUMMARY: ${{ vars.DEPLOY_DOCKER_BUILD_SUMMARY || 'false' }}
     DEPLOY_COMPOSE_FILE: ${{ vars.DEPLOY_COMPOSE_FILE || 'docker-compose.dev.yml' }}
     DEPLOY_COMPOSE_PROFILES: ${{ vars.DEPLOY_COMPOSE_PROFILES || 'local-db' }}
-    DEPLOY_COMPOSE_SERVICES: ${{ vars.DEPLOY_COMPOSE_SERVICES || 'rabbitmq db_postgres db_mongodb kodus-api worker worker-analytics webhooks web' }}
+    DEPLOY_COMPOSE_INFRA_SERVICES: ${{ vars.DEPLOY_COMPOSE_INFRA_SERVICES || 'rabbitmq db_postgres db_mongodb' }}
+    DEPLOY_COMPOSE_BUILD_SERVICES: ${{ vars.DEPLOY_COMPOSE_BUILD_SERVICES || 'kodus-api web' }}
+    DEPLOY_COMPOSE_SERVICES: ${{ vars.DEPLOY_COMPOSE_SERVICES || 'kodus-api worker worker-analytics webhooks web' }}
     DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
     ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
     DEPLOY_HEALTH_CONTAINERS: ${{ vars.DEPLOY_HEALTH_CONTAINERS || 'db_postgres rabbitmq kodus_api kodus_worker kodus_analytics_worker kodus_webhooks kodus_web' }}
@@ -40,12 +45,18 @@ jobs:
                   ref: main
                   fetch-depth: 1
 
+            - name: Set up persistent Docker Buildx cache
+              uses: docker/setup-buildx-action@v3
+              with:
+                  install: true
+                  keep-state: true
+
             - name: Build compose arguments
               id: compose
               shell: bash
               run: |
                   set -euo pipefail
-                  args=(-f "$DEPLOY_COMPOSE_FILE")
+                  args=(--env-file "$DEPLOY_ENV_FILE" -f "$DEPLOY_COMPOSE_FILE")
                   if [ -n "${DEPLOY_COMPOSE_PROFILES:-}" ]; then
                     IFS=',' read -ra profiles <<< "$DEPLOY_COMPOSE_PROFILES"
                     for profile in "${profiles[@]}"; do
@@ -79,6 +90,9 @@ jobs:
                   echo "Using COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME"
                   echo "Using DEPLOY_COMPOSE_FILE=$DEPLOY_COMPOSE_FILE"
                   echo "Using DEPLOY_COMPOSE_PROFILES=${DEPLOY_COMPOSE_PROFILES:-<none>}"
+                  echo "Using COMPOSE_BAKE=$COMPOSE_BAKE"
+                  echo "Using DEPLOY_COMPOSE_INFRA_SERVICES=$DEPLOY_COMPOSE_INFRA_SERVICES"
+                  echo "Using DEPLOY_COMPOSE_BUILD_SERVICES=$DEPLOY_COMPOSE_BUILD_SERVICES"
                   echo "Using DEPLOY_COMPOSE_SERVICES=$DEPLOY_COMPOSE_SERVICES"
                   echo "Using DEPLOY_ENV_FILE=$DEPLOY_ENV_FILE"
 
@@ -91,7 +105,27 @@ jobs:
                   docker compose "${compose_args[@]}" config >/tmp/kodus-compose-cd.yml
                   grep -n "kodus-webhooks" /tmp/kodus-compose-cd.yml | head -20 || true
 
-            - name: Build and deploy compose services
+            - name: Ensure compose infrastructure is running
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # shellcheck disable=SC2206
+                  compose_args=(${{ steps.compose.outputs.args }})
+                  # shellcheck disable=SC2206
+                  infra_services=($DEPLOY_COMPOSE_INFRA_SERVICES)
+                  docker compose "${compose_args[@]}" up -d --no-recreate "${infra_services[@]}"
+
+            - name: Build cached compose images
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # shellcheck disable=SC2206
+                  compose_args=(${{ steps.compose.outputs.args }})
+                  # shellcheck disable=SC2206
+                  build_services=($DEPLOY_COMPOSE_BUILD_SERVICES)
+                  docker compose "${compose_args[@]}" build --parallel "${build_services[@]}"
+
+            - name: Deploy compose services
               shell: bash
               run: |
                   set -euo pipefail
@@ -99,7 +133,7 @@ jobs:
                   compose_args=(${{ steps.compose.outputs.args }})
                   # shellcheck disable=SC2206
                   services=($DEPLOY_COMPOSE_SERVICES)
-                  docker compose "${compose_args[@]}" up -d --build "${services[@]}"
+                  docker compose "${compose_args[@]}" up -d --no-build "${services[@]}"
 
             - name: Wait for service health
               shell: bash

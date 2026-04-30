@@ -4,6 +4,7 @@ x-app-service-template: &app-service-defaults
         dockerfile: docker/Dockerfile.dev
         args:
             - API_CLOUD_MODE=${API_CLOUD_MODE:-false}
+    image: ${APP_IMAGE:-kodus-ai-app}
     env_file:
         - ${ENV_FILE:-.env}
     environment:
@@ -213,6 +214,7 @@ services:
     # Web Frontend
     #----------------------------------------------------------------
     web:
+        image: ${WEB_IMAGE:-kodus-ai-web}
         build:
             context: ./apps/web
             dockerfile: ../../docker/Dockerfile.web.dev
@@ -277,6 +279,7 @@ services:
     # Databases & Infrastructure
     #----------------------------------------------------------------
     rabbitmq:
+        image: ${RABBITMQ_IMAGE:-kodus-ai-rabbitmq}
         profiles:
             - local-db
             - infra
