@@ -10,6 +10,7 @@ import { cn } from "src/core/utils/components";
 
 import { ConfigProvider } from "@providers/ConfigProvider";
 import type { PublicConfig } from "@config/publicConfig";
+import { isEnterpriseAccessEnabled } from "src/core/utils/enterprise-access";
 
 import "./globals.css";
 
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: React.PropsWithChildren) {
         tokenDocsAzureRepos: process.env.WEB_TOKEN_DOCS_AZUREREPOS ?? "",
         ruleFilesDocs: process.env.WEB_RULE_FILES_DOCS ?? "",
         releaseVersion: process.env.RELEASE_VERSION ?? "",
+        enterpriseAccessEnabled: isEnterpriseAccessEnabled(),
         nodeEnv: process.env.WEB_NODE_ENV ?? "",
     };
 

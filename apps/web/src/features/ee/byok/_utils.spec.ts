@@ -2,6 +2,17 @@ import { UserRole } from "@enums";
 import { Action, ResourceType } from "@services/permissions/types";
 
 describe("BYOK topbar visibility", () => {
+    const ENTERPRISE_ACCESS_ORIG = process.env.KODUS_ENTERPRISE_ACCESS;
+
+    afterEach(() => {
+        if (ENTERPRISE_ACCESS_ORIG === undefined) {
+            delete process.env.KODUS_ENTERPRISE_ACCESS;
+        } else {
+            process.env.KODUS_ENTERPRISE_ACCESS = ENTERPRISE_ACCESS_ORIG;
+        }
+        jest.resetModules();
+    });
+
     const activeBYOKLicense = {
         subscriptionStatus: "active",
         planType: "teams_byok",
@@ -176,7 +187,22 @@ describe("BYOK topbar visibility", () => {
         ).toBe(false);
     });
 
-    it("treats active free plans as enterprise for enterprise-only UI gates", async () => {
+    it("does not treat active free plans as enterprise unless the enterprise override is enabled", async () => {
+        const { isEnterprisePlan } = await import("./_utils");
+
+        expect(
+            isEnterprisePlan({
+                valid: true,
+                subscriptionStatus: "active",
+                numberOfLicenses: 0,
+                planType: "free_byok",
+            } as any),
+        ).toBe(false);
+    });
+
+    it("treats active free plans as enterprise when KODUS_ENTERPRISE_ACCESS is enabled", async () => {
+        process.env.KODUS_ENTERPRISE_ACCESS = "true";
+        jest.resetModules();
         const { isEnterprisePlan } = await import("./_utils");
 
         expect(

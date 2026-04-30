@@ -41,9 +41,20 @@ function createMockOrgParamsService() {
 const orgData = { organizationId: 'org-123' };
 
 describe('PermissionValidationService.shouldLimitResources (self-hosted)', () => {
+    const ENTERPRISE_ACCESS_ORIG = process.env.KODUS_ENTERPRISE_ACCESS;
+
     beforeEach(() => {
+        delete process.env.KODUS_ENTERPRISE_ACCESS;
         mockEnvironment.API_CLOUD_MODE = false;
         mockEnvironment.API_DEVELOPMENT_MODE = false;
+    });
+
+    afterEach(() => {
+        if (ENTERPRISE_ACCESS_ORIG === undefined) {
+            delete process.env.KODUS_ENTERPRISE_ACCESS;
+        } else {
+            process.env.KODUS_ENTERPRISE_ACCESS = ENTERPRISE_ACCESS_ORIG;
+        }
     });
 
     it('should NOT limit when self-hosted with valid license', async () => {
@@ -135,5 +146,23 @@ describe('PermissionValidationService.shouldLimitResources (self-hosted)', () =>
 
         const result = await service.shouldLimitResources(orgData);
         expect(result).toBe(true);
+    });
+
+    it('should NOT limit cloud free plan when KODUS_ENTERPRISE_ACCESS is enabled', async () => {
+        process.env.KODUS_ENTERPRISE_ACCESS = 'true';
+        mockEnvironment.API_CLOUD_MODE = true;
+        const licenseService = createMockLicenseService({
+            valid: true,
+            subscriptionStatus: SubscriptionStatus.ACTIVE,
+            planType: 'free_byok',
+        });
+
+        const service = new PermissionValidationService(
+            licenseService as any,
+            createMockOrgParamsService() as any,
+        );
+
+        const result = await service.shouldLimitResources(orgData);
+        expect(result).toBe(false);
     });
 });

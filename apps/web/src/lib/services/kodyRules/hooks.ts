@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useFetch, useSuspenseFetch } from "src/core/utils/reactQuery";
+import { isEnterpriseAccessEnabled } from "src/core/utils/enterprise-access";
 import { useSubscriptionStatus } from "src/features/ee/subscription/_hooks/use-subscription-status";
 
 import { KODY_RULES_PATHS } from ".";
@@ -30,6 +31,13 @@ export const useSuspenseKodyRulesTotalQuantity = () => {
 export const useKodyRulesLimits = () => {
     const subscription = useSubscriptionStatus();
     const total = useSuspenseKodyRulesTotalQuantity();
+
+    if (isEnterpriseAccessEnabled())
+        return {
+            canAddMoreRules: true,
+            total,
+            limit: Number.POSITIVE_INFINITY,
+        };
 
     if (!subscription.valid)
         return {

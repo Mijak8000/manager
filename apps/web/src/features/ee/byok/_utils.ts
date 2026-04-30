@@ -6,6 +6,7 @@ import {
     type PermissionsMap,
 } from "@services/permissions/types";
 import { hasPermission } from "src/core/utils/permission-map";
+import { isEnterpriseAccessEnabled } from "src/core/utils/enterprise-access";
 
 import type { OrganizationLicense } from "../subscription/_services/billing/types";
 
@@ -31,6 +32,10 @@ export const isBYOKSubscriptionPlan = (license: OrganizationLicense) => {
 };
 
 export const isEnterprisePlan = (license: OrganizationLicense): boolean => {
+    if (isEnterpriseAccessEnabled()) {
+        return true;
+    }
+
     if (
         license.subscriptionStatus === "self-hosted" ||
         license.subscriptionStatus === "licensed-self-hosted"
@@ -43,7 +48,7 @@ export const isEnterprisePlan = (license: OrganizationLicense): boolean => {
     if (license.subscriptionStatus !== "active") {
         return false;
     }
-    return ["enterprise", "free"].some((plan) =>
+    return ["enterprise"].some((plan) =>
         license.planType?.startsWith(plan),
     );
 };

@@ -24,6 +24,7 @@ export type PublicConfig = {
     tokenDocsAzureRepos: string;
     ruleFilesDocs: string;
     releaseVersion: string;
+    enterpriseAccessEnabled: boolean;
     // Distinguishes "development" / "production" / "self-hosted" so
     // client components (e.g. sso-callback) can decide things like
     // shared-cookie domain without reading process.env in the browser.

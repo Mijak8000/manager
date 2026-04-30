@@ -14,6 +14,7 @@ import {
     ORGANIZATION_PARAMETERS_SERVICE_TOKEN,
 } from '@libs/organization/domain/organizationParameters/contracts/organizationParameters.service.contract';
 import { createLogger } from '@kodus/flow';
+import { isEnterpriseAccessEnabled } from '../utils/enterprise-access';
 
 export enum PlanType {
     FREE = 'free',
@@ -516,6 +517,10 @@ export class PermissionValidationService {
         contextName?: string,
     ): Promise<boolean> {
         try {
+            if (isEnterpriseAccessEnabled()) {
+                return false;
+            }
+
             // Development mode doesn't limit resources
             if (this.isDevelopment) {
                 return false;
