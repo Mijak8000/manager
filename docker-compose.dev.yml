@@ -254,9 +254,9 @@ services:
         deploy:
             resources:
                 limits:
-                    memory: 2G
+                    memory: ${WEB_MEMORY_LIMIT:-3G}
                 reservations:
-                    memory: 512M
+                    memory: ${WEB_MEMORY_RESERVATION:-512M}
 
     #----------------------------------------------------------------
     # Observability & Profiling
@@ -361,9 +361,9 @@ services:
         volumes:
             - mongodbdata:/data/db
         environment:
-            MONGO_INITDB_ROOT_USERNAME: ${API_MG_DB_USERNAME}
-            MONGO_INITDB_ROOT_PASSWORD: ${API_MG_DB_PASSWORD}
-            MONGO_INITDB_DATABASE: ${API_MG_DB_DATABASE}
+            MONGO_INITDB_ROOT_USERNAME: ${API_MG_DB_USERNAME:?API_MG_DB_USERNAME is required}
+            MONGO_INITDB_ROOT_PASSWORD: ${API_MG_DB_PASSWORD:?API_MG_DB_PASSWORD is required}
+            MONGO_INITDB_DATABASE: ${API_MG_DB_DATABASE:?API_MG_DB_DATABASE is required}
         networks:
             - kodus-backend-services
         restart: unless-stopped
