@@ -16,6 +16,7 @@ import {
     SubscriptionStatus,
     UserWithLicense,
 } from './interfaces/license.interface';
+import { isEnterpriseAccessEnabled } from '../shared/utils/enterprise-access';
 
 // Ed25519 public key used to verify self-hosted license JWTs.
 // This is the public half of the keypair held by Kodus for signing licenses.
@@ -24,6 +25,17 @@ MCowBQYDK2VwAyEAig1JYVU3PCPOY18JGKsMdcoPeDMrGRCRb5XPZeLniZc=
 -----END PUBLIC KEY-----`;
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_ENTERPRISE_ACCESS_SEATS = 1000;
+
+function enterpriseAccessSeats(): number {
+    const seats = Number(
+        process.env.KODUS_ENTERPRISE_ACCESS_SEATS ??
+            DEFAULT_ENTERPRISE_ACCESS_SEATS,
+    );
+    return Number.isFinite(seats) && seats > 0
+        ? seats
+        : DEFAULT_ENTERPRISE_ACCESS_SEATS;
+}
 
 @Injectable()
 export class SelfHostedLicenseService implements ILicenseService {
@@ -42,6 +54,16 @@ export class SelfHostedLicenseService implements ILicenseService {
     async validateOrganizationLicense(
         organizationAndTeamData: OrganizationAndTeamData,
     ): Promise<OrganizationLicenseValidationResult> {
+        if (isEnterpriseAccessEnabled()) {
+            return {
+                valid: true,
+                subscriptionStatus: SubscriptionStatus.LICENSED_SELF_HOSTED,
+                planType:
+                    process.env.KODUS_ENTERPRISE_ACCESS_PLAN ?? 'enterprise',
+                numberOfLicenses: enterpriseAccessSeats(),
+            };
+        }
+
         // Return cached result if still valid
         if (this.cache && Date.now() < this.cache.expiresAt) {
             return this.cache.result;

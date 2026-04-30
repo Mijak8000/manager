@@ -1,6 +1,7 @@
 import { authorizedFetch } from "@services/fetch";
 import { getOrganizationId } from "@services/organizations/fetch";
 import { pathToApiUrl } from "src/core/utils/helpers";
+import { isEnterpriseAccessEnabled } from "src/core/utils/enterprise-access";
 import { isSelfHosted } from "src/core/utils/self-hosted";
 
 import type { OrganizationLicense, Plan, PlanType } from "./types";
@@ -12,6 +13,11 @@ type OrganizationMember = {
     login?: string | null;
     username?: string | null;
     displayName?: string | null;
+};
+
+const enterpriseAccessSeats = () => {
+    const seats = Number(process.env.KODUS_ENTERPRISE_ACCESS_SEATS ?? 1000);
+    return Number.isFinite(seats) && seats > 0 ? seats : 1000;
 };
 
 export const getOrganizationMembers = async (params: { teamId: string }) => {
@@ -161,6 +167,17 @@ export const validateOrganizationLicense = async (params: {
     teamId: string;
 }): Promise<OrganizationLicense> => {
     if (isSelfHosted) {
+        if (isEnterpriseAccessEnabled()) {
+            return {
+                valid: true,
+                subscriptionStatus: "licensed-self-hosted",
+                planType:
+                    (process.env.KODUS_ENTERPRISE_ACCESS_PLAN as PlanType) ||
+                    "enterprise",
+                numberOfLicenses: enterpriseAccessSeats(),
+            };
+        }
+
         // Check if there's a self-hosted license key activated
         // Use /license/org-status which is accessible to all org members
         try {
