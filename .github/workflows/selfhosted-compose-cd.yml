@@ -22,13 +22,15 @@ env:
     DEPLOY_COMPOSE_PROFILES: ${{ vars.DEPLOY_COMPOSE_PROFILES || 'local-db' }}
     DEPLOY_COMPOSE_INFRA_SERVICES: ${{ vars.DEPLOY_COMPOSE_INFRA_SERVICES || 'rabbitmq db_postgres db_mongodb' }}
     DEPLOY_COMPOSE_BUILD_SERVICES: ${{ vars.DEPLOY_COMPOSE_BUILD_SERVICES || 'kodus-api web' }}
-    DEPLOY_COMPOSE_SERVICES: ${{ vars.DEPLOY_COMPOSE_SERVICES || 'kodus-api worker worker-analytics webhooks web' }}
+    DEPLOY_COMPOSE_SERVICES: ${{ vars.DEPLOY_COMPOSE_SERVICES || 'kodus-api worker worker-analytics webhooks' }}
+    DEPLOY_COMPOSE_FRONTEND_SERVICES: ${{ vars.DEPLOY_COMPOSE_FRONTEND_SERVICES || 'web' }}
     DEPLOY_IMAGE_BUILD_MODE: ${{ vars.DEPLOY_IMAGE_BUILD_MODE || 'auto' }}
     DEPLOY_REBUILD_PATHS_REGEX: ${{ vars.DEPLOY_REBUILD_PATHS_REGEX || '(^docker/|^Dockerfile|^docker-compose|^package\\.json$|^yarn\\.lock$|^packages/kodus-common/|^packages/kodus-flow/|^apps/web/package\\.json$|^apps/web/yarn\\.lock$|^apps/web/package-lock\\.json$)' }}
     DEPLOY_FORCE_RECREATE: ${{ vars.DEPLOY_FORCE_RECREATE || 'true' }}
     DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
     ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/home/actions-runner/kodus-ai.env' }}
-    DEPLOY_HEALTH_CONTAINERS: ${{ vars.DEPLOY_HEALTH_CONTAINERS || 'db_postgres rabbitmq kodus_api kodus_worker kodus_analytics_worker kodus_webhooks kodus_web' }}
+    DEPLOY_HEALTH_CONTAINERS: ${{ vars.DEPLOY_HEALTH_CONTAINERS || 'db_postgres rabbitmq kodus_api kodus_worker kodus_analytics_worker kodus_webhooks' }}
+    DEPLOY_FRONTEND_HEALTH_CONTAINERS: ${{ vars.DEPLOY_FRONTEND_HEALTH_CONTAINERS || 'kodus_web' }}
     DEPLOY_HEALTH_TIMEOUT_SECONDS: ${{ vars.DEPLOY_HEALTH_TIMEOUT_SECONDS || '300' }}
     DEPLOY_API_HEALTH_URL: ${{ vars.DEPLOY_API_HEALTH_URL || 'http://127.0.0.1:3001/health' }}
     DEPLOY_WEBHOOK_PING_ENABLED: ${{ vars.DEPLOY_WEBHOOK_PING_ENABLED || 'true' }}
@@ -98,6 +100,7 @@ jobs:
                   echo "Using DEPLOY_COMPOSE_INFRA_SERVICES=$DEPLOY_COMPOSE_INFRA_SERVICES"
                   echo "Using DEPLOY_COMPOSE_BUILD_SERVICES=$DEPLOY_COMPOSE_BUILD_SERVICES"
                   echo "Using DEPLOY_COMPOSE_SERVICES=$DEPLOY_COMPOSE_SERVICES"
+                  echo "Using DEPLOY_COMPOSE_FRONTEND_SERVICES=${DEPLOY_COMPOSE_FRONTEND_SERVICES:-<none>}"
                   echo "Using DEPLOY_IMAGE_BUILD_MODE=$DEPLOY_IMAGE_BUILD_MODE"
                   echo "Using DEPLOY_FORCE_RECREATE=$DEPLOY_FORCE_RECREATE"
                   echo "Using DEPLOY_ENV_FILE=$DEPLOY_ENV_FILE"
@@ -210,7 +213,7 @@ jobs:
                   set -euo pipefail
                   echo "Skipping docker compose build: ${{ steps.rebuild.outputs.reason }}"
 
-            - name: Deploy compose services
+            - name: Deploy backend compose services
               shell: bash
               run: |
                   set -euo pipefail
@@ -257,6 +260,58 @@ jobs:
                   # shellcheck disable=SC2206
                   health_containers=($DEPLOY_HEALTH_CONTAINERS)
                   for container in "${health_containers[@]}"; do
+                    wait_healthy "$container" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
+                  done
+
+            - name: Deploy frontend compose services
+              if: env.DEPLOY_COMPOSE_FRONTEND_SERVICES != ''
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # shellcheck disable=SC2206
+                  compose_args=(${{ steps.compose.outputs.args }})
+                  # shellcheck disable=SC2206
+                  frontend_services=($DEPLOY_COMPOSE_FRONTEND_SERVICES)
+                  recreate_args=()
+                  if [ "${DEPLOY_FORCE_RECREATE:-true}" = "true" ]; then
+                    recreate_args+=(--force-recreate)
+                  fi
+                  docker compose "${compose_args[@]}" up -d --no-build "${recreate_args[@]}" "${frontend_services[@]}"
+
+            - name: Wait for frontend health
+              if: env.DEPLOY_FRONTEND_HEALTH_CONTAINERS != ''
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  wait_healthy() {
+                    local container="$1"
+                    local timeout_seconds="${2:-$DEPLOY_HEALTH_TIMEOUT_SECONDS}"
+                    local start now state
+                    start=$(date +%s)
+
+                    while true; do
+                      state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
+                      if [ "$state" = "healthy" ] || [ "$state" = "running" ]; then
+                        echo "$container is $state"
+                        return 0
+                      fi
+
+                      now=$(date +%s)
+                      if [ $((now - start)) -ge "$timeout_seconds" ]; then
+                        echo "::error::$container did not become healthy within ${timeout_seconds}s (last state: ${state:-missing})"
+                        docker logs --tail 120 "$container" || true
+                        return 1
+                      fi
+
+                      echo "Waiting for $container (state: ${state:-missing})..."
+                      sleep 5
+                    done
+                  }
+
+                  # shellcheck disable=SC2206
+                  frontend_health_containers=($DEPLOY_FRONTEND_HEALTH_CONTAINERS)
+                  for container in "${frontend_health_containers[@]}"; do
                     wait_healthy "$container" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
                   done
 
