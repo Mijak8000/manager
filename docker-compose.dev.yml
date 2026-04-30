@@ -167,9 +167,9 @@ services:
         <<: *app-service-defaults
         container_name: kodus_webhooks
         labels:
-            - traefik.enable=${WEBHOOKS_TRAEFIK_ENABLE:-false}
+            - traefik.enable=${WEBHOOKS_TRAEFIK_ENABLE:-true}
             - traefik.http.routers.kodus-webhooks.entrypoints=${WEBHOOKS_TRAEFIK_ENTRYPOINTS:-websecure}
-            - traefik.http.routers.kodus-webhooks.rule=Host(`${WEBHOOKS_TRAEFIK_HOST:-localhost}`)
+            - traefik.http.routers.kodus-webhooks.rule=${WEBHOOKS_TRAEFIK_RULE:-PathPrefix(`/github`) || PathPrefix(`/gitlab`) || PathPrefix(`/bitbucket`) || PathPrefix(`/azure-repos`) || PathPrefix(`/forgejo`)}
             - traefik.http.routers.kodus-webhooks.tls.certresolver=${WEBHOOKS_TRAEFIK_CERTRESOLVER:-letsencrypt}
             - traefik.http.services.kodus-webhooks.loadbalancer.server.port=${WEBHOOKS_TRAEFIK_SERVICE_PORT:-3332}
         depends_on:
