@@ -27,6 +27,7 @@ import { UserNav } from "src/core/layout/navbar/_components/user-nav";
 import { cn } from "src/core/utils/components";
 import { SubscriptionBadge } from "src/features/ee/subscription/_components/subscription-badge";
 import { useSubscriptionContext } from "src/features/ee/subscription/_providers/subscription-context";
+import { isCockpitTierAllowed } from "src/features/ee/cockpit/_helpers/tier-policy";
 
 import { GithubStars } from "./_components/github-stars";
 import { IssuesCount } from "./_components/issues-count";
@@ -70,11 +71,7 @@ export const NavMenu = () => {
             {
                 label: "Cockpit",
                 href: "/cockpit",
-                visible:
-                    subscription.license.valid &&
-                    subscription.license.subscriptionStatus !== "self-hosted" &&
-                    subscription.license.subscriptionStatus !==
-                        "licensed-self-hosted",
+                visible: isCockpitTierAllowed(subscription.license),
                 icon: <GaugeIcon className="size-6" />,
             },
 

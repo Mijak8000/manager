@@ -13,6 +13,7 @@ import { ExpandableCardsLayout } from "./_components/expandable-cards-layout";
 import { CockpitNoDataBanner } from "./_components/no-data-banner";
 import { RepositoryPicker } from "./_components/repository-picker";
 import { tabs, type TabValue } from "./_constants";
+import { shouldBlockCockpitForMissingAnalyticsSecret } from "./_helpers/availability";
 import { extractApiData } from "./_helpers/api-data-extractor";
 import { isCockpitTierAllowed } from "./_helpers/tier-policy";
 import { getAnalyticsStatus } from "./_services/analytics/fetch";
@@ -49,7 +50,7 @@ export default async function Layout({
     flowMetrics: React.ReactNode;
     kodySuggestionsAnalytics: React.ReactNode;
 }) {
-    if (!process.env.WEB_ANALYTICS_SECRET) {
+    if (shouldBlockCockpitForMissingAnalyticsSecret()) {
         return <AnalyticsNotAvailable />;
     }
 
