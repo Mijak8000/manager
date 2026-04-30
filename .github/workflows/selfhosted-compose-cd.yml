@@ -221,11 +221,32 @@ jobs:
                   compose_args=(${{ steps.compose.outputs.args }})
                   # shellcheck disable=SC2206
                   services=($DEPLOY_COMPOSE_SERVICES)
+                  # shellcheck disable=SC2206
+                  frontend_services=(${DEPLOY_COMPOSE_FRONTEND_SERVICES:-})
+                  backend_services=()
+                  for service in "${services[@]}"; do
+                    is_frontend=false
+                    for frontend_service in "${frontend_services[@]}"; do
+                      if [ "$service" = "$frontend_service" ]; then
+                        is_frontend=true
+                        break
+                      fi
+                    done
+                    if [ "$is_frontend" = "false" ]; then
+                      backend_services+=("$service")
+                    fi
+                  done
+
+                  if [ "${#backend_services[@]}" -eq 0 ]; then
+                    echo "No backend compose services to deploy."
+                    exit 0
+                  fi
+
                   recreate_args=()
                   if [ "${DEPLOY_FORCE_RECREATE:-true}" = "true" ]; then
                     recreate_args+=(--force-recreate)
                   fi
-                  docker compose "${compose_args[@]}" up -d --no-build "${recreate_args[@]}" "${services[@]}"
+                  docker compose "${compose_args[@]}" up -d --no-build "${recreate_args[@]}" "${backend_services[@]}"
 
             - name: Wait for service health
               shell: bash
@@ -259,7 +280,19 @@ jobs:
 
                   # shellcheck disable=SC2206
                   health_containers=($DEPLOY_HEALTH_CONTAINERS)
+                  # shellcheck disable=SC2206
+                  frontend_health_containers=(${DEPLOY_FRONTEND_HEALTH_CONTAINERS:-})
                   for container in "${health_containers[@]}"; do
+                    is_frontend=false
+                    for frontend_container in "${frontend_health_containers[@]}"; do
+                      if [ "$container" = "$frontend_container" ]; then
+                        is_frontend=true
+                        break
+                      fi
+                    done
+                    if [ "$is_frontend" = "true" ]; then
+                      continue
+                    fi
                     wait_healthy "$container" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
                   done
 
@@ -319,19 +352,23 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  curl -fsS "$DEPLOY_API_HEALTH_URL" >/tmp/kodus-api-health.txt
+                  api_health_file="${RUNNER_TEMP:-/tmp}/kodus-api-health.txt"
+                  webhook_ping_file="${RUNNER_TEMP:-/tmp}/kodus-webhook-ping.txt"
+                  rm -f "$api_health_file" "$webhook_ping_file"
+
+                  curl -fsS "$DEPLOY_API_HEALTH_URL" >"$api_health_file"
 
                   if [ "$DEPLOY_WEBHOOK_PING_ENABLED" = "true" ]; then
                     curl -fsS -X POST \
                       -H 'content-type: application/json' \
                       -H 'x-github-event: ping' \
                       -d '{}' \
-                      "$DEPLOY_WEBHOOK_PING_URL" >/tmp/kodus-webhook-ping.txt
-                    echo "Webhook ping route: $(cat /tmp/kodus-webhook-ping.txt)"
+                      "$DEPLOY_WEBHOOK_PING_URL" >"$webhook_ping_file"
+                    echo "Webhook ping route: $(cat "$webhook_ping_file")"
                   fi
 
                   curl -fsS "$DEPLOY_WEB_URL" >/dev/null
-                  echo "API health: $(cat /tmp/kodus-api-health.txt)"
+                  echo "API health: $(cat "$api_health_file")"
 
             - name: Restore runner workspace ownership
               if: always()
