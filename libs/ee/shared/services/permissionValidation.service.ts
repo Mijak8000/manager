@@ -294,6 +294,10 @@ export class PermissionValidationService {
         userGitId?: string,
         contextName?: string,
     ): Promise<ValidationResult> {
+        if (isEnterpriseAccessEnabled()) {
+            return { allowed: true };
+        }
+
         const validation =
             await this.licenseService.validateOrganizationLicense(
                 organizationAndTeamData,
