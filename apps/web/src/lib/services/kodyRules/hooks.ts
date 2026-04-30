@@ -11,7 +11,7 @@ import {
     type LibraryRule,
 } from "./types";
 
-const FREE_ACCOUNT_KODY_RULES_LIMIT = 1000;
+const FREE_ACCOUNT_KODY_RULES_LIMIT = 10;
 
 export const useSuspenseFindLibraryKodyRules = () => {
     const rules = useSuspenseFetch<Record<string, Array<LibraryRule>>>(

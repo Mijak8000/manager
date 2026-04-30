@@ -18,21 +18,21 @@ describe('KodyRulesValidationService', () => {
         );
     });
 
-    it('allows limited free accounts to keep up to 1000 Kody Rules', async () => {
+    it('allows limited free accounts to keep up to 10 Kody Rules', async () => {
         permissionValidationService.shouldLimitResources.mockResolvedValue(
             true,
         );
 
         await expect(
-            service.validateRulesLimit({ organizationId: 'org-1' }, 1000),
+            service.validateRulesLimit({ organizationId: 'org-1' }, 10),
         ).resolves.toBe(true);
         await expect(
-            service.validateRulesLimit({ organizationId: 'org-1' }, 1001),
+            service.validateRulesLimit({ organizationId: 'org-1' }, 11),
         ).resolves.toBe(false);
     });
 
-    it('keeps the first 1000 active rules when enforcement is limited', () => {
-        const rules = Array.from({ length: 1001 }, (_, index) => ({
+    it('keeps the first 10 active rules when enforcement is limited', () => {
+        const rules = Array.from({ length: 11 }, (_, index) => ({
             uuid: `rule-${index}`,
             title: `Rule ${index}`,
             rule: `Rule body ${index}`,
@@ -49,7 +49,7 @@ describe('KodyRulesValidationService', () => {
             true,
         );
 
-        expect(standardRules).toHaveLength(1000);
-        expect(standardRules.at(-1)?.uuid).toBe('rule-999');
+        expect(standardRules).toHaveLength(10);
+        expect(standardRules.at(-1)?.uuid).toBe('rule-9');
     });
 });
