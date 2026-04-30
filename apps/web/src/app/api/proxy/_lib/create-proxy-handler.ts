@@ -170,7 +170,11 @@ async function forward(
             message.includes("fetch failed")
         ) {
             return NextResponse.json(
-                { message: "Upstream service is unavailable" },
+                {
+                    statusCode: 503,
+                    error: "Service Unavailable",
+                    message: "Upstream service is unavailable",
+                },
                 { status: 503 },
             );
         }

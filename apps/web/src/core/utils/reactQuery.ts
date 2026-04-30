@@ -71,7 +71,11 @@ export const useSuspenseFetch = <T>(
 
             const text = await response.text();
 
-            let json: { statusCode: number; data: T | undefined };
+            let json: {
+                statusCode?: number;
+                data?: T;
+                message?: string;
+            };
             try {
                 json = JSON.parse(text);
             } catch {
@@ -82,18 +86,35 @@ export const useSuspenseFetch = <T>(
                 throw new Error(`Invalid JSON response from ${url}`);
             }
 
+            const statusCode =
+                typeof json.statusCode === "number"
+                    ? json.statusCode
+                    : response.status;
+
             // 404 Not Found - resource doesn't exist, use fallback if available
-            if (json.statusCode === 404) {
+            if (statusCode === 404) {
                 if (config?.fallbackData !== undefined) {
                     return config.fallbackData;
                 }
                 throw new Error(`Resource not found: ${url}`);
             }
 
+            // A 503 from our same-origin proxy means the upstream API was
+            // temporarily unavailable. Treat it like a network error for
+            // optional Suspense reads that already provided fallbackData, so
+            // transient API restarts don't crash settings pages.
+            if (
+                statusCode === 503 &&
+                config?.fallbackData !== undefined &&
+                json.message === "Upstream service is unavailable"
+            ) {
+                return config.fallbackData;
+            }
+
             // Other API errors (400, 500, etc) - always throw, show to user
-            if (json.statusCode !== 200 && json.statusCode !== 201) {
+            if (statusCode !== 200 && statusCode !== 201) {
                 throw new Error(
-                    `Request failed: ${url} returned status ${json.statusCode}`,
+                    `Request failed: ${url} returned status ${statusCode}`,
                 );
             }
 

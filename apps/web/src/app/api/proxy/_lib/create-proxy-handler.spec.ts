@@ -180,6 +180,8 @@ describe("createProxyHandler", () => {
 
             expect(res.status).toBe(503);
             await expect(res.json()).resolves.toEqual({
+                error: "Service Unavailable",
+                statusCode: 503,
                 message: "Upstream service is unavailable",
             });
         });
@@ -317,6 +319,8 @@ describe("createProxyHandler", () => {
 
             expect(res.status).toBe(503);
             await expect(res.json()).resolves.toEqual({
+                error: "Service Unavailable",
+                statusCode: 503,
                 message: "Upstream service is unavailable",
             });
         });

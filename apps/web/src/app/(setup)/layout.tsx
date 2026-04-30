@@ -21,9 +21,18 @@ import { SetupProgressSaver } from "./setup/_components/setup-step-tracker";
 export default async function Layout(props: React.PropsWithChildren) {
     const [teams, organizationId, organizationName, session] =
         await Promise.all([
-            getTeams(),
+            getTeams().catch((error) => {
+                console.error("[SetupLayout] Failed to fetch teams:", error);
+                return [];
+            }),
             getOrganizationId(),
-            getOrganizationName(),
+            getOrganizationName().catch((error) => {
+                console.error(
+                    "[SetupLayout] Failed to fetch organization name:",
+                    error,
+                );
+                return "";
+            }),
             auth(),
         ]);
 
